@@ -21,28 +21,26 @@ class DownloaderService:
         """Скачивает файл с ограничением размера"""
         async with self.semaphore:
             try:
-                # Заголовки чтобы не заблокировали
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                }
-                
-                async with self.session.get(url, headers=headers) as response:
-                    response.raise_for_status()
+                async with aiohttp.ClientSession() as session:
+                    headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    }
                     
-                    # Проверяем размер
-                    content_length = response.headers.get('Content-Length')
-                    if content_length and int(content_length) > settings.MAX_FILE_SIZE:
-                        print(f"   ⚠️ Файл слишком большой: {url}")
-                        return None
-                    
-                    # Скачиваем с ограничением по времени
-                    data = await asyncio.wait_for(
-                        response.read(),
-                        timeout=30  # 30 секунд
-                    )
-                    
-                    return data
-                    
+                    async with session.get(url, headers=headers) as response:
+                        response.raise_for_status()
+                        
+                        content_length = response.headers.get('Content-Length')
+                        if content_length and int(content_length) > settings.MAX_FILE_SIZE:
+                            print(f"   ⚠️ Файл слишком большой: {url}")
+                            return None
+                        
+                        data = await asyncio.wait_for(
+                            response.read(),
+                            timeout=30
+                        )
+                        
+                        return data
+                        
             except asyncio.TimeoutError:
                 print(f"   ⏱️ Таймаут при скачивании: {url}")
                 return None

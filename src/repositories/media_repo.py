@@ -1,4 +1,5 @@
-from sqlalchemy import select, and_
+from typing import Optional
+from sqlalchemy import select, update
 from src.core.models import MediaFile
 from src.repositories.base import BaseRepository
 
@@ -7,7 +8,9 @@ class MediaRepository(BaseRepository[MediaFile]):
         super().__init__(MediaFile, session)
     
     async def get_by_hash(self, file_hash: str) -> Optional[MediaFile]:
-        return await self.get_by(file_hash=file_hash)
+        query = select(MediaFile).where(MediaFile.file_hash == file_hash)
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()
     
     async def get_recent(self, board_id: int, limit: int = 50):
         query = select(MediaFile).where(

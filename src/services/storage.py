@@ -12,7 +12,7 @@ class StorageService:
     
     async def save(self, data: bytes, board_id: int, thread_id: int, filename: str) -> str:
         """Сохраняет файл в локальное хранилище"""
-        # Генерируем путь: board_{board_id}/thread_{thread_id}/{filename}
+        # Убираем лишнюю вложенность - просто board_{board_id}/thread_{thread_id}/{filename}
         relative_path = f"board_{board_id}/thread_{thread_id}"
         full_path = self.base_path / relative_path
         full_path.mkdir(parents=True, exist_ok=True)
@@ -24,7 +24,8 @@ class StorageService:
         async with aiofiles.open(file_path, 'wb') as f:
             await f.write(data)
         
-        return str(relative_path / filename)
+        # Возвращаем относительный путь без дублирования
+        return f"board_{board_id}/thread_{thread_id}/{filename}"
     
     def get_file_path(self, storage_path: str) -> Path:
         """Возвращает полный путь к файлу"""

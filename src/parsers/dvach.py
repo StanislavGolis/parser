@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import List, Dict, Optional
 import hashlib
 import re
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.models import Board, Thread, MediaFile
@@ -46,11 +47,15 @@ class DvachParser:
             async with self.http_session.get(url) as response:
                 response.raise_for_status()
                 html = await response.text()
+
+                print(f"   HTML получен, длина: {len(html)}")
                 
                 # Ищем все ссылки на треды
                 # <a href="/b/res/123456.html" class="thread-link">
                 pattern = r'href="/([^/]+)/res/(\d+)\.html"'
                 matches = re.findall(pattern, html)
+
+                print(f"   Найдено ссылок на треды: {len(matches)}")
                 
                 threads = []
                 for board, thread_id in matches:
@@ -76,29 +81,37 @@ class DvachParser:
                 response.raise_for_status()
                 html = await response.text()
                 
-                # Ищем посты с медиа
-                # <div class="post">
-                #   <a href="/b/src/123456789.jpg" class="file-image">
+                # Отладочный вывод
+                print(f"      Парсим тред {thread_id}, длина HTML: {len(html)}")
+                
+                # Ищем ссылки на файлы в формате /b/src/123456789.jpg
+                # или /b/src/123456789.mp4
+                pattern = r'<a[^>]+href="/([^/"]+)/src/([^"]+)"[^>]*>'
+                matches = re.findall(pattern, html)
+                
+                print(f"      Найдено ссылок на файлы: {len(matches)}")
+                
                 posts = []
-                
-                # Простой парсинг через регулярки
-                # В реальном проекте лучше использовать BeautifulSoup
-                post_pattern = r'<div class="post"[^>]*>.*?<a href="/([^/]+)/src/([^"]+)"'
-                matches = re.findall(post_pattern, html, re.DOTALL)
-                
                 for board, filename in matches:
-                    if board == board_slug:
-                        file_url = f"{self.BASE_URL}/{board}/src/{filename}"
-                        posts.append({
-                            'thread_id': thread_id,
-                            'file_url': file_url,
-                            'filename': filename,
-                        })
+                    # Проверяем, что это нужная доска и файл имеет расширение
+                    if board == board_slug and '.' in filename:
+                        # Проверяем расширение
+                        ext = filename.split('.')[-1].lower()
+                        if ext in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'mp4', 'webm', 'mkv']:
+                            file_url = f"{self.BASE_URL}/{board}/src/{filename}"
+                            posts.append({
+                                'thread_id': thread_id,
+                                'file_url': file_url,
+                                'filename': filename,
+                            })
+                
+                if posts:
+                    print(f"      Найдено медиафайлов в треде: {len(posts)}")
                 
                 return posts
                 
         except Exception as e:
-            print(f"Ошибка при парсинге треда {thread_id}: {e}")
+            print(f"      Ошибка при парсинге треда {thread_id}: {e}")
             return []
     
     async def process_board(self, board_slug: str):
@@ -137,7 +150,8 @@ class DvachParser:
             await asyncio.sleep(settings.REQUEST_DELAY)
         
         # Обновляем время последнего парсинга
-        await self.board_repo.update(board.id, last_parsed_at=datetime.utcnow())
+        board.last_parsed_at = datetime.utcnow()
+        await self.session.flush()
         await self.session.commit()
         
         print(f"✅ Парсинг доски /{board_slug} завершен")
@@ -201,7 +215,6 @@ class DvachParser:
                 status='downloaded'
             )
             
-            await self.session.commit()
             print(f"   ✅ Сохранен: {filename} (ID: {media.id})")
             
         except Exception as e:
@@ -284,29 +297,36 @@ class DvachParser:
                 response.raise_for_status()
                 html = await response.text()
                 
-                # Ищем посты с медиа
-                # <div class="post">
-                #   <a href="/b/src/123456789.jpg" class="file-image">
+                print(f"      Парсим тред {thread_id}, длина HTML: {len(html)}")
+                
+                # Ищем все ссылки на файлы в формате /b/src/123456789.jpg
+                # или /b/src/123456789.mp4
+                pattern = r'<a[^>]+href="/([^/"]+)/src/([^"]+)"[^>]*>'
+                matches = re.findall(pattern, html)
+                
+                print(f"      Найдено ссылок на файлы: {len(matches)}")
+                
                 posts = []
-                
-                # Простой парсинг через регулярки
-                # В реальном проекте лучше использовать BeautifulSoup
-                post_pattern = r'<div class="post"[^>]*>.*?<a href="/([^/]+)/src/([^"]+)"'
-                matches = re.findall(post_pattern, html, re.DOTALL)
-                
                 for board, filename in matches:
-                    if board == board_slug:
-                        file_url = f"{self.BASE_URL}/{board}/src/{filename}"
-                        posts.append({
-                            'thread_id': thread_id,
-                            'file_url': file_url,
-                            'filename': filename,
-                        })
+                    # Проверяем, что это нужная доска и файл имеет расширение
+                    if board == board_slug and '.' in filename:
+                        # Проверяем расширение
+                        ext = filename.split('.')[-1].lower()
+                        if ext in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'mp4', 'webm', 'mkv']:
+                            file_url = f"{self.BASE_URL}/{board}/src/{filename}"
+                            posts.append({
+                                'thread_id': thread_id,
+                                'file_url': file_url,
+                                'filename': filename,
+                            })
+                
+                if posts:
+                    print(f"      Найдено медиафайлов в треде: {len(posts)}")
                 
                 return posts
                 
         except Exception as e:
-            print(f"Ошибка при парсинге треда {thread_id}: {e}")
+            print(f"      Ошибка при парсинге треда {thread_id}: {e}")
             return []
     
     async def process_board(self, board_slug: str):
@@ -355,7 +375,11 @@ class DvachParser:
         file_url = post['file_url']
         filename = post['filename']
         
-        # 1. Проверяем расширение
+        # Извлекаем имя файла без пути
+        if '/' in filename:
+            filename = filename.split('/')[-1]
+        
+        # Проверяем расширение
         ext = filename.split('.')[-1].lower()
         image_exts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp']
         video_exts = ['mp4', 'webm', 'mkv', 'avi', 'mov']
@@ -395,7 +419,7 @@ class DvachParser:
             )
             
             # 6. Сохраняем в БД
-            media = await self.media_repo.create(
+            await self.media_repo.create(
                 board_id=board_id,
                 thread_id=thread_id,
                 thread_external_id=thread_external_id,
@@ -409,9 +433,7 @@ class DvachParser:
                 status='downloaded'
             )
             
-            await self.session.commit()
-            print(f"   ✅ Сохранен: {filename} (ID: {media.id})")
+            print(f"   ✅ Сохранен: {filename} (ID: {existing.id if existing else 'новый'})")
             
         except Exception as e:
             print(f"   ❌ Ошибка при обработке {filename}: {e}")
-            await self.session.rollback()

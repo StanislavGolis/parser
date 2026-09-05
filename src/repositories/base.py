@@ -1,5 +1,7 @@
-from sqlalchemy.ext.asyncio import AsyncSession
 from typing import TypeVar, Generic, Type, Optional
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from src.core.models import Base
 
 T = TypeVar('T', bound=Base)
 
@@ -15,10 +17,9 @@ class BaseRepository(Generic[T]):
         return instance
     
     async def get_by(self, **filters) -> Optional[T]:
-        query = await self.session.execute(
-            select(self.model).filter_by(**filters)
-        )
-        return query.scalar_one_or_none()
+        query = select(self.model).filter_by(**filters)
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()
     
     async def get_or_create(self, defaults=None, **filters) -> tuple[T, bool]:
         instance = await self.get_by(**filters)
@@ -28,3 +29,13 @@ class BaseRepository(Generic[T]):
         self.session.add(instance)
         await self.session.flush()
         return instance, True
+    
+    async def update(self, id: int, **kwargs) -> Optional[T]:
+        """Обновляет запись по ID"""
+        instance = await self.session.get(self.model, id)
+        if instance:
+            for key, value in kwargs.items():
+                setattr(instance, key, value)
+            await self.session.flush()
+            return instance
+        return None
