@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     
     # Задержки для защиты от бана
     REQUEST_DELAY: float = 0.5  # секунд между запросами
+
+    # Backblaze B2
+    B2_KEY_ID: str = ""
+    B2_APPLICATION_KEY: str = ""
+    B2_BUCKET_NAME: str = ""
+    B2_ENDPOINT: str = "https://s3.us-west-000.backblazeb2.com"
     
     class Config:
         env_file = ".env"

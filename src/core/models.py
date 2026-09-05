@@ -31,29 +31,28 @@ class MediaFile(Base):
     board_id = Column(Integer, ForeignKey("boards.id"))
     thread_id = Column(Integer, ForeignKey("threads.id"))
     
-    # Внешние ID
-    thread_external_id = Column(Integer)  # ID треда на дваче
-    post_external_id = Column(Integer)    # ID поста на дваче
+    thread_external_id = Column(Integer)
+    post_external_id = Column(Integer)
     
-    # Информация о файле
     original_filename = Column(String(255))
-    file_hash = Column(String(64))  # SHA256
+    file_hash = Column(String(64))
     file_size = Column(BigInteger)
     
-    # Путь в хранилище (относительный)
     storage_path = Column(String(500))
-    thumbnail_path = Column(String(500))  # Для видео
+    thumbnail_path = Column(String(500), nullable=True)
     
-    # Тип
-    file_type = Column(String(10))  # 'image' или 'video'
+    file_type = Column(String(10))
     mime_type = Column(String(100))
     
-    # Статус
-    status = Column(String(20), default='downloaded')  # 'downloaded', 'processed', 'failed'
+    width = Column(Integer, nullable=True)
+    height = Column(Integer, nullable=True)
     
-    # Метаданные (для будущих AI фич)
+    b2_key = Column(String(500), nullable=True)
+    
+    status = Column(String(20), default='downloaded')
+    
     ai_description = Column(Text, nullable=True)
-    ai_tags = Column(Text, nullable=True)  # JSON строка
+    ai_tags = Column(Text, nullable=True)
     ai_processed = Column(Boolean, default=False)
     
     parsed_at = Column(DateTime, default=datetime.utcnow)
