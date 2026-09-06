@@ -1,0 +1,132 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+
+import DownloadButton from "@/components/DownloadButton";
+import TrackView from "@/components/TrackView";
+import When from "@/components/When";
+import { ArrowLeftIcon, DownloadIcon, EyeIcon, FilmIcon } from "@/components/icons";
+import { ApiError } from "@/lib/api";
+import { getBoards, getMediaDetail } from "@/lib/data";
+import { formatBytes, formatNumber } from "@/lib/format";
+import type { MediaDetail } from "@/lib/types";
+
+export const dynamic = "force-dynamic";
+
+interface DetailProps {
+  params: { id: string };
+}
+
+export async function generateMetadata({ params }: DetailProps): Promise<Metadata> {
+  const numericId = Number(params.id);
+  if (!Number.isFinite(numericId)) return { title: "Файл не найден" };
+
+  let media;
+  try {
+    media = await getMediaDetail(numericId);
+  } catch {
+    return { title: "Файл не найден" };
+  }
+  if (!media) return { title: "Файл не найден" };
+  return { title: media.original_name };
+}
+
+export default async function MediaDetailPage({ params }: DetailProps) {
+  const numericId = Number(params.id);
+
+  if (!Number.isFinite(numericId)) notFound();
+
+  let media: MediaDetail | null = null;
+  try {
+    media = await getMediaDetail(numericId);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) notFound();
+  }
+  if (!media) notFound();
+
+  const boards = await getBoards();
+  const board = boards.find((b) => b.id === media?.board_id);
+
+  return (
+    <div className="container-site max-w-5xl py-6 sm:py-8">
+      <TrackView mediaId={media.id} />
+      <Link
+        href={board ? `/board/${board.slug}` : "/"}
+        className="mb-4 inline-flex items-center gap-1.5 text-sm text-neutral-400 transition-colors hover:text-white"
+      >
+        <ArrowLeftIcon className="h-4 w-4" />
+        {board ? `К разделу /${board.slug}` : "На главную"}
+      </Link>
+
+      <div className="overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-900">
+        {/* Медиа */}
+        <div className="flex items-center justify-center bg-black/40 p-3 sm:p-6">
+          {media.url ? (
+            media.media_type === "image" ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={media.url}
+                alt={media.original_name}
+                referrerPolicy="no-referrer"
+                className="max-h-[80vh] w-auto max-w-full rounded-lg object-contain"
+              />
+            ) : (
+              <video src={media.url} controls preload="metadata" playsInline className="max-h-[80vh] w-auto max-w-full rounded-lg">
+                Ваш браузер не поддерживает HTML5-видео.
+              </video>
+            )
+          ) : (
+            <p className="px-4 py-16 text-center text-sm text-neutral-500">
+              Файл недоступен: объект не найден в хранилище.
+            </p>
+          )}
+        </div>
+
+        {/* Инфо */}
+        <div className="border-t border-neutral-800 p-4 sm:p-6">
+          <div className="flex flex-wrap items-center gap-2">
+            {board ? (
+              <Link
+                href={`/board/${board.slug}`}
+                className="rounded-md border border-neutral-700 bg-neutral-800 px-2 py-0.5 text-xs font-semibold text-amber-300 transition-colors hover:border-amber-500/60"
+              >
+                /{board.slug}
+              </Link>
+            ) : null}
+            {media.media_type === "video" ? (
+              <span className="chip bg-amber-500/15 text-amber-300">
+                <FilmIcon className="h-3.5 w-3.5" /> видео
+              </span>
+            ) : (
+              <span className="chip bg-sky-500/15 text-sky-300">фото</span>
+            )}
+            <span className="text-xs text-neutral-500">{media.mime_type}</span>
+          </div>
+
+          <h1 className="mt-3 break-words text-xl font-semibold">{media.original_name}</h1>
+
+          <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-neutral-400">
+            <span className="inline-flex items-center gap-1.5">
+              <EyeIcon className="h-4 w-4" /> {formatNumber(media.views_count)} просмотров
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <DownloadIcon className="h-4 w-4" /> {formatNumber(media.downloads_count)} скачиваний
+            </span>
+            <span>{formatBytes(media.file_size)}</span>
+            {media.width && media.height ? (
+              <span>
+                {media.width}×{media.height}
+              </span>
+            ) : null}
+            <When iso={media.created_at} />
+            <span className="text-xs text-neutral-600">#{media.id}</span>
+          </div>
+
+          <div className="mt-5">
+            <DownloadButton mediaId={media.id} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

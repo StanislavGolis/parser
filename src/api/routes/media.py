@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.api.common import VISIBLE_FILTER, sign_media_urls
 from src.api.deps import check_rate_limit, client_ip, get_b2, ip_hash
 from src.api.schemas import DownloadResult, MediaDetailOut, MediaListOut, MediaOut, ViewResult
 from src.core.db import get_session
@@ -16,12 +17,6 @@ router = APIRouter(prefix="/api/v1", tags=["media"])
 
 # Окно дедупликации статистики по IP (часов)
 DEDUP_PERIOD_HOURS = 24
-
-VISIBLE_FILTER = (
-    Media.is_visible.is_(True),
-    Media.is_active.is_(True),
-    Media.duplicate_of_id.is_(None),
-)
 
 
 async def _get_visible_media(session: AsyncSession, media_id: int) -> Media:
@@ -43,6 +38,7 @@ async def board_media(
     sort: str = Query("new", pattern="^(new|popular)$"),
     media_type: Optional[str] = Query(None, alias="type", pattern="^(image|video)$"),
     session: AsyncSession = Depends(get_session),
+    b2: B2Uploader = Depends(get_b2),
 ):
     """Список файлов доски с пагинацией и сортировкой."""
     await check_rate_limit(client_ip(request))
@@ -75,8 +71,10 @@ async def board_media(
     result = await session.execute(query)
     items = result.scalars().all()
 
+    out = [MediaOut.model_validate(m) for m in items]
+    sign_media_urls(out, items, b2)
     return MediaListOut(
-        items=[MediaOut.model_validate(m) for m in items],
+        items=out,
         page=page,
         per_page=per_page,
         total=int(total or 0),

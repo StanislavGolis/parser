@@ -5,10 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import check_rate_limit, client_ip
+from src.api.common import VISIBLE_FILTER, sign_media_urls
+from src.api.deps import check_rate_limit, client_ip, get_b2
 from src.api.schemas import MediaOut
 from src.core.db import get_session
 from src.core.models import Media
+from src.services.b2_uploader import B2Uploader
 
 router = APIRouter(prefix="/api/v1/top", tags=["top"])
 
@@ -26,6 +28,7 @@ async def top_media(
     period: str = Query("week", pattern="^(day|week|month)$"),
     limit: int = Query(50, ge=1, le=200),
     session: AsyncSession = Depends(get_session),
+    b2: B2Uploader = Depends(get_b2),
 ):
     """Топ контента по популярности за период."""
     await check_rate_limit(client_ip(request))
@@ -33,12 +36,7 @@ async def top_media(
     days = PERIODS.get(period, 7)
     cutoff = func.now() - func.make_interval(0, 0, 0, days, 0, 0, 0)
 
-    filters = [
-        Media.is_visible.is_(True),
-        Media.is_active.is_(True),
-        Media.duplicate_of_id.is_(None),
-        Media.created_at >= cutoff,
-    ]
+    filters = list(VISIBLE_FILTER) + [Media.created_at >= cutoff]
     if type:
         filters.append(Media.media_type == type)
 
@@ -50,4 +48,7 @@ async def top_media(
     )
     result = await session.execute(query)
     items = result.scalars().all()
-    return [MediaOut.model_validate(m) for m in items]
+
+    out = [MediaOut.model_validate(m) for m in items]
+    sign_media_urls(out, items, b2)
+    return out
