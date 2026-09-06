@@ -101,7 +101,11 @@ class ReconciliationService:
                     local_file = self.storage.get_file_path(m.local_path) if m.local_path else None
                     if local_file and local_file.exists():
                         print(f"   🔄 Перезаливаю в B2 (media #{m.id}): {m.original_name}")
-                        file_id = await self.b2.upload_file(local_file, m.b2_key)
+                        file_id = await self.b2.upload_file(
+                            local_file,
+                            m.b2_key,
+                            content_type=m.mime_type,
+                        )
                         m.download_status = "uploaded" if file_id else "missing"
                     else:
                         m.download_status = "missing"
@@ -112,7 +116,11 @@ class ReconciliationService:
                     local_file = self.storage.get_file_path(m.local_path)
                     if local_file.exists():
                         remote_key = f"board_{m.board_id}/thread_{m.thread_id}/{Path(m.local_path).name}"
-                        file_id = await self.b2.upload_file(local_file, remote_key)
+                        file_id = await self.b2.upload_file(
+                            local_file,
+                            remote_key,
+                            content_type=m.mime_type,
+                        )
                         if file_id:
                             m.b2_key = remote_key
                             m.download_status = "uploaded"

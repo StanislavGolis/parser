@@ -142,6 +142,38 @@ class DvachParser:
 
     # ───────────────────── Обработка доски ─────────────────────
 
+    async def ensure_configured_boards(self) -> None:
+        """Создаёт в БД все доски из BOARDS_TO_PARSE (по каталогам двача).
+
+        Разделы появляются на сайте сразу (с нулевым счётчиком), а не после
+        полного первого прохода первой доски — иначе доска из середины списка
+        остаётся «невидимой» часами.
+        """
+        print("[init] Проверка/создание досок из конфигурации...")
+        for board_slug in settings.BOARDS_TO_PARSE:
+            catalog = await self._get_json(f"{self.BASE_URL}/{board_slug}/catalog.json")
+            if not catalog:
+                print(f"   [warn] Доска /{board_slug} не ответила каталогом — пропускаю")
+                continue
+
+            board_info = catalog.get("board", {})
+            board, created = await self.board_repo.get_or_create(
+                slug=board_slug,
+                defaults={
+                    "title": board_info.get("name") or board_slug.upper(),
+                    "description": board_info.get("info_outer"),
+                    "is_visible": True,
+                },
+            )
+            if board_info.get("name"):
+                board.title = board_info["name"]
+            if board_info.get("info_outer") and not board.description:
+                board.description = board_info["info_outer"]
+            await self.session.flush()
+            print(f"   [ok] Доска /{board_slug} — {'создана' if created else 'уже в БД'}")
+
+        await self.session.commit()
+
     async def process_board(self, board_slug: str):
         """Полный цикл обработки одной доски."""
         print(f"[info] Начинаем парсинг доски /{board_slug}")
@@ -209,6 +241,12 @@ class DvachParser:
                 print(f"   [skip]  Тред {thread_id} — {reason}")
 
             await asyncio.sleep(settings.REQUEST_DELAY)
+
+            # Коммитим после каждого треда, а не в конце всей доски:
+            # доска может содержать сотни тредов, и первый полный проход
+            # занял бы слишком долго в одной транзакции — сайт не видел бы
+            # новые файлы часами, а сбой откатывал бы всё разом.
+            await self.session.commit()
 
         # Треды, исчезнувшие из каталога
         active_states = await self.thread_state_repo.get_active_by_board(board.id)
@@ -307,6 +345,7 @@ class DvachParser:
                 b2_key = await self.b2_uploader.upload_file(
                     self.storage.get_file_path(storage_path),
                     remote_key,
+                    content_type=meta["mime_type"],
                 )
                 if b2_key:
                     local_path = self.storage.get_file_path(storage_path)

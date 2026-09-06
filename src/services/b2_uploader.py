@@ -6,6 +6,7 @@
   файлы остаются в локальном хранилище (status='downloaded').
 """
 import asyncio
+import mimetypes
 from pathlib import Path
 from typing import List, Optional
 
@@ -62,10 +63,25 @@ class B2Uploader:
 
     # ───────────────────── Операции с файлами ─────────────────────
 
-    async def upload_file(self, local_path: Path, remote_key: str) -> Optional[str]:
-        """Загружает файл в B2. Возвращает remote_key или None при ошибке."""
+    async def upload_file(
+        self,
+        local_path: Path,
+        remote_key: str,
+        content_type: Optional[str] = None,
+    ) -> Optional[str]:
+        """Загружает файл в B2. Возвращает remote_key или None при ошибке.
+
+        Content-Type задаётся явно (content_type или по расширению имени),
+        иначе B2 хранит application/octet-stream и видео не воспроизводится
+        браузером по presigned URL.
+        """
         if not self.is_configured or self.client is None:
             return None
+
+        extra_args = {}
+        ct = content_type or mimetypes.guess_type(remote_key)[0]
+        if ct:
+            extra_args["ContentType"] = ct
 
         try:
             await asyncio.to_thread(
@@ -73,8 +89,9 @@ class B2Uploader:
                 str(local_path),
                 self.bucket_name,
                 remote_key,
+                ExtraArgs=extra_args,
             )
-            print(f"   [ok] Загружен в B2: {remote_key}")
+            print(f"   [ok] Загружен в B2: {remote_key} ({ct or 'без Content-Type'})")
             return remote_key
         except Exception as e:
             print(f"   [err] Ошибка загрузки в B2: {e}")

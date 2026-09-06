@@ -40,6 +40,10 @@ async def main():
                 parser = DvachParser(session)
                 await parser.__aenter__()
                 try:
+                    # Создаём доски из конфигурации заранее (разделы видны на сайте сразу)
+                    if last_reconcile is None:
+                        await parser.ensure_configured_boards()
+
                     # Сверка данных при первом старте
                     if last_reconcile is None:
                         await parser.run_reconciliation()
