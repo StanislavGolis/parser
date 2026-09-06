@@ -1,248 +1,166 @@
-# Парсер медиа с имиджборд (2ch.hk) — Техническое задание v3
+# SLUICE — Техническое и дизайнерское ТЗ (v4)
 
-================================================================================
-ТЕХНИЧЕСКОЕ ЗАДАНИЕ НА РАЗРАБОТКУ ВЕБ-ПРИЛОЖЕНИЯ (ВЕРСИЯ 3.0)
-================================================================================
+> SLUICE — медиа-архив / галерея / доступ: автоматически парсит медиа с разделов
+> форума (2ch), скачивает и архивирует в Backblaze B2, каталогизирует и показывает
+> на сайте: каталог «досок», внутри — треды («папки»), файлы с техпанелью,
+> приватные разделы по коду, поиск, топ. Тёмный «технический» интерфейс.
+>
+> Единый документ: технические требования + текущий статус + планы.
+> Полный дизайн-документ: [`docs/DESIGN.md`](docs/DESIGN.md).
 
-## 1. ОБЩАЯ ЦЕЛЬ
+---
 
-Веб-приложение, которое в реальном времени парсит определённые разделы форума
-(типа двача), скачивает оттуда видео и фото, фильтрует и каталогизирует их,
-и выкладывает на сайте в виде фотоальбомов и видеоплеера с системой рейтингования
-контента на основе популярности.
+## 1. Текущий статус
 
-## 2. ТЕКУЩИЙ СТАТУС ПРОЕКТА
+**Реализовано:**
+- [x] 1–2. Парсер 2ch на JSON API: полный и инкрементальный цикл, дедуп по `md5`
+      до скачивания, фильтры (размер/разрешение/MIME), SHA-256, загрузка в B2
+      (boto3/S3) с корректным Content-Type, reconciliation БД ↔ хранилище.
+- [x] 3. Схема БД v3 + Alembic; 3.1 reconciliation; 3.2 — доработки по ходу тестов
+      (коммит по тредам, предсоздание досок, метаданные тредов).
+- [x] 4. Backblaze B2 (приватный бакет, подписанные URL на 1 час).
+- [x] 5. Backend FastAPI: REST API, rate limiting на Redis, admin-токен, статистика
+      просмотров/скачиваний, пересчёт популярности.
+- [x] 6. Frontend Next.js: главная «Доски», новинки, доска→треды, карточки медиа,
+      lightbox с MD5/SHA-256, топ, поиск, приватный вход, мобильная навигация.
+- [x] 6.1. Дизайн-система SLUICE (этапы UI 1–4): токены, шрифты JetBrains Mono/Inter,
+      админка приведена к токенам.
+- [x] 7. Production-стек Docker Compose (локально «в один клик»), Nginx; деплой на VPS — **не выполнен**.
+- [x] Админ-центр управления контентом: парсер-демон с кнопками запуска/остановки,
+      очередь парсинга, переименование/удаление разделов (БД + B2), «очистка B2»,
+      полный сброс, доски форума из `index.json`.
 
-- Локально разработан и отлажен парсер на Python (aiohttp, SQLAlchemy async).
-- Парсер скачивает файлы с двача в локальное хранилище, заливает в Backblaze B2.
-- Данные о файлах сохраняются в PostgreSQL.
-- Код синхронизирован с GitHub (репозиторий приватный).
-- Начальный стек: Python 3.11, PostgreSQL (Docker), Redis, SQLAlchemy 2.0 (async).
-- Парсер переписан на JSON API двача (`catalog.json` / `res/{num}.json`):
-  инкрементальный режим, дедуп по `md5` до скачивания, фильтрация контента (см. п. 4.1).
-- Написан и протестирован бэкенд сайта (FastAPI, `src/api`): REST API из п. 6,
-  rate limiting на Redis, админ-токен, подписанные URL на файлы в B2 (см. п. 4.2).
-- Написан и проверен фронтенд (`web/`, Next.js 14, App Router, Tailwind): SSR-галерея,
-  разделы «Новинки» / «Популярное» / по доскам, masonry + infinite scroll, lightbox,
-  просмотр и скачивание (этап 6). Запуск: `cd web && npm run dev` (API — см. ниже).
-- Админ-панель `/admin`: управление досками из UI — «парсить» (parse_enabled),
-  «отображать на сайте» (is_visible) и «приватная» (доступ по коду, cookie на 24 ч).
-- Запуск API: `uvicorn src.api.main:app --reload` (схема БД — `alembic upgrade head`).
+**Известные ограничения:**
+- Backblaze B2 бесплатного тарифа: дневной лимит скачивания/Class B. При превышении
+  превью недоступны (сайт показывает `[НЕДОСТУПНО]`), upload/list/delete работают.
+- Превью видео — браузерный кадр (`preload=metadata`); ffmpeg-кадры и длительность
+  — в планах.
 
-## 3. ИНФРАСТРУКТУРА
+## 2. Архитектура
 
-### A. Хостинг
+Один VPS (Docker Compose): `postgres`, `redis`, `migrate`, `parser`, `api`, `web`, `nginx`.
+Наружу — только `nginx`; медиа раздаются браузеру напрямую из B2 по presigned URL.
 
-- Провайдер: планируется ava.hosting (зарубежный).
-- На старте используется ОДИН VPS-сервер (~10–12 $/мес: 2 vCPU / 4 ГБ RAM).
-- Разъезд на два сервера (парсер и сайт) — отложенная опция, только при росте трафика.
-- Всё деплоится через Docker Compose.
+Запуск продакшен-стека (локально = как на VPS):
 
-### B. Файловое хранилище
-
-- Сервис: Backblaze B2 (S3-совместимое объектное хранилище), приватный бакет.
-- Доступ к файлам раздаётся через временные подписанные URL (срок жизни 1 час),
-  которые генерирует бэкенд сайта.
-- Cloudflare CDN — НЕ требуется на старте (опция на будущее при росте трафика).
-- Бесплатный тариф B2: 10 ГБ хранения, 1 ГБ скачивания в день.
-
-### C. Схема размещения (один VPS)
-
-```
-+------------------------------------------------------------+
-|  VPS (ava.hosting)                                          |
-|  Docker Compose:                                            |
-|  - postgres   (PostgreSQL, основная БД)                    |
-|  - redis      (кэш, rate limiting, счётчики)                |
-|  - parser     (Python-парсер, фоновый процесс)             |
-|  - api        (FastAPI, REST API сайта)                    |
-|  - web        (Next.js -> статика + Nginx прокси)          |
-+------------------------------------------------------------+
-        │
-        │ подписанные URL / загрузка через S3 API (boto3)
-        ▼
-+------------------------------------------------------------+
-|  Backblaze B2 (приватный бакет)                            |
-+------------------------------------------------------------+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build   # поднимет всё
+# сайт: http://localhost:${HTTP_PORT:-80}
 ```
 
-## 4. ТРЕБОВАНИЯ К МОДУЛЯМ
+Локальная разработка без контейнеров: `postgres`/`redis` в Docker (dev-compose),
+API — `uvicorn src.api.main:app --reload`, парсер — `python src/main.py`,
+фронт — `cd web && npm run dev`.
 
-### 4.1. Модуль парсера
+## 3. Модули
 
-Работает в фоновом режиме, без вмешательства пользователя. Переписывается на
-JSON API двача (`https://2ch.hk/{board}/catalog.json`,
-`https://2ch.hk/{board}/thread/{num}.json`) — вместо HTML-регэкспов.
+### 3.1 Парсер (src/main.py, src/parsers)
+- Демон: контейнер всегда запущен, парсинг включается флагом `parser:enabled`
+  (кнопка в админке); heartbeat `parser:up/alive/current_board` в Redis;
+- доски для парсинга берутся из БД (`boards.parse_enabled`, порядок `sort_order`);
+- инкрементальный проход тредов, коммит по каждому треду; стоп между файлами/тредами;
+- метаданные тредов (`subject/comment/timestamp`) сохраняются из каталога;
+- фильтрация до скачивания, валидация, Content-Type при upload в B2.
 
-Функциональность:
+### 3.2 API (src/api)
+- Публичные роуты: boards, board threads, media (список/деталь/view/download), feed,
+  top, search, access (код приватной доски → httpOnly-cookie 24 ч);
+- админ-роуты (admin-токен): overview, форум-доски (index.json), board CRUD,
+  reorder, delete, parser start/stop, cleanup-b2, reset;
+- rate limiting на Redis, подписанные B2-URL через `B2Uploader`.
 
-- **Полный цикл** на первом запуске:
-  - получить список тредов досок (`catalog.json`);
-  - для каждого треда получить посты (`thread.json`), собрать метаданные файлов
-    (`name`, `displayname`, `path`, `md5`, `size`, `width`, `height`, `type`);
-  - отфильтровать по правилам (см. «Фильтрация»);
-  - скачать только новые файлы (дедуп по `md5` выполняется ДО скачивания);
-  - загрузить в Backblaze B2 через S3 API (boto3);
-  - записать метаданные в БД, отметить обработку.
+### 3.3 Frontend (web/, Next.js 14 App Router)
+- Главная = каталог досок со статусами и фильтрами; `/new` (новинки), `/top`,
+  `/board/{slug}` (треды), `/search`, `/media/{id}`;
+- карточки медиа (фото/видео) с graceful-fallback, lightbox с MD5/SHA-256;
+- приватные разделы: замок в каталоге → экран кода → доступ 24 ч (cookie);
+- дизайн-система SLUICE — см. `docs/DESIGN.md`.
 
-- **Инкрементальный режим** (последующие запуски):
-  - если треда нет в БД — обрабатываем целиком;
-  - если тред есть и `posts_count`/`files_count` не изменились — пропускаем;
-  - если счётчики изменились — запрашиваем `thread.json`, качаем только новые файлы;
-  - треды, исчезнувшие из каталога, помечаем `is_active = False`
-    (файлы в БД/B2/сайте остаются);
-  - сверка `md5` с БД — без скачивания файла.
-- **Фильтрация контента**:
-  - минимальный размер: изображения > 50 КБ, видео > 1 МБ (по `size` из API, до скачивания);
-  - проверка целостности файла после скачивания (SHA-256, непустой файл);
-  - валидация по MIME-типу и расширению;
-  - для изображений — минимальное разрешение ширина/высота > 200px (по API);
-  - дедупликация по `md5` (источник) и `SHA-256` (файл).
+### 3.4 Админ-панель (/admin)
+- Кнопки «Запустить/Остановить парсер», очередь парсинга (▲/▼);
+- «Мои разделы»: переключатели Парсить/На сайте/По коду, поле кода у каждой доски,
+  переименование, удаление, статистика (в БД/B2/пропущено/треды), polling;
+- «Доски форума»: весь список 2ch с поиском и добавлением;
+- «Очистить B2», «Сбросить всё» (БД + B2, сначала останавливает парсер).
+## 4. Дизайн (кратко)
 
-- **Актуальность данных (reconciliation)**:
-  - при старте и раз в N минут сверка записей `media.b2_key` со списком объектов B2:
-    записи без объекта → статус `missing` или перезаливка;
-  - записи со статусом `downloaded` без загрузки в B2 → перезаливка из локального кэша;
-  - после успешной загрузки в B2 локальный файл удаляется, раз в сутки чистка stale-файлов;
-  - файлы, пропавшие с двача, сохраняются в B2 (это архив).
+Полная дизайн-спека: **`docs/DESIGN.md`**. Ключевое:
+- тёмный «технический» архив: палитра `ink/text/accent`, без теней/градиентов,
+  скругления ≤ 4px; моноширинные данные (JetBrains Mono) + Inter;
+- логотип `SLUICE`, навигация: Доски / Новинки / Популярное / Поиск
+  (+ нижняя мобильная навигация);
+- бейджи-статусы `[ПРИВАТНАЯ]`, `[ТОП]`, `[НЕДОСТУПНО]`; формат чисел `1.2к`.
 
-- **Защита от бана**: настройка задержек между запросами (`REQUEST_DELAY`).
+## 5. База данных (PostgreSQL, Alembic)
 
-### 4.2. Модуль сайта (бэкенд FastAPI)
+- **boards**: `id, slug, title, description, is_visible, parse_enabled, is_private,
+  access_code_hash, sort_order, created_at, updated_at`
+- **threads_state**: `board_id, thread_id, subject, comment, thread_timestamp,
+  posts_count, files_count, last_scanned_at, is_active` (unique board+thread)
+- **media**: `id, board_id, thread_id, original_name, source_url, file_hash (sha-256),
+  source_md5, file_size, mime_type, media_type(image|video), b2_bucket, b2_key,
+  local_path, width, height, download_status(new|downloaded|uploaded|verified|missing),
+  is_visible, duplicate_of_id, is_active, views_count, downloads_count,
+  popularity_score, created_at, updated_at`
+- **view_stats / download_stats**: дедуп по `ip_hash` за 24 ч.
 
-- Чтение из PostgreSQL, кэширование в Redis.
-- Генерация временных подписанных URL на файлы в B2 (срок 1 час).
-- Администрирование по API с admin-токеном:
-  - скрытие/показ файлов (`is_visible`);
-  - скрытие/показ досок (`is_visible`).
-- Рейтинговая система:
-  - счётчики просмотров и скачиваний (`views_count`, `downloads_count`);
-  - дедуп/анти-накрутка по `ip_hash` (таблицы `view_stats`, `download_stats`);
-  - пересчёт `popularity_score` батчем: `views_count * 0.3 + downloads_count * 0.7`;
-  - сортировка по популярности, отдельный эндпоинт «топ».
-- Rate limiting на все публичные эндпоинты (Redis).
-- REST API (см. п. 6).
-
-### 4.3. Фронтенд (Next.js)
-
-- SSR для SEO, адаптивная вёрстка.
-- Masonry Grid для фото, HTML5-плеер для видео.
-- Infinite Scroll, Lightbox.
-- Разделы: «Новинки», «Популярное», разделы по доскам (только видимые).
-
-### 4.4. Фоновые задачи, безопасность, эксплуатация
-
-- Все ключи и пароли — в `.env` (в git не хранятся, есть `.env.example`).
-- Логи: Docker-логи с ротацией.
-- Бэкап БД: ежедневный `pg_dump` (опция: выгрузка в B2).
-- Uptime-мониторинг (опция, на старте можно вручную/периодически).
-- Rate limiting для API.
-
-## 5. БАЗА ДАННЫХ (СХЕМА)
-
-### boards
-- `id` PK
-- `slug` unique (например, "b")
-- `title` название доски
-- `description` nullable
-- `is_visible` (boolean, default: true)
-- `created_at`, `updated_at`
-
-### threads_state (служебная таблица для инкрементального парсинга)
-- `id` PK
-- `board_id` FK -> boards.id
-- `thread_id` (внешний идентификатор треда на форуме)
-- `posts_count`, `files_count`
-- `last_scanned_at`
-- `is_active` (boolean, default: true)
-- `UNIQUE (board_id, thread_id)`
-
-### media
-- `id` PK
-- `board_id` FK -> boards.id
-- `thread_id` (внешний ID треда, не FK; для истории источника)
-- `original_name` оригинальное имя файла (displayname)
-- `source_url` (откуда скачан)
-- `file_hash` SHA-256 (после скачивания)
-- `source_md5` md5 из API двача, индекс (дедуп до скачивания)
-- `file_size` (байт)
-- `mime_type`
-- `media_type` enum: `image` | `video`
-- `b2_bucket`, `b2_key`
-- `width`, `height` (для изображений, nullable)
-- `download_status` enum: `new` | `downloaded` | `uploaded` | `verified` | `missing`
-- `is_visible` (boolean, default: true)
-- `duplicate_of_id` FK -> media.id, nullable
-- `is_active` (boolean, default: true) — файл вообще актуален
-- `views_count` (int, default: 0)
-- `downloads_count` (int, default: 0)
-- `popularity_score` (float, default: 0)
-- `created_at`, `updated_at`
-- Индексы: `file_hash` unique, `source_md5`, `board_id + created_at`, `popularity_score`
-
-### view_stats
-- `id` PK
-- `media_id` FK -> media.id
-- `ip_hash` (хеш IP для дедупликации)
-- `viewed_at`
-- ИНДЕКС `(media_id, viewed_at)`
-
-### download_stats
-- `id` PK
-- `media_id` FK -> media.id
-- `ip_hash`
-- `downloaded_at`
-- ИНДЕКС `(media_id, downloaded_at)`
-## 6. REST API
+## 6. REST API (актуально)
 
 ```
-GET  /api/v1/boards                 список доступных досок (включая приватные; приватные — с замком)
-POST /api/v1/boards/{slug}/access   проверка кода доступа (успех => httpOnly-cookie на 24 ч)
-GET  /api/v1/boards/{slug}/media    файлы доски (приватная доска — только с cookie доступа)
-GET  /api/v1/media/{id}             информация о файле и URL для скачивания
-GET  /api/v1/media/{id}/view        отметить просмотр (увеличить счётчик)
-GET  /api/v1/media/{id}/download    отметить скачивание и вернуть URL
-GET  /api/v1/top?type=image|video&period=day|week|month   топ контента (без приватных)
-GET  /api/v1/admin/boards           список досок с флагами (parse_enabled/is_visible/is_private)
-POST /api/v1/admin/boards           создать доску по slug
-PATCH /api/v1/admin/boards/{slug}   обновить флаги и код доступа
-POST /api/v1/admin/boards/{slug}/toggle   скрыть/показать раздел
-POST /api/v1/admin/media/{id}/toggle      скрыть/показать файл
+GET   /api/v1/boards                       доски (вкл. приватные, is_private)
+GET   /api/v1/boards/{slug}/threads        треды доски (метаданные + статистика + превью)
+GET   /api/v1/boards/{slug}/media          файлы доски (?thread=, ?sort=, ?type=)
+POST  /api/v1/boards/{slug}/access         код доступа (=> httpOnly-cookie ba_{slug}, 24 ч)
+GET   /api/v1/media/{id} | /view | /download
+GET   /api/v1/feed?type=&page=             новинки (без приватных)
+GET   /api/v1/top?type=&period=&limit=     топ день/неделя/месяц (без приватных)
+GET   /api/v1/search?q=                    поиск: имя файла / md5 / sha-256
+GET   /healthz
+# админ (Bearer admin-токен):
+GET   /api/v1/admin/overview               сводка: доски + статистика + статус парсера
+GET   /api/v1/admin/forum                  все доски форума (index.json 2ch)
+GET   /api/v1/admin/boards                 доски с флагами/статистикой
+POST  /api/v1/admin/boards                 создать по slug (+name)
+PATCH /api/v1/admin/boards/{slug}          флаги / title / код
+DELETE /api/v1/admin/boards/{slug}         удалить раздел (БД + файлы B2)
+POST  /api/v1/admin/boards/reorder         порядок очереди парсинга
+GET   /api/v1/admin/boards/{slug}/threads  треды раздела (для админки)
+POST  /api/v1/admin/parser/start|stop      управление парсером
+POST  /api/v1/admin/cleanup-b2             удалить объекты B2 без записей в БД
+DELETE /api/v1/admin/reset                 полный сброс (БД + B2), парсер ставится на паузу
 ```
 
-Админ-эндпоинты защищены admin-токеном. Управление доступно и из UI: `/admin`.
+## 7. Деплой (этап 7)
 
-## 7. РОАДМАП
+- `docker-compose.prod.yml` + `nginx/nginx.conf` + `Dockerfile` — готовы и проверены локально;
+- на VPS: `git clone`, `cp .env.prod.example .env`, заполнить, `docker compose -f docker-compose.prod.yml up -d --build`;
+- далее: домен → SSL (certbot/nginx), опционально Cloudflare CDN.
+- подробнее: `DEPLOY.md`.
+
+## 8. Планы на ближайшую разработку
+
+1. **Деплой на VPS**: домен + SSL + сертификаты; выкатка compose; мониторинг.
+2. **Медиа**: ffmpeg в парсере — кадр-превью видео + длительность (бейдж `0:42`);
+   опционально мини-превью WebP; прогрев/ре-рендер старых файлов.
+3. **Поиск**: расширение — по темам тредов, slug доски, фильтр типа; подсветка.
+4. **UX-полировка**: вкладки/фильтры в общем стиле (остатки нейтральных классов),
+   пагинация/бесконечная лента тредов, доступность/контраст, LCP.
+5. **Эксплуатация**: бэкапы БД в B2, логи/ротация, uptime-мониторинг, уведомления о
+   лимитах B2 (превью/«недоступно»).
+6. **Опции**: Cloudflare CDN, Celery/очереди, ИИ-теги, второй сервер.
+
+## 9. Структура репозитория
 
 ```
-[+] 1. Парсер (базовая версия, HTML) — сделано
-[+] 2. Парсер на JSON API + инкрементальный режим — сделано
-[+] 3. Новая схема БД (v3) + Alembic-миграции — сделано
-[+] 3.1. Reconciliation: актуальность БД ↔ хранилище (локальный кэш, B2) — сделано
-[ ] 3.2. Доработки по результатам тестирования
-[+] 4. B2 через boto3/S3 (приватный бакет, подписанные URL) — сделано
-[+] 5. Бэкенд FastAPI (API из п. 6) + rate limiting — сделано
-[+] 6. Фронтенд Next.js (галерея, топ, просмотр/скачивание) — сделано
-[ ] 7. Деплой на один VPS (Docker Compose), домен, SSL
-[ ] 8. Опции: Cloudflare CDN, Celery, ИИ-теги, второй сервер, бэкапы/мониторинг
+src/            python-бэкенд (main, parsers, services, repositories, api)
+migrations/     alembic
+web/            Next.js (страницы, компоненты, lib)
+nginx/          конфиг nginx
+docker-compose.prod.yml, Dockerfile, .env.prod.example
+DEPLOY.md       инструкция по деплою
+docs/DESIGN.md  дизайн-спека
 ```
 
-## 8. БЮДЖЕТ
+---
+КОНЕЦ ТЗ v4
 
-- Хостинг: 1 VPS от ava.hosting, ~$10–12/мес (2 vCPU / 4 ГБ).
-- Backblaze B2: до 10 ГБ бесплатно, далее $5/ТБ/мес + $0.01/ГБ скачивания.
-- Cloudflare: бесплатный тариф (не обязателен на старте).
-- Итого на старте: ~$10–16/мес. Верхняя планка $20/мес.
-
-## 9. ТЕХНИЧЕСКИЙ СТЕК
-
-- Бэкенд: FastAPI, SQLAlchemy 2.0 (async), Alembic, Pydantic.
-- Базы: PostgreSQL (основная), Redis (кэш, rate-limit, счётчики).
-- Парсер: Python asyncio, aiohttp, JSON API двача.
-- Хранилище: B2 через boto3 (S3 API).
-- Фронтенд: Next.js 14 (App Router), React, TypeScript, Tailwind CSS.
-- Инфраструктура: Docker, Docker Compose, Nginx, GitHub Actions (CI/CD).
-
---------------------------------------------------------------------------------
-КОНЕЦ ТЗ v3
---------------------------------------------------------------------------------
