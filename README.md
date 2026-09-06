@@ -17,9 +17,12 @@
 - Парсер скачивает файлы с двача в локальное хранилище, заливает в Backblaze B2.
 - Данные о файлах сохраняются в PostgreSQL.
 - Код синхронизирован с GitHub (репозиторий приватный).
-- Начальный стек: Python 3.11, PostgreSQL (Docker), SQLAlchemy 2.0 (async).
-- `src/parsers/dvach.py` — текущая реализация парсера на HTML-регэкспах —
-  БУДЕТ ПЕРЕПИСАНА на JSON API (см. п. 4.1).
+- Начальный стек: Python 3.11, PostgreSQL (Docker), Redis, SQLAlchemy 2.0 (async).
+- Парсер переписан на JSON API двача (`catalog.json` / `res/{num}.json`):
+  инкрементальный режим, дедуп по `md5` до скачивания, фильтрация контента (см. п. 4.1).
+- Написан и протестирован бэкенд сайта (FastAPI, `src/api`): REST API из п. 6,
+  rate limiting на Redis, админ-токен, подписанные URL на файлы в B2 (см. п. 4.2).
+- Запуск API: `uvicorn src.api.main:app --reload` (схема БД — `alembic upgrade head`).
 
 ## 3. ИНФРАСТРУКТУРА
 
@@ -209,7 +212,7 @@ POST /api/v1/admin/media/{id}/toggle      скрыть/показать файл
 [+] 3.1. Reconciliation: актуальность БД ↔ хранилище (локальный кэш, B2) — сделано
 [ ] 3.2. Доработки по результатам тестирования
 [+] 4. B2 через boto3/S3 (приватный бакет, подписанные URL) — сделано
-[ ] 5. Бэкенд FastAPI (API из п. 6) + rate limiting
+[+] 5. Бэкенд FastAPI (API из п. 6) + rate limiting — сделано
 [ ] 6. Фронтенд Next.js (галерея, топ, просмотр/скачивание)
 [ ] 7. Деплой на один VPS (Docker Compose), домен, SSL
 [ ] 8. Опции: Cloudflare CDN, Celery, ИИ-теги, второй сервер, бэкапы/мониторинг
