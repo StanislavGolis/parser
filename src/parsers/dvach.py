@@ -143,11 +143,10 @@ class DvachParser:
     # ───────────────────── Обработка доски ─────────────────────
 
     async def ensure_configured_boards(self) -> None:
-        """Создаёт в БД все доски из BOARDS_TO_PARSE (по каталогам двача).
+        """Создаёт в БД доски из BOARDS_TO_PARSE, которых ещё нет (первый запуск).
 
-        Разделы появляются на сайте сразу (с нулевым счётчиком), а не после
-        полного первого прохода первой доски — иначе доска из середины списка
-        остаётся «невидимой» часами.
+        parse_enabled=True ставится только новым доскам из конфигурации.
+        Уже существующие доски не трогаем: их настройки управляются из админки.
         """
         print("[init] Проверка/создание досок из конфигурации...")
         for board_slug in settings.BOARDS_TO_PARSE:
@@ -163,6 +162,7 @@ class DvachParser:
                     "title": board_info.get("name") or board_slug.upper(),
                     "description": board_info.get("info_outer"),
                     "is_visible": True,
+                    "parse_enabled": True,
                 },
             )
             if board_info.get("name"):

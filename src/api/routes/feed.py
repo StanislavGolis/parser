@@ -29,10 +29,11 @@ async def media_feed(
     session: AsyncSession = Depends(get_session),
     b2: B2Uploader = Depends(get_b2),
 ):
-    """Свежие файлы со всех видимых досок (новинки), с пагинацией."""
+    """Свежие файлы со всех видимых публичных досок (новинки), с пагинацией."""
     await check_rate_limit(client_ip(request))
 
-    filters = list(VISIBLE_FILTER) + [Board.is_visible.is_(True)]
+    # Только видимые и НЕ приватные доски: приватный контент открывается на странице доски по коду.
+    filters = list(VISIBLE_FILTER) + [Board.is_visible.is_(True), Board.is_private.is_(False)]
     if media_type:
         filters.append(Media.media_type == media_type)
 

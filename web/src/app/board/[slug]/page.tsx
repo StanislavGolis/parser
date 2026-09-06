@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import AccessGate from "@/components/AccessGate";
 import Gallery from "@/components/Gallery";
 import QueryTabs from "@/components/QueryTabs";
 import { ApiError } from "@/lib/api";
 import { getBoardMediaPage, getBoards } from "@/lib/data";
 import { formatNumber, plural } from "@/lib/format";
-import type { MediaList, MediaType, SortKey } from "@/lib/types";
+import type { Board, MediaList, MediaType, SortKey } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -55,12 +56,18 @@ export default async function BoardPage({ params, searchParams }: BoardPageProps
   const board = boards.find((b) => b.slug === slug);
 
   let list: MediaList = { items: [], page: 1, per_page: PER_PAGE, total: 0 };
+  let accessRequired = false;
   try {
     list = await getBoardMediaPage(slug, sort, 1, PER_PAGE, type);
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) notFound();
-    // API временно недоступен — серверный слой уже вернул пустой список при 5xx.
-    throw err;
+    // 403 на разделе = нужен код доступа (список досок может быть
+    // устаревшим из Data Cache, поэтому полагаемся на ответ API).
+    if (err instanceof ApiError && err.status === 403) {
+      accessRequired = true;
+    } else {
+      throw err;
+    }
   }
 
   const boardsById = Object.fromEntries(boards.map((b) => [b.id, b]));
@@ -75,16 +82,50 @@ export default async function BoardPage({ params, searchParams }: BoardPageProps
           </h1>
           {board?.description ? (
             <p className="mt-1 max-w-xl text-sm text-neutral-500">{board.description}</p>
-          ) : (
-            <p className="mt-1 text-sm text-neutral-500">Раздел {board ? formatNumber(board.media_count) : "—"} файлов.</p>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <QueryTabs param="sort" options={SORT_OPTIONS} defaultValue="new" ariaLabel="Сортировка" />
-          <QueryTabs param="type" options={TYPE_OPTIONS} defaultValue="" ariaLabel="Тип контента" />
+          ) : null}
         </div>
       </div>
 
+      {accessRequired ? (
+        <AccessGate slug={slug} title={board?.title} description={board?.description} />
+      ) : (
+        <BoardContent
+          board={board}
+          slug={slug}
+          list={list}
+          type={type}
+          sort={sort}
+          boardsById={boardsById}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Обычное содержимое раздела (сортировка/тип/галерея) — вынесено для читаемости. */
+function BoardContent({
+  board,
+  slug,
+  list,
+  type,
+  sort,
+  boardsById,
+}: {
+  board?: Board;
+  slug: string;
+  list: MediaList;
+  type: MediaType | null;
+  sort: SortKey;
+  boardsById: Record<number, Board>;
+}) {
+  return (
+    <>
+      {board?.is_private ? null : (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <QueryTabs param="sort" options={SORT_OPTIONS} defaultValue="new" ariaLabel="Сортировка" />
+          <QueryTabs param="type" options={TYPE_OPTIONS} defaultValue="" ariaLabel="Тип контента" />
+        </div>
+      )}
       <div className="mb-4 text-sm text-neutral-400">
         {formatNumber(list.total)} {plural(list.total, ["файл", "файла", "файлов"])}
         {board ? (
@@ -102,6 +143,6 @@ export default async function BoardPage({ params, searchParams }: BoardPageProps
         emptyTitle="В этом разделе пока пусто"
         emptyHint="Файлы появятся после следующего прохода парсера."
       />
-    </div>
+    </>
   );
 }

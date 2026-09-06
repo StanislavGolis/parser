@@ -8,6 +8,15 @@ export interface Board {
   title: string;
   description: string | null;
   media_count: number;
+  /** Приватный раздел: виден в списке, контент по коду доступа. */
+  is_private: boolean;
+}
+
+/** Доска в админ-панели. */
+export interface AdminBoard extends Board {
+  parse_enabled: boolean;
+  is_visible: boolean;
+  has_access_code: boolean;
 }
 
 export interface MediaItem {
@@ -43,6 +52,10 @@ export interface MediaDetail extends MediaItem {
 export interface ViewResult {
   media_id: number;
   counted: boolean;
+}
+
+export interface AccessResult {
+  granted: boolean;
 }
 
 export interface DownloadResult {

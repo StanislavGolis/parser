@@ -25,6 +25,8 @@
 - Написан и проверен фронтенд (`web/`, Next.js 14, App Router, Tailwind): SSR-галерея,
   разделы «Новинки» / «Популярное» / по доскам, masonry + infinite scroll, lightbox,
   просмотр и скачивание (этап 6). Запуск: `cd web && npm run dev` (API — см. ниже).
+- Админ-панель `/admin`: управление досками из UI — «парсить» (parse_enabled),
+  «отображать на сайте» (is_visible) и «приватная» (доступ по коду, cookie на 24 ч).
 - Запуск API: `uvicorn src.api.main:app --reload` (схема БД — `alembic upgrade head`).
 
 ## 3. ИНФРАСТРУКТУРА
@@ -194,17 +196,21 @@ JSON API двача (`https://2ch.hk/{board}/catalog.json`,
 ## 6. REST API
 
 ```
-GET  /api/v1/boards                 список доступных досок (только видимые)
-GET  /api/v1/boards/{slug}/media    файлы доски (пагинация, сортировка)
+GET  /api/v1/boards                 список доступных досок (включая приватные; приватные — с замком)
+POST /api/v1/boards/{slug}/access   проверка кода доступа (успех => httpOnly-cookie на 24 ч)
+GET  /api/v1/boards/{slug}/media    файлы доски (приватная доска — только с cookie доступа)
 GET  /api/v1/media/{id}             информация о файле и URL для скачивания
 GET  /api/v1/media/{id}/view        отметить просмотр (увеличить счётчик)
 GET  /api/v1/media/{id}/download    отметить скачивание и вернуть URL
-GET  /api/v1/top?type=image|video&period=day|week|month   топ контента
+GET  /api/v1/top?type=image|video&period=day|week|month   топ контента (без приватных)
+GET  /api/v1/admin/boards           список досок с флагами (parse_enabled/is_visible/is_private)
+POST /api/v1/admin/boards           создать доску по slug
+PATCH /api/v1/admin/boards/{slug}   обновить флаги и код доступа
 POST /api/v1/admin/boards/{slug}/toggle   скрыть/показать раздел
 POST /api/v1/admin/media/{id}/toggle      скрыть/показать файл
 ```
 
-Админ-эндпоинты защищены admin-токеном.
+Админ-эндпоинты защищены admin-токеном. Управление доступно и из UI: `/admin`.
 
 ## 7. РОАДМАП
 

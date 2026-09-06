@@ -7,9 +7,12 @@
  * ВНИМАНИЕ: файл предназначен только для Server Components; в клиентских
  * компонентах используйте src/lib/api.ts.
  */
+import { cookies } from "next/headers";
+
 import { ApiError } from "./api";
 import { SERVER_API_BASE } from "./env";
 import type {
+  AdminBoard,
   Board,
   MediaDetail,
   MediaItem,
@@ -30,9 +33,15 @@ const REVALIDATE = {
 async function serverFetch<T>(path: string, revalidate: number, fallback?: T): Promise<T> {
   let res: Response;
   try {
+    // Пробрасываем cookie браузера в SSR-запрос: приватные разделы
+    // проверяют доступ по cookie ba_{slug} на стороне API.
+    const cookieStore = cookies();
     res = await fetch(`${SERVER_API_BASE}${path}`, {
       next: { revalidate },
-      headers: { accept: "application/json" },
+      headers: {
+        accept: "application/json",
+        cookie: cookieStore.toString(),
+      },
     });
   } catch {
     if (fallback !== undefined) return fallback;

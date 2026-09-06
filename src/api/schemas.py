@@ -14,6 +14,34 @@ class BoardOut(BaseModel):
     title: str
     description: Optional[str] = None
     media_count: int = 0
+    is_private: bool = False
+
+
+class AdminBoardOut(BoardOut):
+    """Доска в админке: добавляет флаги управления и признак заданного кода."""
+    parse_enabled: bool = True
+    is_visible: bool = True
+    has_access_code: bool = False
+
+
+class BoardCreate(BaseModel):
+    slug: str
+
+
+class BoardUpdate(BaseModel):
+    parse_enabled: Optional[bool] = None
+    is_visible: Optional[bool] = None
+    is_private: Optional[bool] = None
+    # Новый код доступа. Пустая строка/null = сбросить код (доступ закрывается).
+    access_code: Optional[str] = None
+
+
+class AccessRequest(BaseModel):
+    code: str
+
+
+class AccessResult(BaseModel):
+    granted: bool
 
 
 class MediaOut(BaseModel):

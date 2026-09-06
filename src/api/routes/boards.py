@@ -1,14 +1,17 @@
 # src/api/routes/boards.py
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.api.common import access_cookie_name, hash_access_code
 from src.api.deps import check_rate_limit, client_ip
-from src.api.schemas import BoardOut
+from src.api.schemas import AccessRequest, AccessResult, BoardOut
 from src.core.db import get_session
 from src.core.models import Board, Media
 
 router = APIRouter(prefix="/api/v1/boards", tags=["boards"])
+
+ACCESS_COOKIE_MAX_AGE = 24 * 60 * 60
 
 
 @router.get("", response_model=list[BoardOut])
@@ -16,7 +19,10 @@ async def list_boards(
     request: Request,
     session: AsyncSession = Depends(get_session),
 ):
-    """Список видимых досок с количеством видимых активных файлов."""
+    """Список видимых досок (включая приватные) с числом видимых файлов.
+
+    Приватные доски видны в списке, но их контент открывается только по коду.
+    """
     await check_rate_limit(client_ip(request))
 
     subq = (
@@ -45,5 +51,46 @@ async def list_boards(
             title=board.title,
             description=board.description,
             media_count=int(cnt or 0),
+            is_private=board.is_private,
         ))
     return boards
+
+
+@router.post("/{slug}/access", response_model=AccessResult)
+async def board_access(
+    slug: str,
+    payload: AccessRequest,
+    request: Request,
+    response: Response,
+    session: AsyncSession = Depends(get_session),
+):
+    """Проверка кода доступа к приватной доске.
+
+    При успехе выставляет httpOnly-cookie ba_{slug} (sha256 кода) на 24 часа.
+    """
+    await check_rate_limit(client_ip(request))
+
+    result = await session.execute(
+        select(Board).where(Board.slug == slug, Board.is_visible.is_(True))
+    )
+    board = result.scalar_one_or_none()
+    if not board or not board.is_private:
+        raise HTTPException(status_code=404, detail="Board not found")
+
+    code = (payload.code or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="Code is empty")
+
+    code_hash = hash_access_code(code)
+    if not board.access_code_hash or code_hash != board.access_code_hash:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    response.set_cookie(
+        key=access_cookie_name(board.slug),
+        value=code_hash,
+        max_age=ACCESS_COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        path="/",
+    )
+    return AccessResult(granted=True)

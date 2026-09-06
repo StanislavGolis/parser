@@ -19,6 +19,10 @@ class Board(Base):
     title = Column(String(100), nullable=False, default="")
     description = Column(Text, nullable=True)
     is_visible = Column(Boolean, nullable=False, default=True)
+    # Управление из админки (этап: админ-панель)
+    parse_enabled = Column(Boolean, nullable=False, default=True)   # доска участвует в парсинге
+    is_private = Column(Boolean, nullable=False, default=False)     # контент по коду доступа
+    access_code_hash = Column(String(64), nullable=True)            # sha256 кода доступа
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

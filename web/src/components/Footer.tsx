@@ -8,6 +8,7 @@ export default function Footer() {
         <nav className="flex gap-4">
           <Link href="/" className="hover:text-neutral-300">Новинки</Link>
           <Link href="/top" className="hover:text-neutral-300">Популярное</Link>
+          <Link href="/admin" className="hover:text-neutral-300">Админ</Link>
         </nav>
       </div>
     </footer>

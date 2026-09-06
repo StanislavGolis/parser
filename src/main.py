@@ -40,7 +40,7 @@ async def main():
                 parser = DvachParser(session)
                 await parser.__aenter__()
                 try:
-                    # Создаём доски из конфигурации заранее (разделы видны на сайте сразу)
+                    # Создаём доски из конфигурации заранее (первый запуск)
                     if last_reconcile is None:
                         await parser.ensure_configured_boards()
 
@@ -49,8 +49,11 @@ async def main():
                         await parser.run_reconciliation()
                         last_reconcile = datetime.utcnow()
 
-                    # Парсим все доски
-                    for board_slug in settings.BOARDS_TO_PARSE:
+                    # Доски для парсинга берём из БД (parse_enabled): админка
+                    # управляет ими без перезапуска процесса.
+                    board_slugs = await parser.board_repo.get_parsable_slugs()
+                    print(f"[list] Доски для парсинга: {', '.join(board_slugs) or '— (нет)'}")
+                    for board_slug in board_slugs:
                         await parser.process_board(board_slug)
                 finally:
                     await parser.__aexit__(None, None, None)

@@ -9,7 +9,7 @@ from src.api.common import VISIBLE_FILTER, sign_media_urls
 from src.api.deps import check_rate_limit, client_ip, get_b2
 from src.api.schemas import MediaOut
 from src.core.db import get_session
-from src.core.models import Media
+from src.core.models import Board, Media
 from src.services.b2_uploader import B2Uploader
 
 router = APIRouter(prefix="/api/v1/top", tags=["top"])
@@ -36,12 +36,18 @@ async def top_media(
     days = PERIODS.get(period, 7)
     cutoff = func.now() - func.make_interval(0, 0, 0, days, 0, 0, 0)
 
-    filters = list(VISIBLE_FILTER) + [Media.created_at >= cutoff]
+    # Только видимые и НЕ приватные доски (приватный контент в общий топ не попадает).
+    filters = list(VISIBLE_FILTER) + [
+        Board.is_visible.is_(True),
+        Board.is_private.is_(False),
+        Media.created_at >= cutoff,
+    ]
     if type:
         filters.append(Media.media_type == type)
 
     query = (
         select(Media)
+        .join(Board, Board.id == Media.board_id)
         .where(*filters)
         .order_by(Media.popularity_score.desc(), Media.views_count.desc())
         .limit(limit)

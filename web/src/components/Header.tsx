@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { LockIcon } from "@/components/icons";
 import { getBoards } from "@/lib/data";
 import { formatNumber } from "@/lib/format";
 
@@ -42,6 +43,7 @@ export default async function Header() {
               className="flex shrink-0 items-center gap-1.5 rounded-full border border-neutral-700 bg-neutral-900 px-3 py-1 text-xs text-neutral-200 transition-colors hover:border-amber-500/60 hover:text-amber-300"
             >
               <span className="font-semibold">/{b.slug}</span>
+              {b.is_private ? <LockIcon className="h-3 w-3 text-amber-400" /> : null}
               <span className="max-w-28 truncate text-neutral-400">{b.title}</span>
               <span className="rounded bg-neutral-800 px-1.5 text-[10px] text-neutral-400">
                 {formatNumber(b.media_count)}

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.common import VISIBLE_FILTER, sign_media_urls
+from src.api.common import VISIBLE_FILTER, board_access_granted, sign_media_urls
 from src.api.deps import check_rate_limit, client_ip, get_b2, ip_hash
 from src.api.schemas import DownloadResult, MediaDetailOut, MediaListOut, MediaOut, ViewResult
 from src.core.db import get_session
@@ -29,6 +29,24 @@ async def _get_visible_media(session: AsyncSession, media_id: int) -> Media:
     return media
 
 
+async def _check_media_board_access(
+    request: Request,
+    session: AsyncSession,
+    media: Media,
+) -> Board:
+    """Проверяет видимость доски и доступ к приватной доске.
+
+    Скрытая доска = контент «не существует» (404).
+    Приватная доска без валидного cookie доступа — 403.
+    """
+    board = await session.get(Board, media.board_id)
+    if not board or not board.is_visible:
+        raise HTTPException(status_code=404, detail="Media not found")
+    if board.is_private and not board_access_granted(request, board):
+        raise HTTPException(status_code=403, detail="Access denied")
+    return board
+
+
 @router.get("/boards/{slug}/media", response_model=MediaListOut)
 async def board_media(
     slug: str,
@@ -49,6 +67,10 @@ async def board_media(
     board = board_result.scalar_one_or_none()
     if not board:
         raise HTTPException(status_code=404, detail="Board not found")
+
+    # Приватная доска: контент только по коду доступа (cookie).
+    if board.is_private and not board_access_granted(request, board):
+        raise HTTPException(status_code=403, detail="Access denied")
 
     filters = list(VISIBLE_FILTER) + [Media.board_id == board.id]
     if media_type:
@@ -93,7 +115,7 @@ async def media_detail(
 
     media = await _get_visible_media(session, media_id)
 
-    board = await session.get(Board, media.board_id)
+    board = await _check_media_board_access(request, session, media)
     data = MediaDetailOut.model_validate(media)
     data.board_slug = board.slug if board else ""
     data.url = b2.generate_presigned_url(media.b2_key) if media.b2_key else None
@@ -110,6 +132,7 @@ async def media_view(
     await check_rate_limit(client_ip(request))
 
     media = await _get_visible_media(session, media_id)
+    await _check_media_board_access(request, session, media)
     iph = ip_hash(client_ip(request))
     cutoff = datetime.utcnow() - timedelta(hours=DEDUP_PERIOD_HOURS)
 
@@ -145,6 +168,7 @@ async def media_download(
     if not media.b2_key:
         raise HTTPException(status_code=409, detail="File not available")
 
+    await _check_media_board_access(request, session, media)
     url = b2.generate_presigned_url(media.b2_key)
     if not url:
         raise HTTPException(status_code=503, detail="B2 is not configured")
