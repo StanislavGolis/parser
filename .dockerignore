@@ -1,0 +1,22 @@
+# Контекст сборки backend-образа (корень репозитория).
+# Файлы, не нужные в образе парсера/API.
+
+venv/
+.git/
+.gitignore
+.vs/
+.idea/
+storage/
+web/
+*.log
+.env
+.env.*
+__pycache__/
+**/__pycache__/
+*.pyc
+Dockerfile
+.dockerignore
+docker-compose*.yml
+nginx/
+README.md
+DEPLOY.md
