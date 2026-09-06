@@ -75,7 +75,7 @@ class DvachParser:
                 response.raise_for_status()
                 return await response.json()
         except Exception as e:
-            print(f"   ❌ HTTP {url}: {e}")
+            print(f"   [err] HTTP {url}: {e}")
             return None
 
     @staticmethod
@@ -144,10 +144,10 @@ class DvachParser:
 
     async def process_board(self, board_slug: str):
         """Полный цикл обработки одной доски."""
-        print(f"🔍 Начинаем парсинг доски /{board_slug}")
+        print(f"[info] Начинаем парсинг доски /{board_slug}")
         catalog = await self._get_json(f"{self.BASE_URL}/{board_slug}/catalog.json")
         if not catalog:
-            print(f"   ❌ Не удалось получить каталог /{board_slug}")
+            print(f"   [err] Не удалось получить каталог /{board_slug}")
             return
 
         board_info = catalog.get("board", {})
@@ -196,7 +196,7 @@ class DvachParser:
 
             if need_scan:
                 files = await self.fetch_thread_files(board_slug, thread_id)
-                print(f"   📂 Тред {thread_id} — {reason}: {len(files)} файлов")
+                print(f"   [thread] Тред {thread_id} — {reason}: {len(files)} файлов")
                 for meta in files:
                     await self.process_file(board, state, meta)
                     await asyncio.sleep(settings.REQUEST_DELAY * 0.5)
@@ -206,7 +206,7 @@ class DvachParser:
                 state.last_scanned_at = datetime.utcnow()
                 scanned += 1
             else:
-                print(f"   ⏭️  Тред {thread_id} — {reason}")
+                print(f"   [skip]  Тред {thread_id} — {reason}")
 
             await asyncio.sleep(settings.REQUEST_DELAY)
 
@@ -218,10 +218,10 @@ class DvachParser:
                 st.is_active = False
                 deactivated += 1
         if deactivated:
-            print(f"   📴 Деактивировано тредов: {deactivated}")
+            print(f"   [off] Деактивировано тредов: {deactivated}")
 
         await self.session.commit()
-        print(f"✅ Парсинг доски /{board_slug} завершён (просканировано тредов: {scanned})")
+        print(f"[ok] Парсинг доски /{board_slug} завершён (просканировано тредов: {scanned})")
 
     # ───────────────────── Обработка файла ─────────────────────
 
@@ -237,7 +237,7 @@ class DvachParser:
                 meta.get("height"),
             )
             if not valid:
-                print(f"   🚫 Отфильтрован: {meta['original_name']} — {error}")
+                print(f"   [skip] Отфильтрован: {meta['original_name']} — {error}")
                 return
 
             # 2. Дедупликация по source_md5 (до скачивания)
@@ -264,11 +264,11 @@ class DvachParser:
                     is_active=True,
                 )
                 await self.session.flush()
-                print(f"   🔗 Дубль по md5 {meta['md5'][:8]}: duplicate ID {dup.id} → {existing.id}")
+                print(f"   [dup] Дубль по md5 {meta['md5'][:8]}: duplicate ID {dup.id} → {existing.id}")
                 return
 
             # 3. Скачивание
-            print(f"   📥 Скачиваем: {meta['original_name']}")
+            print(f"   [down] Скачиваем: {meta['original_name']}")
             file_data = await self.downloader.download(meta["file_url"])
             if not file_data:
                 return
@@ -278,16 +278,16 @@ class DvachParser:
             file_md5 = MediaValidator.compute_md5(file_data)
             integrity_ok = file_md5 == meta["md5"]
             if not integrity_ok and meta["media_type"] == "video":
-                print(f"   🗑  Битый файл (md5 не совпал): {meta['original_name']}")
+                print(f"   [del]  Битый файл (md5 не совпал): {meta['original_name']}")
                 return
 
             if meta["media_type"] == "image":
                 ok_img, img_err = MediaValidator.verify_image(file_data)
                 if not ok_img:
-                    print(f"   🗑  Битое изображение: {meta['original_name']} — {img_err}")
+                    print(f"   [del]  Битое изображение: {meta['original_name']} — {img_err}")
                     return
                 if not integrity_ok:
-                    print(f"   ⚠️ md5 из API не совпал (вероятно CDN-пережим), но изображение валидно: {meta['original_name']}")
+                    print(f"   [warn] md5 из API не совпал (вероятно CDN-пережим), но изображение валидно: {meta['original_name']}")
 
             file_sha256 = MediaValidator.compute_sha256(file_data)
 
@@ -313,7 +313,7 @@ class DvachParser:
                     if local_path.exists():
                         os.remove(local_path)
                         local_deleted = True
-                        print(f"   🗑  Локальный файл удалён: {meta['filename']}")
+                        print(f"   [del]  Локальный файл удалён: {meta['filename']}")
 
             # 7. Запись в БД
             media = await self.media_repo.create(
@@ -338,17 +338,17 @@ class DvachParser:
             await self.session.flush()
 
             if b2_key:
-                print(f"   ✅ Загружен в B2: {meta['original_name']} (ID: {media.id})")
+                print(f"   [ok] Загружен в B2: {meta['original_name']} (ID: {media.id})")
             else:
-                print(f"   ⚠️ Сохранён локально: {meta['original_name']} (ID: {media.id}, статус: downloaded)")
+                print(f"   [warn] Сохранён локально: {meta['original_name']} (ID: {media.id}, статус: downloaded)")
 
         except Exception as e:
-            print(f"   ❌ Ошибка при обработке {meta.get('original_name', '?')}: {e}")
+            print(f"   [err] Ошибка при обработке {meta.get('original_name', '?')}: {e}")
 
     # ───────────────────── Reconciliation ─────────────────────
 
     async def run_reconciliation(self) -> None:
         """Сверка БД с локальным кэшем и B2 (актуальность данных и хранилища)."""
-        print("🔁 Запуск сверки данных (reconciliation)...")
+        print("[sync] Запуск сверки данных (reconciliation)...")
         service = ReconciliationService(self.session, self.storage, self.b2_uploader)
         await service.run()

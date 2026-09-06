@@ -31,7 +31,7 @@ class DownloaderService:
                         
                         content_length = response.headers.get('Content-Length')
                         if content_length and int(content_length) > settings.MAX_FILE_SIZE:
-                            print(f"   ⚠️ Файл слишком большой: {url}")
+                            print(f"   [warn] Файл слишком большой: {url}")
                             return None
                         
                         data = await asyncio.wait_for(
@@ -45,5 +45,5 @@ class DownloaderService:
                 print(f"   ⏱️ Таймаут при скачивании: {url}")
                 return None
             except Exception as e:
-                print(f"   ❌ Ошибка при скачивании {url}: {e}")
+                print(f"   [err] Ошибка при скачивании {url}: {e}")
                 return None

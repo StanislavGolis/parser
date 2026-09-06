@@ -36,7 +36,7 @@ class ReconciliationService:
         if self.b2.is_configured:
             await self._reconcile_b2()
         await self.session.commit()
-        print("   ✅ Сверка данных (БД ↔ хранилище) завершена")
+        print("   [ok] Сверка данных (БД ↔ хранилище) завершена")
 
     # ─────────────── Локальный кэш ───────────────
 
@@ -57,9 +57,9 @@ class ReconciliationService:
                 if rel not in known_paths:
                     try:
                         file_path.unlink()
-                        print(f"   🧹 Удалён осиротевший локальный файл: {rel}")
+                        print(f"   [clean] Удалён осиротевший локальный файл: {rel}")
                     except OSError as e:
-                        print(f"   ⚠️ Не удалось удалить {rel}: {e}")
+                        print(f"   [warn] Не удалось удалить {rel}: {e}")
 
         # 2. Записи без локального файла и без B2 → missing
         for m in media_list:
@@ -67,7 +67,7 @@ class ReconciliationService:
                 if not m.local_path or not self.storage.get_file_path(m.local_path).exists():
                     if m.download_status != "missing":
                         m.download_status = "missing"
-                        print(f"   🗑  Файл не найден локально, статус → missing (media #{m.id}): {m.original_name}")
+                        print(f"   [del]  Файл не найден локально, статус → missing (media #{m.id}): {m.original_name}")
 
         # 3. Лишние локальные копии уже загруженных в B2 файлов
         for m in media_list:
@@ -76,16 +76,16 @@ class ReconciliationService:
                 if p.exists():
                     try:
                         p.unlink()
-                        print(f"   🧹 Удалена локальная копия залитого файла: {m.local_path}")
+                        print(f"   [clean] Удалена локальная копия залитого файла: {m.local_path}")
                     except OSError as e:
-                        print(f"   ⚠️ Не удалось удалить {m.local_path}: {e}")
+                        print(f"   [warn] Не удалось удалить {m.local_path}: {e}")
 
     # ─────────────── Объектное хранилище (B2) ───────────────
 
     async def _reconcile_b2(self) -> None:
         keys = await self.b2.list_keys()
         if keys is None:
-            print("   ⚠️ Не удалось получить список объектов B2, B2-сверка пропущена")
+            print("   [warn] Не удалось получить список объектов B2, B2-сверка пропущена")
             return
         key_set = set(keys)
 
@@ -95,7 +95,7 @@ class ReconciliationService:
                 if m.b2_key in key_set:
                     if m.download_status != "verified":
                         m.download_status = "verified"
-                        print(f"   ✅ B2 подтверждён (media #{m.id}): {m.original_name}")
+                        print(f"   [ok] B2 подтверждён (media #{m.id}): {m.original_name}")
                 else:
                     # Объект пропал из B2 — перезаливаем или помечаем missing
                     local_file = self.storage.get_file_path(m.local_path) if m.local_path else None
@@ -105,7 +105,7 @@ class ReconciliationService:
                         m.download_status = "uploaded" if file_id else "missing"
                     else:
                         m.download_status = "missing"
-                        print(f"   ❌ Объект B2 не найден и локальной копии нет (media #{m.id}): {m.original_name}")
+                        print(f"   [err] Объект B2 не найден и локальной копии нет (media #{m.id}): {m.original_name}")
             else:
                 # Нет b2_key — выгружаем, если есть локальный файл
                 if m.download_status in ("new", "downloaded") and m.local_path:

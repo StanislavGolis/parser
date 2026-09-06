@@ -16,8 +16,6 @@ from src.core.config import settings
 
 
 class B2Uploader:
-    PLACEHOLDER_BUCKET = "your-media-bucket"
-
     def __init__(self):
         self.key_id = settings.B2_KEY_ID
         self.application_key = settings.B2_APPLICATION_KEY
@@ -29,14 +27,13 @@ class B2Uploader:
             self.key_id
             and self.application_key
             and self.bucket_name
-            and self.bucket_name != self.PLACEHOLDER_BUCKET
         )
 
         self.client = None
         if self.is_configured:
             self._init_client()
         else:
-            print("   ⚠️ Backblaze B2 не настроен — файлы будут сохранены локально")
+            print("   [warn] Backblaze B2 не настроен — файлы будут сохранены локально")
 
     # ───────────────────── Инициализация ─────────────────────
 
@@ -57,11 +54,11 @@ class B2Uploader:
             )
             # Проверка прав доступа к бакету
             self.client.head_bucket(Bucket=self.bucket_name)
-            print(f"   ✅ Подключение к B2 установлено (boto3/S3), бакет: {self.bucket_name}")
+            print(f"   [ok] Подключение к B2 установлено (boto3/S3), бакет: {self.bucket_name}")
         except Exception as e:
             self.is_configured = False
             self.client = None
-            print(f"   ⚠️ Ошибка подключения к B2: {e} — файлы будут сохранены локально")
+            print(f"   [warn] Ошибка подключения к B2: {e} — файлы будут сохранены локально")
 
     # ───────────────────── Операции с файлами ─────────────────────
 
@@ -77,10 +74,10 @@ class B2Uploader:
                 self.bucket_name,
                 remote_key,
             )
-            print(f"   ✅ Загружен в B2: {remote_key}")
+            print(f"   [ok] Загружен в B2: {remote_key}")
             return remote_key
         except Exception as e:
-            print(f"   ❌ Ошибка загрузки в B2: {e}")
+            print(f"   [err] Ошибка загрузки в B2: {e}")
             return None
 
     async def list_keys(self, prefix: str = "") -> Optional[List[str]]:
@@ -102,7 +99,7 @@ class B2Uploader:
             keys = await asyncio.to_thread(_list_all)
             return keys
         except Exception as e:
-            print(f"   ❌ Ошибка листинга B2: {e}")
+            print(f"   [err] Ошибка листинга B2: {e}")
             return None
 
     async def delete_object(self, remote_key: str) -> bool:
@@ -116,10 +113,10 @@ class B2Uploader:
                 Bucket=self.bucket_name,
                 Key=remote_key,
             )
-            print(f"   🗑  Удалён объект из B2: {remote_key}")
+            print(f"   [del]  Удалён объект из B2: {remote_key}")
             return True
         except Exception as e:
-            print(f"   ❌ Ошибка удаления из B2: {e}")
+            print(f"   [err] Ошибка удаления из B2: {e}")
             return False
 
     def generate_presigned_url(self, remote_key: str, expires_in: Optional[int] = None) -> Optional[str]:
@@ -137,5 +134,5 @@ class B2Uploader:
                 ExpiresIn=expires_in or self.signed_url_ttl,
             )
         except Exception as e:
-            print(f"   ❌ Ошибка генерации подписанного URL: {e}")
+            print(f"   [err] Ошибка генерации подписанного URL: {e}")
             return None

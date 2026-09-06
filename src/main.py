@@ -26,9 +26,9 @@ async def init_db():
 
 
 async def main():
-    print("🚀 Запуск парсера...")
-    print(f"📁 Хранилище: {settings.STORAGE_PATH}")
-    print(f"📋 Доски: {', '.join(settings.BOARDS_TO_PARSE)}")
+    print("[run] Запуск парсера...")
+    print(f"[dir] Хранилище: {settings.STORAGE_PATH}")
+    print(f"[list] Доски: {', '.join(settings.BOARDS_TO_PARSE)}")
     print("-" * 50)
 
     async_session = await init_db()
@@ -66,14 +66,14 @@ async def main():
                         await parser.__aexit__(None, None, None)
                 last_reconcile = datetime.utcnow()
 
-            print(f"\n⏳ Ожидание {settings.PARSE_INTERVAL} секунд до следующего цикла...\n")
+            print(f"\n[wait] Ожидание {settings.PARSE_INTERVAL} секунд до следующего цикла...\n")
             await asyncio.sleep(settings.PARSE_INTERVAL)
 
         except KeyboardInterrupt:
-            print("\n👋 Остановка парсера...")
+            print("\n[bye] Остановка парсера...")
             break
         except Exception as e:
-            print(f"❌ Критическая ошибка: {e}")
+            print(f"[err] Критическая ошибка: {e}")
             await asyncio.sleep(5)  # Пауза перед перезапуском
 
 
