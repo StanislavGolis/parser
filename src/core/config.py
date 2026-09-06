@@ -4,6 +4,9 @@ from typing import Optional
 class Settings(BaseSettings):
     # База данных
     DATABASE_URL: str = "postgresql+asyncpg://user:pass@localhost:5432/parser"
+
+    # Redis (кэш, rate limiting, счётчики)
+    REDIS_URL: str = "redis://localhost:6379/0"
     
     # Хранилище
     STORAGE_PATH: str = "./storage/media"
@@ -21,6 +24,12 @@ class Settings(BaseSettings):
 
     # Сверка данных (reconciliation)
     RECONCILE_MINUTES: int = 60  # период сверки БД ↔ хранилище, 0 = только при старте
+
+    # API сайта
+    ADMIN_TOKEN: str = ""                     # токен для админ-эндпоинтов
+    API_RATE_LIMIT: int = 30                  # запросов в минуту на IP (публичные API)
+    API_CORS_ORIGINS: str = "http://localhost:3000,http://localhost:8080"
+    POPULARITY_RECALC_MINUTES: int = 5        # период пересчёта popularity_score, в минутах
 
     # Backblaze B2
     B2_KEY_ID: str = ""
