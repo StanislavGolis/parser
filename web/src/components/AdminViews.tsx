@@ -33,10 +33,10 @@ export function Switch({
       aria-checked={checked}
       title={title}
       onClick={onChange}
-      className={`inline-flex shrink-0 items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+      className={`inline-flex shrink-0 items-center gap-2 rounded border px-2.5 py-1.5 text-xs font-medium transition-colors ${
         checked
-          ? "border-amber-500/50 bg-amber-500/15 text-amber-300"
-          : "border-neutral-700 bg-neutral-800/40 text-neutral-400 hover:text-neutral-200"
+          ? "border-accent-primary/50 bg-accent-primary/15 text-accent-primary"
+          : "border-line bg-ink-tertiary text-text-secondary hover:text-text-primary"
       }`}
     >
       <span className={`h-2 w-2 rounded-full ${checked ? "bg-amber-400" : "bg-neutral-600"}`} />
@@ -71,11 +71,11 @@ export function BoardsTable({
   onDelete: (slug: string) => Promise<void>;
 }) {
   if (loading && !boards) {
-    return <p className="py-10 text-center text-sm text-neutral-400">Загружаем…</p>;
+    return <p className="py-10 text-center text-sm text-text-secondary">Загружаем…</p>;
   }
   if (!boards || boards.length === 0) {
     return (
-      <p className="py-10 text-center text-sm text-neutral-500">
+      <p className="py-10 text-center text-sm text-text-secondary">
         Разделов нет. Добавьте slug вручную выше или откройте «Доски форума».
       </p>
     );
@@ -139,16 +139,16 @@ function BoardRow({
   }
 
   return (
-    <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4">
+    <div className="rounded border border-line bg-ink-secondary p-4">
       {/* Шапка: позиция + название + статусы + управление */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span
-              className={`rounded-md px-1.5 py-0.5 font-mono text-[11px] ${
+              className={`rounded px-1.5 py-0.5 font-mono text-[11px] ${
                 board.parse_enabled
-                  ? "bg-amber-500/15 text-amber-300"
-                  : "bg-neutral-800 text-neutral-500"
+                  ? "bg-accent-primary/15 text-accent-primary"
+                  : "bg-ink-tertiary text-text-secondary"
               }`}
               title="Позиция в очереди парсинга"
             >
@@ -156,12 +156,12 @@ function BoardRow({
             </span>
             <Link
               href={`/admin/boards/${board.slug}`}
-              className="text-base font-semibold text-neutral-100 transition-colors hover:text-amber-300"
+              className="text-base font-semibold text-text-primary transition-colors hover:text-accent-primary"
               title="Открыть треды раздела"
             >
               /{board.slug}
             </Link>
-            {board.is_private ? <LockIcon className="h-3.5 w-3.5 text-amber-400" /> : null}
+            {board.is_private ? <LockIcon className="h-3.5 w-3.5 text-accent-warning" /> : null}
 
             {editingTitle ? (
               <span className="inline-flex items-center gap-1">
@@ -173,7 +173,7 @@ function BoardRow({
                     if (e.key === "Enter") void saveTitle();
                     if (e.key === "Escape") setEditingTitle(false);
                   }}
-                  className="w-48 rounded-lg border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm text-neutral-100 outline-none focus:border-amber-500"
+                  className="w-48 rounded border border-line bg-ink-secondary px-2 py-1 text-sm text-text-primary outline-none focus:border-accent-primary"
                 />
                 <button type="button" onClick={() => void saveTitle()} className="btn-ghost px-2 py-1 text-xs">
                   ОК
@@ -186,7 +186,7 @@ function BoardRow({
                   setTitleDraft(board.title);
                   setEditingTitle(true);
                 }}
-                className="inline-flex max-w-56 items-center gap-1 truncate rounded px-1 text-sm text-neutral-400 transition-colors hover:text-amber-300"
+                className="inline-flex max-w-56 items-center gap-1 truncate rounded px-1 text-sm text-text-secondary transition-colors hover:text-accent-primary"
                 title="Изменить название раздела"
               >
                 <span className="truncate">{board.title || "(название)"}</span>
@@ -194,7 +194,7 @@ function BoardRow({
               </button>
             )}
           </div>
-          <div className="mt-1 text-xs text-neutral-500">
+          <div className="mt-1 text-xs text-text-secondary">
             {formatNumber(board.media_total)} файлов · {formatNumber(board.threads_active)} тредов ·{" "}
             {formatNumber(board.views_total)} просмотров · {formatNumber(board.downloads_total)}{" "}
             скачиваний
@@ -222,13 +222,13 @@ function BoardRow({
             title="Контент доступен только по коду"
             onChange={() => void onPatch(board.slug, { is_private: !board.is_private })}
           />
-          <span className="inline-flex items-center gap-1 rounded-lg border border-neutral-800 bg-neutral-900 px-1 py-1">
+          <span className="inline-flex items-center gap-1 rounded border border-line bg-ink-secondary px-1 py-1">
             <button
               type="button"
               disabled={position <= 1}
               onClick={() => void onMove(board.slug, -1)}
               title="Выше в очереди парсинга"
-              className="rounded px-1 text-neutral-400 transition-colors hover:text-amber-300 disabled:opacity-30"
+              className="rounded px-1 text-text-secondary transition-colors hover:text-accent-primary disabled:opacity-30"
             >
               <ChevronUpIcon className="h-4 w-4" />
             </button>
@@ -237,7 +237,7 @@ function BoardRow({
               disabled={position >= total}
               onClick={() => void onMove(board.slug, 1)}
               title="Ниже в очереди парсинга"
-              className="rounded px-1 text-neutral-400 transition-colors hover:text-amber-300 disabled:opacity-30"
+              className="rounded px-1 text-text-secondary transition-colors hover:text-accent-primary disabled:opacity-30"
             >
               <ChevronDownIcon className="h-4 w-4" />
             </button>
@@ -254,7 +254,7 @@ function BoardRow({
               if (window.confirm(msg)) void onDelete(board.slug);
             }}
             title="Удалить раздел (БД + файлы в B2)"
-            className="rounded-lg border border-red-500/30 px-1.5 py-1 text-neutral-400 transition-colors hover:border-red-500/60 hover:text-red-400"
+            className="rounded border border-accent-danger/30 px-1.5 py-1 text-text-secondary transition-colors hover:border-accent-danger/60 hover:text-accent-danger"
           >
             <TrashIcon className="h-4 w-4" />
           </button>
@@ -262,28 +262,26 @@ function BoardRow({
       </div>
 
       {/* Статистика загрузки */}
-      <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-neutral-400">
+      <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-text-secondary">
         <span>
-          В БД: <b className="text-neutral-200">{formatNumber(board.media_total)}</b>
+          В БД: <b className="text-text-primary">{formatNumber(board.media_total)}</b>
         </span>
         <span>
-          В B2: <b className="text-emerald-400">{formatNumber(board.media_in_b2)}</b>
+          В B2: <b className="text-accent-secondary">{formatNumber(board.media_in_b2)}</b>
         </span>
         <span>
-          Скачано: <b className="text-neutral-200">{formatNumber(board.media_downloaded)}</b>
+          Скачано: <b className="text-text-primary">{formatNumber(board.media_downloaded)}</b>
         </span>
         <span>
-          Пропущено: <b className="text-red-400">{formatNumber(board.media_missing)}</b>
+          Пропущено: <b className="text-accent-danger">{formatNumber(board.media_missing)}</b>
         </span>
         <span>В каталоге: {formatNumber(board.files_in_catalog)}</span>
         <span>Видимых: {formatNumber(board.media_count)}</span>
       </div>
 
-      {/* Код доступа */}
-
-      {board.is_private || board.has_access_code ? (
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-800/70 pt-3">
-          <span className={`text-xs ${board.has_access_code ? "text-emerald-400" : "text-neutral-600"}`}>
+      {/* Код доступа: задаётся заранее, до включения «По коду» */}
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
+        <span className={`text-xs ${board.has_access_code ? "text-accent-secondary" : "text-text-muted"}`}>
             {board.has_access_code ? "код задан" : "код не задан"}
           </span>
           <input
@@ -291,7 +289,7 @@ function BoardRow({
             value={codes[board.slug] ?? ""}
             onChange={(e) => onSetCodes((prev) => ({ ...prev, [board.slug]: e.target.value }))}
             placeholder="Новый код"
-            className="w-40 rounded-lg border border-neutral-700 bg-neutral-900 px-2.5 py-1.5 text-xs text-neutral-100 outline-none placeholder:text-neutral-600 focus:border-amber-500"
+            className="w-40 rounded border border-line bg-ink-secondary px-2.5 py-1.5 text-xs text-text-primary outline-none placeholder:text-text-muted focus:border-accent-primary"
           />
           <button
             type="button"
@@ -306,15 +304,14 @@ function BoardRow({
               type="button"
               disabled={busyKey === board.slug}
               onClick={() => void onPatch(board.slug, { access_code: "" })}
-              className="px-2 py-1.5 text-xs text-neutral-500 transition-colors hover:text-red-400"
+              className="px-2 py-1.5 text-xs text-text-secondary transition-colors hover:text-accent-danger"
             >
               Сбросить
             </button>
           ) : null}
         </div>
-      ) : null}
       {rowError[board.slug] ? (
-        <div className="mt-2 text-xs text-red-400">{rowError[board.slug]}</div>
+        <div className="mt-2 text-xs text-accent-danger">{rowError[board.slug]}</div>
       ) : null}
     </div>
   );
@@ -351,14 +348,14 @@ export function ForumTab({
           value={query}
           onChange={(e) => onQuery(e.target.value)}
           placeholder="Поиск по slug / названию / категории"
-          className="w-72 rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 outline-none transition-colors placeholder:text-neutral-600 focus:border-amber-500"
+          className="w-72 rounded border border-line bg-ink-secondary px-3 py-2 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-accent-primary"
         />
         <button type="button" onClick={onRefresh} disabled={loading} className="btn-ghost">
           {loading ? <SpinnerIcon className="h-4 w-4" /> : null}
           Обновить список
         </button>
         {forum ? (
-          <span className="text-xs text-neutral-500">
+          <span className="text-xs text-text-secondary">
             Всего досок на форуме: {formatNumber(forum.length)} · показано:{" "}
             {formatNumber(filtered.length)}
           </span>
@@ -366,40 +363,40 @@ export function ForumTab({
       </div>
 
       {loading && !forum ? (
-        <p className="py-8 text-center text-sm text-neutral-400">Сканируем доски форума…</p>
+        <p className="py-8 text-center text-sm text-text-secondary">Сканируем доски форума…</p>
       ) : forum === null ? (
-        <p className="py-8 text-center text-sm text-neutral-500">
+        <p className="py-8 text-center text-sm text-text-secondary">
           Список досок форума недоступен (сервер не ответил).
         </p>
       ) : filtered.length === 0 ? (
-        <p className="py-8 text-center text-sm text-neutral-500">Ничего не найдено.</p>
+        <p className="py-8 text-center text-sm text-text-secondary">Ничего не найдено.</p>
       ) : (
         <div className="flex flex-col gap-2">
           {filtered.map((f) => (
             <div
               key={f.slug}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-neutral-800 bg-neutral-900/40 px-3 py-2"
+              className="flex flex-wrap items-center justify-between gap-2 rounded border border-line bg-ink-secondary px-3 py-2"
             >
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-semibold text-neutral-100">/{f.slug}</span>
-                  {f.name ? <span className="truncate text-sm text-neutral-400">{f.name}</span> : null}
+                  <span className="font-semibold text-text-primary">/{f.slug}</span>
+                  {f.name ? <span className="truncate text-sm text-text-secondary">{f.name}</span> : null}
                   {f.category ? (
-                    <span className="rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] text-neutral-500">
+                    <span className="rounded bg-ink-tertiary px-1.5 py-0.5 text-[10px] text-text-secondary">
                       {f.category}
                     </span>
                   ) : null}
                   {f.in_db ? (
-                    <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-400">
+                    <span className="rounded bg-accent-secondary/10 px-1.5 py-0.5 text-[10px] text-accent-secondary">
                       в системе
                     </span>
                   ) : (
-                    <span className="rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] text-neutral-500">
+                    <span className="rounded bg-ink-tertiary px-1.5 py-0.5 text-[10px] text-text-secondary">
                       не добавлена
                     </span>
                   )}
                 </div>
-                <div className="mt-0.5 text-xs text-neutral-500">
+                <div className="mt-0.5 text-xs text-text-secondary">
                   на форуме: {formatNumber(f.threads_on_forum)} тредов
                   {f.in_db ? (
                     <>
@@ -411,7 +408,7 @@ export function ForumTab({
                 </div>
               </div>
               {f.in_db ? (
-                <Link href={`/admin/boards/${f.slug}`} className="text-xs text-amber-300 hover:text-amber-200">
+                <Link href={`/admin/boards/${f.slug}`} className="text-xs text-accent-primary hover:text-amber-200">
                   Управлять →
                 </Link>
               ) : (

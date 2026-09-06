@@ -23,7 +23,7 @@ import type {
 } from "./types";
 
 const REVALIDATE = {
-  boards: 300, // 5 мин
+  boards: 30, // 30 сек: главная быстро отражает приватность/скрытие досок
   feed: 60, // 1 мин
   board: 60, // 1 мин
   top: 120, // 2 мин

@@ -244,7 +244,7 @@ export default function AdminConsole() {
     return (
       <div className="mx-auto max-w-md py-10">
         <h2 className="text-xl font-bold">Вход в админ-панель</h2>
-        <p className="mt-1 text-sm text-neutral-500">Введите admin-токен (ADMIN_TOKEN из .env).</p>
+        <p className="mt-1 text-sm text-text-secondary">Введите admin-токен (ADMIN_TOKEN из .env).</p>
         <form onSubmit={login} className="mt-5 flex flex-col gap-3">
           <input
             type="password"
@@ -252,12 +252,12 @@ export default function AdminConsole() {
             onChange={(e) => setLoginInput(e.target.value)}
             placeholder="Admin-токен"
             autoFocus
-            className="rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 outline-none transition-colors placeholder:text-neutral-600 focus:border-amber-500"
+            className="rounded border border-line bg-ink-secondary px-3 py-2 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-accent-primary"
           />
           <button type="submit" disabled={!loginInput.trim()} className="btn-primary">
             Войти
           </button>
-          {globalError ? <p className="text-sm text-red-400">{globalError}</p> : null}
+          {globalError ? <p className="text-sm text-accent-danger">{globalError}</p> : null}
         </form>
       </div>
     );
@@ -268,17 +268,17 @@ export default function AdminConsole() {
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold">Центр управления контентом</h2>
-          <p className="mt-0.5 text-xs text-neutral-500">
+          <p className="mt-0.5 text-xs text-text-secondary">
             Статистика обновляется автоматически ({POLL_MS / 1000} с), без перезагрузки.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex overflow-hidden rounded-lg border border-neutral-800">
+          <div className="flex overflow-hidden rounded border border-line">
             <button
               type="button"
               onClick={() => setTab("boards")}
               className={`px-3 py-1.5 text-sm transition-colors ${
-                tab === "boards" ? "bg-neutral-800 text-amber-300" : "text-neutral-400 hover:text-white"
+                tab === "boards" ? "bg-ink-tertiary text-accent-primary" : "text-text-secondary hover:text-white"
               }`}
             >
               Мои разделы
@@ -287,7 +287,7 @@ export default function AdminConsole() {
               type="button"
               onClick={() => setTab("forum")}
               className={`px-3 py-1.5 text-sm transition-colors ${
-                tab === "forum" ? "bg-neutral-800 text-amber-300" : "text-neutral-400 hover:text-white"
+                tab === "forum" ? "bg-ink-tertiary text-accent-primary" : "text-text-secondary hover:text-white"
               }`}
             >
               Доски форума
@@ -309,7 +309,7 @@ export default function AdminConsole() {
               <button
                 type="button"
                 onClick={() => void resetAll()}
-                className="rounded-lg border border-red-500/40 px-3 py-1.5 text-xs text-red-400 transition-colors hover:bg-red-500/10"
+                className="rounded border border-accent-danger/40 px-3 py-1.5 text-xs text-accent-danger transition-colors hover:bg-accent-danger/10"
                 title="Удалить все разделы и файлы"
               >
                 Сбросить всё
@@ -320,7 +320,7 @@ export default function AdminConsole() {
       </div>
 
       {globalError ? (
-        <p className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+        <p className="mb-4 rounded border border-accent-danger/30 bg-red-500/10 px-3 py-2 text-sm text-accent-danger">
           {globalError}
         </p>
       ) : null}
@@ -347,7 +347,7 @@ export default function AdminConsole() {
               value={newSlug}
               onChange={(e) => setNewSlug(e.target.value)}
               placeholder="slug новой доски, например abc"
-              className="w-56 rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 outline-none transition-colors placeholder:text-neutral-600 focus:border-amber-500"
+              className="w-56 rounded border border-line bg-ink-secondary px-3 py-2 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-accent-primary"
             />
             <button type="submit" disabled={creating || !newSlug.trim()} className="btn-ghost">
               {creating ? <SpinnerIcon className="h-4 w-4" /> : <PlusIcon className="h-4 w-4" />}
@@ -403,9 +403,9 @@ function TotalsBar({ totals }: { totals: SystemTotals }) {
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
       {items.map(([label, value]) => (
-        <div key={label} className="rounded-xl border border-neutral-800 bg-neutral-900/40 px-3 py-2">
-          <div className="text-[11px] uppercase tracking-wider text-neutral-500">{label}</div>
-          <div className="mt-0.5 text-base font-semibold tabular-nums text-neutral-100">{value}</div>
+        <div key={label} className="rounded border border-line bg-ink-secondary px-3 py-2">
+          <div className="text-[11px] uppercase tracking-wider text-text-secondary">{label}</div>
+          <div className="mt-0.5 text-base font-semibold tabular-nums text-text-primary">{value}</div>
         </div>
       ))}
     </div>
@@ -426,7 +426,7 @@ function QueueStatus({
   const current = overview.parser_current_board;
 
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-neutral-800 bg-neutral-900/40 px-3 py-2 text-sm">
+    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded border border-line bg-ink-secondary px-3 py-2 text-sm">
       <span className="flex items-center gap-2">
         <span
           className={`h-2 w-2 rounded-full ${
@@ -441,9 +441,9 @@ function QueueStatus({
           className={
             overview.parser_up
               ? overview.parser_alive
-                ? "text-neutral-200"
-                : "text-amber-300"
-              : "text-neutral-500"
+                ? "text-text-primary"
+                : "text-accent-primary"
+              : "text-text-secondary"
           }
         >
           {!overview.parser_up
@@ -455,7 +455,7 @@ function QueueStatus({
       </span>
 
       {!overview.parser_up ? (
-        <span className="text-xs text-neutral-600">
+        <span className="text-xs text-text-muted">
           демон не запущен — выполните: docker compose -f docker-compose.prod.yml start parser
         </span>
       ) : overview.parser_enabled ? (
@@ -469,20 +469,20 @@ function QueueStatus({
       )}
 
       {overview.parser_alive && current ? (
-        <span className="text-neutral-300">
-          сейчас парсит: <b className="text-amber-300">/{current}</b>
+        <span className="text-text-primary">
+          сейчас парсит: <b className="text-accent-primary">/{current}</b>
         </span>
       ) : null}
 
-      <span className="text-neutral-500">
+      <span className="text-text-secondary">
         очередь ({formatNumber(parsed.length)}):{" "}
         {parsed.length === 0 ? (
-          <span className="text-neutral-600">нет досок с включённым парсингом</span>
+          <span className="text-text-muted">нет досок с включённым парсингом</span>
         ) : (
           parsed.map((b, i) => (
             <span key={b.slug}>
               {i > 0 ? " → " : ""}
-              <span className={b.slug === current ? "font-semibold text-amber-300" : "text-neutral-400"}>
+              <span className={b.slug === current ? "font-semibold text-accent-primary" : "text-text-secondary"}>
                 /{b.slug}
               </span>
             </span>

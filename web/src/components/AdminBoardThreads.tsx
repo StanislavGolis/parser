@@ -50,38 +50,38 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
   }, [token, load]);
 
   if (!token) {
-    return <p className="py-10 text-center text-sm text-neutral-500">Требуется вход в админ-панель.</p>;
+    return <p className="py-10 text-center text-sm text-text-secondary">Требуется вход в админ-панель.</p>;
   }
 
   return (
     <div>
-      {error ? <p className="mb-4 text-sm text-red-400">{error}</p> : null}
+      {error ? <p className="mb-4 text-sm text-accent-danger">{error}</p> : null}
       {threads === null ? (
-        <p className="py-8 text-center text-sm text-neutral-500">Загружаем треды…</p>
+        <p className="py-8 text-center text-sm text-text-secondary">Загружаем треды…</p>
       ) : threads.length === 0 ? (
-        <p className="py-8 text-center text-sm text-neutral-500">Треды ещё не просканированы.</p>
+        <p className="py-8 text-center text-sm text-text-secondary">Треды ещё не просканированы.</p>
       ) : (
         <>
           <div className="flex flex-col gap-2">
             {threads.map((t) => (
               <div
                 key={t.thread_id}
-                className="rounded-xl border border-neutral-800 bg-neutral-900/40 px-4 py-3"
+                className="rounded border border-line bg-ink-secondary px-4 py-3"
               >
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-200">
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-text-primary">
                     {t.subject?.trim() || `Тред №${t.thread_id}`}
                   </span>
-                  <span className="font-mono text-xs text-neutral-600">№{t.thread_id}</span>
+                  <span className="font-mono text-xs text-text-muted">№{t.thread_id}</span>
                 </div>
-                <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-400">
+                <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-secondary">
                   <span>каталог: {formatNumber(t.files_count)}</span>
                   <span>в БД: {formatNumber(t.media_total)}</span>
                   <span>в B2: {formatNumber(t.media_in_b2)}</span>
                   <span>скачано: {formatNumber(t.media_downloaded)}</span>
                   <span>пропущено: {formatNumber(t.media_missing)}</span>
                   <span>видимых: {formatNumber(t.media_visible)}</span>
-                  <span className="text-neutral-600">постов: {formatNumber(t.posts_count)}</span>
+                  <span className="text-text-muted">постов: {formatNumber(t.posts_count)}</span>
                 </div>
               </div>
             ))}

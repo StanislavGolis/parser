@@ -40,7 +40,7 @@ export default function QueryTabs({ param, options, defaultValue = "", ariaLabel
     <div
       role="tablist"
       aria-label={ariaLabel}
-      className="inline-flex flex-wrap items-center gap-1 rounded-xl border border-neutral-800 bg-neutral-900/70 p-1"
+      className="inline-flex flex-wrap items-center gap-1 rounded border border-line bg-ink-secondary/70 p-1"
     >
       {options.map((opt) => {
         const active = current === opt.value;
@@ -51,10 +51,10 @@ export default function QueryTabs({ param, options, defaultValue = "", ariaLabel
             role="tab"
             aria-selected={active}
             onClick={() => select(opt.value)}
-            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+            className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
               active
-                ? "bg-amber-500 text-neutral-950"
-                : "text-neutral-300 hover:bg-neutral-800 hover:text-white"
+                ? "bg-accent-primary text-ink-primary"
+                : "text-text-primary hover:bg-ink-tertiary hover:text-white"
             }`}
           >
             {opt.label}

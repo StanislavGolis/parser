@@ -39,35 +39,42 @@ export default function AccessGate({
   }
 
   return (
-    <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-neutral-700 bg-neutral-900/40 px-6 py-16 text-center">
-      <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-500/15 text-amber-300">
-        <LockIcon className="h-7 w-7" />
+    <div className="mx-auto mt-8 flex w-full max-w-md flex-col items-center gap-4 rounded border border-line bg-ink-secondary px-6 py-12 text-center">
+      <span className="flex h-10 w-10 items-center justify-center rounded border border-accent-warning/40 text-accent-warning">
+        <LockIcon className="h-5 w-5" />
       </span>
+
       <div>
-        <h2 className="text-lg font-semibold text-neutral-100">
-          {title ? `/${slug} — ${title}` : `/${slug}`} — закрытый раздел
+        <h2 className="font-mono text-sm font-bold uppercase tracking-[0.12em] text-text-primary">
+          приватная доска
         </h2>
-        {description ? <p className="mt-1 text-sm text-neutral-400">{description}</p> : null}
-        <p className="mt-1 text-sm text-neutral-500">
-          Раздел доступен только по коду. Введите код, чтобы открыть контент.
+        <p className="mt-1 font-mono text-[11px] text-text-muted">
+          /{slug}
+          {title ? ` — ${title}` : ""}
+        </p>
+        {description ? (
+          <p className="mt-2 text-sm text-text-secondary">{description}</p>
+        ) : null}
+        <p className="mt-3 text-sm text-text-secondary">
+          Для доступа введите код. Доступ сохранится на 24 часа.
         </p>
       </div>
 
-      <form onSubmit={submit} className="flex w-full max-w-sm flex-col gap-3 sm:flex-row">
+      <form onSubmit={submit} className="flex w-full flex-col gap-3">
         <input
           type="password"
           value={code}
           onChange={(e) => setCode(e.target.value)}
           placeholder="Код доступа"
           autoFocus
-          className="flex-1 rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 outline-none transition-colors placeholder:text-neutral-600 focus:border-amber-500"
+          className="input-sluice w-full"
         />
         <button type="submit" disabled={busy || !code.trim()} className="btn-primary">
           {busy ? <SpinnerIcon className="h-4 w-4" /> : <LockIcon className="h-4 w-4" />}
-          Открыть
+          Войти
         </button>
       </form>
-      {error ? <p className="text-sm text-red-400">{error}</p> : null}
+      {error ? <p className="text-sm text-accent-danger">{error}</p> : null}
     </div>
   );
 }
