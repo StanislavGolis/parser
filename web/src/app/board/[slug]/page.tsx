@@ -44,7 +44,7 @@ export default async function BoardPage({ params }: BoardPageProps) {
   }
 
   return (
-    <div className="container-site py-6 sm:py-8">
+    <div className="py-6 sm:py-8">
       <BoardHeader board={board} slug={slug} threadsTotal={list.total} />
       {accessRequired ? (
         <AccessGate slug={slug} title={board?.title} description={board?.description} />
@@ -57,15 +57,17 @@ export default async function BoardPage({ params }: BoardPageProps) {
 
 function BoardHeader({ board, slug, threadsTotal }: { board?: Board; slug: string; threadsTotal: number }) {
   return (
-    <div className="mb-6">
-      <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight sm:text-3xl">
-        /{slug}
-        {board?.title ? <span className="font-normal text-neutral-500">{board.title}</span> : null}
-      </h1>
+    <div className="mb-6 border-b border-line pb-4">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h1 className="font-mono text-lg font-bold uppercase tracking-[0.12em] text-text-primary">
+          /{slug}
+        </h1>
+        {board?.title ? <span className="text-sm text-text-secondary">— {board.title}</span> : null}
+      </div>
       {board?.description ? (
-        <p className="mt-1 max-w-xl text-sm text-neutral-500">{board.description}</p>
+        <p className="mt-1 max-w-xl text-sm text-text-secondary">{board.description}</p>
       ) : null}
-      <p className="mt-2 text-sm text-neutral-400">
+      <p className="mt-2 font-mono text-[11px] text-text-muted">
         {formatNumber(threadsTotal)} {plural(threadsTotal, ["тред", "треда", "тредов"])}
       </p>
     </div>

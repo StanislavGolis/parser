@@ -1,57 +1,57 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 
-import { LockIcon } from "@/components/icons";
-import { getBoards } from "@/lib/data";
-import { formatNumber } from "@/lib/format";
+const NAV = [
+  {
+    href: "/",
+    label: "Доски",
+    match: (p: string) => p === "/" || p.startsWith("/board"),
+  },
+  { href: "/new", label: "Новинки", match: (p: string) => p === "/new" },
+  { href: "/top", label: "Популярное", match: (p: string) => p === "/top" },
+  { href: "/search", label: "Поиск", match: (p: string) => p.startsWith("/search") },
+];
 
-/**
- * Шапка сайта: навигация «Новинки / Популярное» + разделы (доски).
- * Серверный компонент: доски берутся из API с Data Cache и отдаются в HTML
- * (важно для SEO и видимости разделов).
- */
-export default async function Header() {
-  const boards = await getBoards();
+export default function Header() {
+  const pathname = usePathname();
 
   return (
-    <header className="sticky top-0 z-40 border-b border-neutral-800 bg-neutral-950/90 backdrop-blur">
-      <div className="container-site flex h-14 items-center justify-between gap-4">
-        <Link href="/" className="flex shrink-0 items-baseline gap-2" aria-label="На главную">
-          <span className="text-lg font-bold tracking-tight text-amber-400">Галерея</span>
-          <span className="hidden text-xs text-neutral-500 sm:inline">медиа с имиджборд</span>
+    <header className="sticky top-0 z-40 border-b border-line bg-ink-primary/95 backdrop-blur">
+      <div className="mx-auto flex h-16 w-full max-w-[1400px] items-center justify-between gap-6 px-4 sm:px-6">
+        {/* Логотип */}
+        <Link href="/" className="flex shrink-0 items-baseline gap-3" aria-label="SLUICE — на главную">
+          <span className="font-mono text-lg font-bold uppercase tracking-[0.15em] text-text-primary">
+            SLUICE
+          </span>
+          <span className="hidden font-mono text-[11px] lowercase text-text-muted lg:inline">
+            архив / галерея / доступ
+          </span>
         </Link>
 
-        <nav className="flex items-center gap-1 text-sm font-medium">
-          <Link href="/" className="rounded-md px-3 py-1.5 text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white">
-            Новинки
-          </Link>
-          <Link
-            href="/top"
-            className="rounded-md px-3 py-1.5 text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-white"
-          >
-            Популярное
-          </Link>
+        {/* Desktop-навигация */}
+        <nav className="flex h-full items-stretch gap-1" aria-label="Основная навигация">
+          {NAV.map((item) => {
+            const active = item.match(pathname);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={active ? "page" : undefined}
+                className={`inline-flex items-center border-b-2 px-3 text-sm transition-colors duration-150 ${
+                  active
+                    ? "border-accent-primary font-semibold text-text-primary"
+                    : "border-transparent text-text-secondary hover:text-text-primary"
+                }`}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
         </nav>
       </div>
-
-      {boards.length > 0 && (
-        <div className="container-site flex items-center gap-2 overflow-x-auto border-t border-neutral-800/70 py-2 [scrollbar-width:thin]">
-          <span className="shrink-0 text-xs uppercase tracking-wider text-neutral-500">Разделы</span>
-          {boards.map((b) => (
-            <Link
-              key={b.id}
-              href={`/board/${b.slug}`}
-              className="flex shrink-0 items-center gap-1.5 rounded-full border border-neutral-700 bg-neutral-900 px-3 py-1 text-xs text-neutral-200 transition-colors hover:border-amber-500/60 hover:text-amber-300"
-            >
-              <span className="font-semibold">/{b.slug}</span>
-              {b.is_private ? <LockIcon className="h-3 w-3 text-amber-400" /> : null}
-              <span className="max-w-28 truncate text-neutral-400">{b.title}</span>
-              <span className="rounded bg-neutral-800 px-1.5 text-[10px] text-neutral-400">
-                {formatNumber(b.media_count)}
-              </span>
-            </Link>
-          ))}
-        </div>
-      )}
     </header>
   );
 }
+

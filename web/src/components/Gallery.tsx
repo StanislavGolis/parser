@@ -18,6 +18,8 @@ interface GalleryProps {
   params?: Record<string, string>;
   perPage: number;
   boardsById?: BoardsById;
+  /** Показывать бейдж [ТОП] на карточках. */
+  showTop?: boolean;
   emptyTitle?: string;
   emptyHint?: string;
 }
@@ -32,6 +34,7 @@ export default function Gallery({
   params = {},
   perPage,
   boardsById,
+  showTop = false,
   emptyTitle,
   emptyHint,
 }: GalleryProps) {
@@ -123,6 +126,7 @@ export default function Gallery({
                 <MediaCard
                   media={media}
                   board={boardsById ? boardsById[media.board_id] : undefined}
+                  showTop={showTop}
                   onOpen={() => setOpenIndex(idx)}
                 />
               </div>
@@ -130,8 +134,8 @@ export default function Gallery({
           </div>
 
           {items.length > 0 && items.length < total ? (
-            <div className="mt-4 text-center text-xs text-neutral-500">
-              Показано {items.length} из {total}
+            <div className="mt-4 text-center font-mono text-[11px] text-text-muted">
+              показано {items.length} из {total}
             </div>
           ) : null}
         </>
@@ -139,8 +143,8 @@ export default function Gallery({
 
       {error ? (
         <div className="mt-6 flex flex-col items-center gap-3">
-          <p className="text-sm text-neutral-400">{error}</p>
-          <button type="button" onClick={retry} className="btn-ghost">
+          <p className="text-sm text-text-secondary">{error}</p>
+          <button type="button" onClick={retry} className="btn-small">
             Повторить загрузку
           </button>
         </div>
@@ -150,12 +154,12 @@ export default function Gallery({
       {hasMore && !error ? (
         <div ref={sentinelRef} className="flex min-h-16 items-center justify-center py-6">
           {loading ? (
-            <span className="inline-flex items-center gap-2 text-sm text-neutral-400">
-              <SpinnerIcon className="h-5 w-5 animate-spin" />
-              Загружаем ещё…
+            <span className="inline-flex items-center gap-2 font-mono text-[11px] text-text-secondary">
+              <SpinnerIcon className="h-4 w-4 animate-spin" />
+              загрузка ещё…
             </span>
           ) : (
-            <span className="text-xs text-neutral-600">Прокрутите ниже, чтобы загрузить ещё</span>
+            <span className="font-mono text-[11px] text-text-muted">••• прокрутите ниже</span>
           )}
         </div>
       ) : null}

@@ -2,13 +2,15 @@ import Link from "next/link";
 
 export default function Footer() {
   return (
-    <footer className="mt-16 border-t border-neutral-800">
-      <div className="container-site flex flex-col items-center justify-between gap-3 py-6 text-xs text-neutral-500 sm:flex-row">
-        <p>© {new Date().getFullYear()} Галерея — автоматический архив медиа с имиджборд.</p>
-        <nav className="flex gap-4">
-          <Link href="/" className="hover:text-neutral-300">Новинки</Link>
-          <Link href="/top" className="hover:text-neutral-300">Популярное</Link>
-          <Link href="/admin" className="hover:text-neutral-300">Админ</Link>
+    <footer className="mt-12 border-t border-line">
+      <div className="mx-auto flex w-full max-w-[1400px] flex-col items-center justify-between gap-3 px-4 py-6 sm:flex-row sm:px-6">
+        <p className="font-mono text-[11px] text-text-muted">
+          SLUICE — автоматический медиа-архив с разделов.
+        </p>
+        <nav className="flex gap-5 font-mono text-[11px] text-text-secondary" aria-label="Разделы в подвале">
+          <Link href="/" className="transition-colors hover:text-text-primary">доски</Link>
+          <Link href="/new" className="transition-colors hover:text-text-primary">новинки</Link>
+          <Link href="/top" className="transition-colors hover:text-text-primary">популярное</Link>
         </nav>
       </div>
     </footer>

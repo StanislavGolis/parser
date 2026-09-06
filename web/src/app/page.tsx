@@ -1,68 +1,33 @@
 import type { Metadata } from "next";
 
-import Gallery from "@/components/Gallery";
-import QueryTabs from "@/components/QueryTabs";
-import { getBoards, getFeedPage } from "@/lib/data";
-import { formatNumber, plural } from "@/lib/format";
-import type { MediaType } from "@/lib/types";
+import BoardsCatalog from "@/components/BoardsCatalog";
+import { getBoards } from "@/lib/data";
+import { formatNumber } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-const PER_PAGE = 30;
+export const metadata: Metadata = {
+  title: "Доски",
+};
 
-const TYPE_OPTIONS = [
-  { value: "", label: "Всё" },
-  { value: "image", label: "Картинки" },
-  { value: "video", label: "Видео" },
-];
-
-function mediaType(value?: string | string[]): MediaType | null {
-  const v = Array.isArray(value) ? value[0] : value;
-  return v === "image" || v === "video" ? v : null;
-}
-
-interface HomeProps {
-  searchParams: { type?: string | string[] };
-}
-
-export function generateMetadata(): Metadata {
-  return { title: "Новинки" };
-}
-
-export default async function HomePage({ searchParams }: HomeProps) {
-  const type = mediaType(searchParams?.type);
-
-  const [feed, boards] = await Promise.all([getFeedPage(1, PER_PAGE, type), getBoards()]);
-  const boardsById = Object.fromEntries(boards.map((b) => [b.id, b]));
-
-  const heading =
-    type === "image" ? "Новые картинки" : type === "video" ? "Новые видео" : "Новинки";
+export default async function HomePage() {
+  const boards = await getBoards();
+  const totalFiles = boards.reduce((sum, b) => sum + (b.media_count || 0), 0);
 
   return (
-    <div className="container-site py-6 sm:py-8">
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{heading}</h1>
-          <p className="mt-1 text-sm text-neutral-500">
-            Последние файлы со всех разделов ·{" "}
-            <span className="font-medium text-neutral-300">
-              {formatNumber(feed.total)} {plural(feed.total, ["файл", "файла", "файлов"])}
-            </span>
-          </p>
-        </div>
-        <QueryTabs param="type" options={TYPE_OPTIONS} defaultValue="" ariaLabel="Тип контента" />
+    <div className="py-6 sm:py-8">
+      {/* Заголовок-раздел */}
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-3">
+        <h1 className="sluice-title">архив // доски</h1>
+        <span className="font-mono text-[11px] text-text-muted">
+          {formatNumber(boards.length)} досок · {formatNumber(totalFiles)} файлов
+        </span>
       </div>
+      <p className="mb-6 text-sm text-text-secondary">
+        Разделы-архивы. Внутри каждого — треды и файлы с раздела.
+      </p>
 
-      <Gallery
-        key={`feed-${type ?? "all"}`}
-        initial={feed}
-        apiPath="/api/v1/feed"
-        params={type ? { type } : {}}
-        perPage={PER_PAGE}
-        boardsById={boardsById}
-        emptyTitle="Пока нет файлов"
-        emptyHint="Новые файлы появятся здесь после следующего прохода парсера."
-      />
+      <BoardsCatalog boards={boards} />
     </div>
   );
 }

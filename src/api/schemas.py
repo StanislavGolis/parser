@@ -123,6 +123,9 @@ class MediaOut(BaseModel):
     downloads_count: int
     popularity_score: float
     created_at: datetime
+    # Технические данные (для техпанели lightbox)
+    source_md5: Optional[str] = None
+    file_hash: Optional[str] = None
     url: Optional[str] = None  # подписанный URL (для media/{id} и download)
 
 

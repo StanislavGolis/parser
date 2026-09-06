@@ -11,31 +11,80 @@ html {
 }
 
 body {
-  @apply bg-neutral-950 text-neutral-100 antialiased;
+  background-color: #0a0c0f;
+  color: #c7d0d9;
 }
+
+::selection {
+  background: rgba(255, 74, 28, 0.35);
+}
+
+/* ── Утилиты и переиспользуемые элементы ─────────────────────── */
 
 @layer components {
   .container-site {
     @apply mx-auto w-full max-w-7xl px-4 sm:px-6;
   }
 
+  /* Заголовок-раздел в стиле SLUICE: mono, uppercase */
+  .sluice-title {
+    @apply font-mono text-xs font-bold uppercase tracking-[0.12em] text-text-secondary;
+  }
+
+  /* Основная кнопка (акцент) */
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors bg-amber-500 text-neutral-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 rounded border-0 bg-accent-primary px-4 py-2 text-sm font-semibold text-ink-primary transition-[filter] duration-150 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
+  /* Вторичная кнопка (рамка) */
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors border border-neutral-700 bg-neutral-800/60 text-neutral-200 hover:bg-neutral-700;
+    @apply inline-flex items-center justify-center gap-2 rounded border border-line bg-transparent px-4 py-2 text-sm font-medium text-text-primary transition-colors duration-150 hover:border-line-hover hover:bg-ink-tertiary disabled:cursor-not-allowed disabled:opacity-50;
   }
 
+  /* Малая кнопка */
+  .btn-small {
+    @apply inline-flex items-center justify-center gap-2 rounded border border-line bg-ink-secondary px-3.5 py-2 text-xs font-medium text-text-secondary transition-colors duration-150 hover:border-line-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  /* Бейдж-статус */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-[3px] border px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider;
+  }
+  .badge-ok {
+    @apply border-accent-secondary text-accent-secondary;
+  }
+  .badge-warn {
+    @apply border-accent-warning text-accent-warning;
+  }
+  .badge-muted {
+    @apply border-text-muted text-text-muted;
+  }
+  .badge-hot {
+    @apply border-accent-primary text-accent-primary;
+  }
+
+  /* Универсальный chip (используется в лентах) */
   .chip {
-    @apply inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium;
+    @apply inline-flex items-center gap-1 rounded bg-ink-secondary px-2 py-0.5 text-xs font-medium text-text-secondary;
   }
 
-  /* Masonry-колонки без внешних зависимостей */
+  /* Поле ввода */
+  .input-sluice {
+    @apply rounded border border-line bg-ink-secondary px-3 py-2 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-line-hover;
+  }
+
+  /* Кнопка-переключатель фильтра */
+  .filter-btn {
+    @apply rounded border border-line bg-transparent px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:border-line-hover hover:text-text-primary;
+  }
+  .filter-btn-active {
+    @apply border-line-hover bg-ink-tertiary text-text-primary;
+  }
+
+  /* Masonry-колонки */
   .masonry {
     @apply columns-2 gap-3 sm:columns-3 lg:columns-4 xl:columns-5;
   }
-
   .masonry-item {
     @apply mb-3 break-inside-avoid;
   }

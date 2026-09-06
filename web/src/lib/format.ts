@@ -12,6 +12,24 @@ export function formatNumber(n: number): string {
   return new Intl.NumberFormat("ru-RU").format(n);
 }
 
+/** Компактные счётчики в стиле SLUICE: 340 / 1.2к / 15.3к / 1.1М. */
+export function formatCompact(n: number): string {
+  if (!Number.isFinite(n)) return "0";
+  const abs = Math.abs(n);
+  if (abs < 1000) return String(n);
+  const units: Array<[number, string]> = [
+    [1_000_000, "М"],
+    [1000, "к"],
+  ];
+  for (const [div, suffix] of units) {
+    if (abs >= div) {
+      const v = n / div;
+      return `${v.toFixed(v < 10 ? 1 : 0).replace(".", ",")}${suffix}`;
+    }
+  }
+  return String(n);
+}
+
 function toDate(iso: string): Date {
   // API отдаёт UTC-время без таймзоны — добавляем 'Z', чтобы не трактовать как локальное.
   const s = /(?:Z|[+-]\d{2}:?\d{2})$/.test(iso) ? iso : `${iso}Z`;

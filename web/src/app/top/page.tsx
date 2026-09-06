@@ -55,21 +55,21 @@ export default async function TopPage({
     total: items.length,
   };
 
+  const periodLabel: Record<PeriodKey, string> = { day: "день", week: "неделя", month: "месяц" };
+
   return (
-    <div className="container-site py-6 sm:py-8">
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Популярное</h1>
-          <p className="mt-1 text-sm text-neutral-500">
-            Самые просматриваемые файлы ·{" "}
-            <span className="font-medium text-neutral-300">{formatNumber(items.length)}</span>
-          </p>
-        </div>
+    <div className="py-6 sm:py-8">
+      <div className="mb-2 flex flex-wrap items-end justify-between gap-3">
+        <h1 className="sluice-title">топ // {periodLabel[p]}</h1>
         <div className="flex flex-wrap items-center gap-2">
           <QueryTabs param="period" options={PERIOD_OPTIONS} defaultValue="day" ariaLabel="Период" />
           <QueryTabs param="type" options={TYPE_OPTIONS} defaultValue="" ariaLabel="Тип контента" />
         </div>
       </div>
+      <p className="mb-6 text-sm text-text-secondary">
+        самые просматриваемые файлы ·{" "}
+        <span className="font-mono text-text-primary">{formatNumber(items.length)}</span>
+      </p>
 
       <Gallery
         key={`top-${p}-${type ?? "all"}`}
@@ -78,6 +78,7 @@ export default async function TopPage({
         params={{ period: p, ...(type ? { type } : {}) }}
         perPage={Math.max(items.length, 1)}
         boardsById={boardsById}
+        showTop
         emptyTitle="Пока ничего не набрало просмотры"
         emptyHint="Загляните позже — статистика обновляется регулярно."
       />

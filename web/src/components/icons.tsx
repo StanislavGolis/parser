@@ -162,3 +162,40 @@ export function TrashIcon(props: IconProps) {
     </svg>
   );
 }
+
+export function LayersIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="m12 2 8.5 4.5L12 11 3.5 6.5 12 2Z" />
+      <path d="m3.5 12 8.5 4.5 8.5-4.5" />
+      <path d="m3.5 17.5 8.5 4.5 8.5-4.5" />
+    </svg>
+  );
+}
+
+export function StarIcon(props: IconProps) {
+  return (
+    <svg {...base(props)} fill="currentColor" stroke="none">
+      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2Z" />
+    </svg>
+  );
+}
+
+export function ImageIcon2(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+      <circle cx="9" cy="9" r="2" />
+      <path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21" />
+    </svg>
+  );
+}
+
+export function SearchIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m21 21-4.3-4.3" />
+    </svg>
+  );
+}

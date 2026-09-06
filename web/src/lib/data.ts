@@ -92,6 +92,18 @@ export async function getBoardThreads(
   return serverFetch<ThreadList>(`/api/v1/boards/${encodeURIComponent(slug)}/threads?${q}`, REVALIDATE.board, fallback);
 }
 
+export async function getSearchPage(
+  q: string,
+  page: number,
+  perPage: number,
+  type?: MediaType | null,
+): Promise<MediaList> {
+  const params = new URLSearchParams({ q, page: String(page), per_page: String(perPage) });
+  if (type) params.set("type", type);
+  const fallback: MediaList = { items: [], page, per_page: perPage, total: 0 };
+  return serverFetch<MediaList>(`/api/v1/search?${params}`, REVALIDATE.board, fallback);
+}
+
 export async function getTopMedia(
   period: PeriodKey,
   type?: MediaType | null,

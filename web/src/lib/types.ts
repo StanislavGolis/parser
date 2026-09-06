@@ -108,6 +108,8 @@ export interface MediaItem {
   downloads_count: number;
   popularity_score: number;
   created_at: string;
+  source_md5?: string | null;
+  file_hash?: string | null;
   /** Подписанный URL на файл в B2 (может отсутствовать, если B2 не настроен). */
   url: string | null;
 }

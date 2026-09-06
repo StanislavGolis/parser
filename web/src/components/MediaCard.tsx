@@ -1,105 +1,123 @@
-import { EyeIcon, FilmIcon, ImageIcon, PlayIcon } from "@/components/icons";
-import When from "@/components/When";
-import { formatBytes, formatNumber } from "@/lib/format";
+"use client";
+
+import { useEffect, useState } from "react";
+
+import {
+  EyeIcon,
+  FilmIcon,
+  ImageIcon,
+  PlayIcon,
+} from "@/components/icons";
+import { formatBytes, formatCompact } from "@/lib/format";
 import type { Board, MediaItem } from "@/lib/types";
 
 interface MediaCardProps {
   media: MediaItem;
   board?: Board | null;
+  /** Показывать бейдж [ТОП] (для ленты «Популярное»). */
+  showTop?: boolean;
   onOpen: () => void;
 }
 
+function aspectOf(media: MediaItem): string {
+  if (media.width && media.height) return `${media.width} / ${media.height}`;
+  return media.media_type === "video" ? "16 / 9" : "1 / 1";
+}
+
 /**
- * Плитка в masonry-сетке: превью изображения или первый кадр видео,
- * метки (тип, доска, просмотры) и имя файла.
+ * Карточка медиа в стиле SLUICE: превью фото/видео (браузерный кадр) +
+ * строка метаданных mono. При недоступности файла — аккуратный плейсхолдер.
  */
-export default function MediaCard({ media, board, onOpen }: MediaCardProps) {
-  const hasDims = Boolean(media.width && media.height);
-  const aspect =
-    hasDims && media.width && media.height
-      ? `${media.width}/${media.height}`
-      : media.media_type === "video"
-        ? "16 / 9"
-        : undefined;
+export default function MediaCard({ media, board, showTop = false, onOpen }: MediaCardProps) {
+  const [failed, setFailed] = useState(false);
+  const aspect = aspectOf(media);
+
+  // Сброс состояния при смене файла (перелистывание/подгрузка)
+  useEffect(() => {
+    setFailed(false);
+  }, [media.id, media.url]);
+
+  const canShow = Boolean(media.url) && !failed;
+  const isVideo = media.media_type === "video";
 
   return (
     <button
       type="button"
       onClick={onOpen}
       aria-label={`Открыть: ${media.original_name}`}
-      className="group block w-full cursor-pointer rounded-xl text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+      className="group block w-full cursor-pointer rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
     >
-      <span className="relative block w-full overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900 transition-colors group-hover:border-neutral-600">
-        {media.url ? (
-          media.media_type === "image" ? (
-            <img
-              src={media.url}
-              alt={media.original_name}
-              loading="lazy"
-              decoding="async"
-              referrerPolicy="no-referrer"
-              className="block w-full h-auto object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+      {/* Превью */}
+      <span
+        className="relative block w-full overflow-hidden rounded border border-line bg-ink-secondary transition-colors duration-150 group-hover:border-accent-primary"
+        style={{ aspectRatio: aspect }}
+      >
+        {canShow && !isVideo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={media.url ?? undefined}
+            alt={media.original_name}
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
+            onError={() => setFailed(true)}
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        ) : canShow && isVideo ? (
+          <>
+            {/* Браузерный кадр видео (preload=metadata) */}
+            <video
+              src={media.url ?? undefined}
+              muted
+              playsInline
+              preload="metadata"
+              aria-label={media.original_name}
+              onError={() => setFailed(true)}
+              className="absolute inset-0 h-full w-full object-cover"
             />
-          ) : (
-            <span
-              className="relative block w-full overflow-hidden bg-neutral-900"
-              style={{ aspectRatio: aspect }}
-            >
-              <video
-                src={media.url}
-                muted
-                playsInline
-                preload="metadata"
-                aria-label={media.original_name}
-                className="absolute inset-0 h-full w-full object-contain"
-              />
-              <span className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-90 transition-opacity group-hover:opacity-100">
-                <span className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/90 text-neutral-950 shadow-lg">
-                  <PlayIcon className="h-6 w-6 translate-x-0.5" />
-                </span>
+            <span className="absolute inset-0 flex items-center justify-center bg-black/35 transition-opacity group-hover:bg-black/25">
+              <span className="flex h-11 w-11 items-center justify-center rounded bg-accent-primary text-ink-primary">
+                <PlayIcon className="h-5 w-5 translate-x-0.5" />
               </span>
             </span>
-          )
+          </>
         ) : (
-          <span
-            className="relative flex w-full items-center justify-center bg-neutral-900"
-            style={{ aspectRatio: aspect ?? "1 / 1" }}
-          >
-            <ImageIcon className="h-8 w-8 text-neutral-700" />
+          /* Плейсхолдер: нет URL или файл недоступен (лимиты B2 и т.п.) */
+          <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-ink-secondary">
+            {isVideo ? <FilmIcon className="h-6 w-6 text-text-muted" /> : <ImageIcon className="h-6 w-6 text-text-muted" />}
+            <span className="badge badge-muted">недоступно</span>
           </span>
         )}
 
-        {/* Верхние метки */}
-        <span className="absolute left-2 top-2 flex items-center gap-1.5">
-          {board ? (
-            <span className="rounded-md bg-black/55 px-1.5 py-0.5 text-[11px] font-semibold text-amber-300 backdrop-blur-sm">
-              /{board.slug}
-            </span>
-          ) : null}
+        {/* Бейджи поверх превью */}
+        <span className="absolute left-1.5 top-1.5 flex items-center gap-1">
+          {showTop ? <span className="badge badge-hot">топ</span> : null}
         </span>
-        <span className="absolute right-2 top-2 flex items-center gap-1.5">
-          {media.media_type === "video" ? (
-            <span className="chip bg-black/60 text-neutral-200 backdrop-blur-sm">
-              <FilmIcon className="h-3 w-3" />
-              видео
-            </span>
-          ) : null}
-          <span className="chip bg-black/60 text-neutral-200 backdrop-blur-sm">
-            <EyeIcon className="h-3 w-3" />
-            {formatNumber(media.views_count)}
+        {isVideo && canShow ? (
+          <span className="absolute bottom-1.5 right-1.5 flex items-center gap-1 rounded-[3px] bg-black/60 px-1.5 py-0.5 font-mono text-[10px] text-text-primary">
+            <PlayIcon className="h-2.5 w-2.5" />
+            видео
           </span>
-        </span>
+        ) : null}
       </span>
 
+      {/* Метаданные (mono) */}
       <span className="mt-1.5 block px-0.5">
-        <span className="block truncate text-[13px] text-neutral-300" title={media.original_name}>
-          {media.original_name}
+        <span className="block truncate font-mono text-[11px] text-text-muted" title={media.original_name}>
+          {board ? `/${board.slug}` : `#${media.board_id}`} · {media.original_name}
         </span>
-        <span className="mt-0.5 flex items-center justify-between gap-2 text-[11px] text-neutral-500">
-          <When iso={media.created_at} />
-          <span>{formatBytes(media.file_size)}</span>
+        <span className="mt-0.5 flex items-center justify-between font-mono text-[11px] text-text-muted">
+          <span>
+            {formatBytes(media.file_size)}
+            {media.width && media.height ? ` · ${media.width}×${media.height}` : ""}
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <EyeIcon className="h-3 w-3" />
+            {formatCompact(media.views_count)}
+          </span>
         </span>
       </span>
     </button>
   );
 }
+
