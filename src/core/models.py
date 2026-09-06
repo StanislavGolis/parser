@@ -71,6 +71,7 @@ class Media(Base):
 
     b2_bucket = Column(String(255), nullable=True)
     b2_key = Column(String(500), nullable=True, index=True)
+    local_path = Column(String(500), nullable=True)  # относительный путь в локальном кэше
 
     width = Column(Integer, nullable=True)
     height = Column(Integer, nullable=True)

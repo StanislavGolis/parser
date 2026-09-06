@@ -8,7 +8,7 @@
 import asyncio
 import hashlib
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import requests
 
@@ -132,4 +132,43 @@ class B2Uploader:
 
         except Exception as e:
             print(f"   ❌ Ошибка загрузки в B2: {e}")
+            return None
+
+    async def list_keys(self, prefix: str = "") -> Optional[List[str]]:
+        """Возвращает список ключей (fileNames) в бакете, постранично."""
+        if not self.is_configured or not self.auth_token or not self.bucket_id:
+            return None
+
+        try:
+            loop = asyncio.get_event_loop()
+            keys: List[str] = []
+            start_name = None
+
+            while True:
+                def _list_page():
+                    payload = {"bucketId": self.bucket_id, "maxFileCount": 1000}
+                    if prefix:
+                        payload["prefix"] = prefix
+                    if start_name:
+                        payload["startFileName"] = start_name
+                    response = requests.post(
+                        f"{self.api_url}/b2api/v1/b2_list_file_names",
+                        headers={"Authorization": self.auth_token},
+                        json=payload,
+                        timeout=60,
+                    )
+                    response.raise_for_status()
+                    return response.json()
+
+                data = await loop.run_in_executor(None, _list_page)
+                for f_obj in data.get("files") or []:
+                    keys.append(f_obj.get("fileName"))
+                start_name = data.get("nextFileName")
+                if not start_name:
+                    break
+
+            return keys
+
+        except Exception as e:
+            print(f"   ❌ Ошибка листинга B2: {e}")
             return None

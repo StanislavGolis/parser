@@ -22,6 +22,7 @@ from src.repositories.thread_state_repo import ThreadStateRepository
 from src.services.b2_uploader import B2Uploader
 from src.services.downloader import DownloaderService
 from src.services.media_validator import MediaValidator
+from src.services.reconciliation import ReconciliationService
 from src.services.storage import StorageService
 
 MIME_BY_EXT = {
@@ -320,6 +321,7 @@ class DvachParser:
                 thread_id=thread_state.thread_id,
                 original_name=meta["original_name"],
                 source_url=meta["file_url"],
+                local_path=storage_path,
                 file_hash=file_sha256,
                 source_md5=meta["md5"],
                 file_size=meta["size_bytes"],
@@ -342,3 +344,11 @@ class DvachParser:
 
         except Exception as e:
             print(f"   ❌ Ошибка при обработке {meta.get('original_name', '?')}: {e}")
+
+    # ───────────────────── Reconciliation ─────────────────────
+
+    async def run_reconciliation(self) -> None:
+        """Сверка БД с локальным кэшем и B2 (актуальность данных и хранилища)."""
+        print("🔁 Запуск сверки данных (reconciliation)...")
+        service = ReconciliationService(self.session, self.storage, self.b2_uploader)
+        await service.run()

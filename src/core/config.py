@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     # Задержки для защиты от бана
     REQUEST_DELAY: float = 0.5  # секунд между запросами
 
+    # Сверка данных (reconciliation)
+    RECONCILE_MINUTES: int = 60  # период сверки БД ↔ хранилище, 0 = только при старте
+
     # Backblaze B2
     B2_KEY_ID: str = ""
     B2_APPLICATION_KEY: str = ""
