@@ -1,99 +1,73 @@
+# src/services/media_validator.py
 import hashlib
 import io
 from typing import Optional, Tuple
-from PIL import Image
-import mimetypes  # Вместо magic
 
-from src.core.config import settings
+from PIL import Image
 
 
 class MediaValidator:
-    """Валидация и фильтрация медиафайлов"""
-    
-    # Минимальные размеры
-    MIN_IMAGE_SIZE = 50 * 1024      # 50 KB
-    MIN_VIDEO_SIZE = 1 * 1024 * 1024  # 1 MB
-    MIN_IMAGE_DIMENSION = 200       # 200x200 пикселей
-    
+    """Валидация и фильтрация медиафайлов (вторая линия, после метаданных API)."""
+
+    IMAGE_EXTS = {"jpg", "jpeg", "png", "gif", "webp", "bmp"}
+    VIDEO_EXTS = {"mp4", "webm", "mkv"}
+    ALLOWED_EXTS = IMAGE_EXTS | VIDEO_EXTS
+
+    # Минимальные размеры в байтах
+    MIN_IMAGE_SIZE = 50 * 1024        # 50 КБ
+    MIN_VIDEO_SIZE = 1 * 1024 * 1024  # 1 МБ
+    MIN_IMAGE_DIMENSION = 200         # 200x200 px
+
     @classmethod
-    def validate(cls, file_data: bytes, filename: str) -> Tuple[bool, Optional[str], Optional[dict]]:
-        """Полная валидация файла"""
-        # 1. Проверка размера
-        size_valid, error = cls._check_size(file_data, filename)
-        if not size_valid:
-            return False, error, None
-        
-        # 2. Определение типа по расширению
-        file_type = cls._determine_type_by_extension(filename)
-        if not file_type:
-            return False, f"Неподдерживаемое расширение: {filename}", None
-        
-        # 3. Дополнительная проверка для изображений
-        metadata = {}
-        if file_type == 'image':
-            is_valid, error, img_meta = cls._validate_image(file_data)
-            if not is_valid:
-                return False, error, None
-            metadata.update(img_meta)
-        
-        metadata['file_type'] = file_type
-        return True, None, metadata
-    
-    @classmethod
-    def _check_size(cls, file_data: bytes, filename: str) -> Tuple[bool, Optional[str]]:
-        """Проверка размера файла"""
-        size = len(file_data)
-        ext = filename.split('.')[-1].lower() if '.' in filename else ''
-        image_exts = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'}
-        video_exts = {'mp4', 'webm', 'mkv', 'avi', 'mov'}
-        
-        if ext in image_exts:
-            if size < cls.MIN_IMAGE_SIZE:
-                return False, f"Изображение слишком маленькое: {size} байт (мин. {cls.MIN_IMAGE_SIZE})"
-        elif ext in video_exts:
-            if size < cls.MIN_VIDEO_SIZE:
-                return False, f"Видео слишком маленькое: {size} байт (мин. {cls.MIN_VIDEO_SIZE})"
-        else:
-            return False, f"Неизвестное расширение: {ext}"
-        
-        return True, None
-    
-    @classmethod
-    def _determine_type_by_extension(cls, filename: str) -> Optional[str]:
-        """Определение типа по расширению"""
-        ext = filename.split('.')[-1].lower() if '.' in filename else ''
-        image_exts = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'}
-        video_exts = {'mp4', 'webm', 'mkv', 'avi', 'mov'}
-        
-        if ext in image_exts:
-            return 'image'
-        elif ext in video_exts:
-            return 'video'
+    def classify(cls, filename: str) -> Optional[str]:
+        """Возвращает 'image' | 'video' | None по расширению."""
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        if ext in cls.IMAGE_EXTS:
+            return "image"
+        if ext in cls.VIDEO_EXTS:
+            return "video"
         return None
-    
+
     @classmethod
-    def _validate_image(cls, file_data: bytes) -> Tuple[bool, Optional[str], Optional[dict]]:
-        """Дополнительная проверка изображений"""
-        try:
-            img = Image.open(io.BytesIO(file_data))
-            width, height = img.size
-            
+    def is_allowed(cls, filename, size_bytes, media_type, width=None, height=None) -> Tuple[bool, Optional[str]]:
+        """Проверка по размерам и разрешению (метаданные из API, до скачивания)."""
+        mtype = cls.classify(filename)
+        if mtype is None or mtype != media_type:
+            return False, "тип файла не совпадает с расширением"
+
+        min_size = cls.MIN_IMAGE_SIZE if media_type == "image" else cls.MIN_VIDEO_SIZE
+        if size_bytes < min_size:
+            return False, f"слишком маленький файл: {size_bytes} байт (мин. {min_size})"
+
+        if media_type == "image" and width and height:
             if width < cls.MIN_IMAGE_DIMENSION or height < cls.MIN_IMAGE_DIMENSION:
-                return False, f"Изображение слишком маленькое: {width}x{height} (мин. {cls.MIN_IMAGE_DIMENSION}x{cls.MIN_IMAGE_DIMENSION})", None
-            
-            return True, None, {
-                'width': width,
-                'height': height,
-                'format': img.format
-            }
-            
-        except Exception as e:
-            return False, f"Ошибка проверки изображения: {e}", None
-    
+                return False, f"маленькое разрешение: {width}x{height} (мин. {cls.MIN_IMAGE_DIMENSION})"
+
+        return True, None
+
+    # ---------- Хеши и целостность ----------
+
     @classmethod
-    def is_duplicate(cls, file_data: bytes, existing_hash: Optional[str] = None) -> Tuple[bool, str]:
-        """Проверка дубликата по SHA-256"""
-        file_hash = hashlib.sha256(file_data).hexdigest()
-        if existing_hash and file_hash == existing_hash:
-            return True, file_hash
-        return False, file_hash
+    def compute_md5(cls, data: bytes) -> str:
+        return hashlib.md5(data).hexdigest()
+
+    @classmethod
+    def compute_sha256(cls, data: bytes) -> str:
+        return hashlib.sha256(data).hexdigest()
+
+    @classmethod
+    def verify_integrity(cls, data: bytes, expected_md5: str) -> bool:
+        """Файл скачан полностью и md5 совпадает с API."""
+        if not data:
+            return False
+        return cls.compute_md5(data) == expected_md5
+
+    @classmethod
+    def verify_image(cls, data: bytes) -> Tuple[bool, Optional[str]]:
+        """Изображение открывается (битые/пустые файлы отсекаются)."""
+        try:
+            img = Image.open(io.BytesIO(data))
+            img.verify()
+            return True, None
+        except Exception as e:
+            return False, f"битый файл: {e}"
