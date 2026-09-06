@@ -7,8 +7,12 @@ class BoardRepository(BaseRepository[Board]):
         super().__init__(Board, session)
     
     async def get_parsable_slugs(self):
-        """Слаги досок, помеченных к парсингу (parse_enabled) в БД."""
-        query = select(Board.slug).where(Board.parse_enabled.is_(True)).order_by(Board.slug)
+        """Слаги досок, помеченных к парсингу (parse_enabled), в порядке очереди."""
+        query = (
+            select(Board.slug)
+            .where(Board.parse_enabled.is_(True))
+            .order_by(Board.sort_order, Board.slug)
+        )
         result = await self.session.execute(query)
         return list(result.scalars().all())
 

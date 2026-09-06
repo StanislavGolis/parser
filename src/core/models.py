@@ -23,12 +23,21 @@ class Board(Base):
     parse_enabled = Column(Boolean, nullable=False, default=True)   # доска участвует в парсинге
     is_private = Column(Boolean, nullable=False, default=False)     # контент по коду доступа
     access_code_hash = Column(String(64), nullable=True)            # sha256 кода доступа
+    sort_order = Column(Integer, nullable=False, default=0)         # порядок парсинга (очередь)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    threads_state = relationship("ThreadState", back_populates="board")
-    media = relationship("Media", back_populates="board")
+    threads_state = relationship(
+        "ThreadState",
+        back_populates="board",
+        passive_deletes=True,  # каскад выполняет БД (ON DELETE CASCADE)
+    )
+    media = relationship(
+        "Media",
+        back_populates="board",
+        passive_deletes=True,
+    )
 
 
 class ThreadState(Base):

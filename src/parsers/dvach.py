@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import List, Optional
 
 import aiohttp
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
@@ -49,6 +50,8 @@ class DvachParser:
         self.board_repo = BoardRepository(session)
         self.thread_state_repo = ThreadStateRepository(session)
         self.media_repo = MediaRepository(session)
+        # Callback «остановить доску» (проверяется между тредами). Задаёт main.py.
+        self.stop_check = None
 
         self.downloader = DownloaderService()
         self.storage = StorageService(settings.STORAGE_PATH)
@@ -150,6 +153,11 @@ class DvachParser:
         Уже существующие доски не трогаем: их настройки управляются из админки.
         """
         print("[init] Проверка/создание досок из конфигурации...")
+        cnt = (await self.session.execute(select(func.count()).select_from(Board))).scalar() or 0
+        if cnt > 0:
+            print("[init] Доски уже настроены в БД — автозаполнение из конфигурации пропущено")
+            return
+
         for board_slug in settings.BOARDS_TO_PARSE:
             catalog = await self._get_json(f"{self.BASE_URL}/{board_slug}/catalog.json")
             if not catalog:
@@ -166,7 +174,8 @@ class DvachParser:
                     "parse_enabled": True,
                 },
             )
-            if board_info.get("name"):
+            # Название с форума берём только если его ещё не задали вручную в админке
+            if board_info.get("name") and (not board.title or board.title.lower() == board.slug):
                 board.title = board_info["name"]
             if board_info.get("info_outer") and not board.description:
                 board.description = board_info["info_outer"]
@@ -212,7 +221,8 @@ class DvachParser:
                 "is_visible": True,
             },
         )
-        if board_info.get("name"):
+        # Название с форума берём только если его ещё не задали вручную в админке
+        if board_info.get("name") and (not board.title or board.title.lower() == board.slug):
             board.title = board_info["name"]
         if board_info.get("info_outer") and not board.description:
             board.description = board_info["info_outer"]
@@ -262,6 +272,11 @@ class DvachParser:
                 files = await self.fetch_thread_files(board_slug, thread_id)
                 print(f"   [thread] Тред {thread_id} — {reason}: {len(files)} файлов")
                 for meta in files:
+                    # Быстрая реакция на «Остановить» — проверяем между файлами
+                    if self.stop_check is not None and await self.stop_check():
+                        await self.session.commit()  # сохраняем уже скачанное
+                        print("   [stop] Обработка доски прервана командой из админки")
+                        return
                     await self.process_file(board, state, meta)
                     await asyncio.sleep(settings.REQUEST_DELAY * 0.5)
 
@@ -279,6 +294,11 @@ class DvachParser:
             # занял бы слишком долго в одной транзакции — сайт не видел бы
             # новые файлы часами, а сбой откатывал бы всё разом.
             await self.session.commit()
+
+            # Админ нажал «Остановить» — прерываем доску на границе треда.
+            if self.stop_check is not None and await self.stop_check():
+                print("   [stop] Обработка доски прервана командой из админки")
+                return
 
         # Треды, исчезнувшие из каталога
         active_states = await self.thread_state_repo.get_active_by_board(board.id)

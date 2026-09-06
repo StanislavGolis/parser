@@ -1,8 +1,17 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 
-import { LockIcon, PlusIcon, SpinnerIcon } from "@/components/icons";
+import {
+  ChevronDownIcon,
+  ChevronUpIcon,
+  LockIcon,
+  PencilIcon,
+  PlusIcon,
+  SpinnerIcon,
+  TrashIcon,
+} from "@/components/icons";
 import { formatNumber } from "@/lib/format";
 import type { AdminBoard, ForumBoard } from "@/lib/types";
 
@@ -45,6 +54,9 @@ export function BoardsTable({
   onSetCodes,
   onPatch,
   onSetCode,
+  onMove,
+  onRename,
+  onDelete,
 }: {
   boards: AdminBoard[] | null;
   loading: boolean;
@@ -54,6 +66,9 @@ export function BoardsTable({
   onSetCodes: (fn: (prev: Record<string, string>) => Record<string, string>) => void;
   onPatch: (slug: string, body: Record<string, unknown>) => Promise<void>;
   onSetCode: (slug: string) => Promise<void>;
+  onMove: (slug: string, dir: -1 | 1) => Promise<void>;
+  onRename: (slug: string, title: string) => Promise<void>;
+  onDelete: (slug: string) => Promise<void>;
 }) {
   if (loading && !boards) {
     return <p className="py-10 text-center text-sm text-neutral-400">Загружаем…</p>;
@@ -67,16 +82,21 @@ export function BoardsTable({
   }
   return (
     <div className="flex flex-col gap-3">
-      {boards.map((b) => (
+      {boards.map((b, idx) => (
         <BoardRow
           key={b.id}
           board={b}
+          position={idx + 1}
+          total={boards.length}
           busyKey={busyKey}
           codes={codes}
           rowError={rowError}
           onSetCodes={onSetCodes}
           onPatch={onPatch}
           onSetCode={onSetCode}
+          onMove={onMove}
+          onRename={onRename}
+          onDelete={onDelete}
         />
       ))}
     </div>
@@ -84,27 +104,56 @@ export function BoardsTable({
 }
 function BoardRow({
   board,
+  position,
+  total,
   busyKey,
   codes,
   rowError,
   onSetCodes,
   onPatch,
   onSetCode,
+  onMove,
+  onRename,
+  onDelete,
 }: {
   board: AdminBoard;
+  position: number;
+  total: number;
   busyKey: string | null;
   codes: Record<string, string>;
   rowError: Record<string, string>;
   onSetCodes: (fn: (prev: Record<string, string>) => Record<string, string>) => void;
   onPatch: (slug: string, body: Record<string, unknown>) => Promise<void>;
   onSetCode: (slug: string) => Promise<void>;
+  onMove: (slug: string, dir: -1 | 1) => Promise<void>;
+  onRename: (slug: string, title: string) => Promise<void>;
+  onDelete: (slug: string) => Promise<void>;
 }) {
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(board.title);
+
+  async function saveTitle() {
+    const title = titleDraft.trim();
+    if (title && title !== board.title) await onRename(board.slug, title);
+    setEditingTitle(false);
+  }
+
   return (
     <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4">
-      {/* Шапка: название + статусы */}
+      {/* Шапка: позиция + название + статусы + управление */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={`rounded-md px-1.5 py-0.5 font-mono text-[11px] ${
+                board.parse_enabled
+                  ? "bg-amber-500/15 text-amber-300"
+                  : "bg-neutral-800 text-neutral-500"
+              }`}
+              title="Позиция в очереди парсинга"
+            >
+              #{position}
+            </span>
             <Link
               href={`/admin/boards/${board.slug}`}
               className="text-base font-semibold text-neutral-100 transition-colors hover:text-amber-300"
@@ -113,7 +162,37 @@ function BoardRow({
               /{board.slug}
             </Link>
             {board.is_private ? <LockIcon className="h-3.5 w-3.5 text-amber-400" /> : null}
-            <span className="truncate text-sm text-neutral-500">{board.title}</span>
+
+            {editingTitle ? (
+              <span className="inline-flex items-center gap-1">
+                <input
+                  autoFocus
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void saveTitle();
+                    if (e.key === "Escape") setEditingTitle(false);
+                  }}
+                  className="w-48 rounded-lg border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm text-neutral-100 outline-none focus:border-amber-500"
+                />
+                <button type="button" onClick={() => void saveTitle()} className="btn-ghost px-2 py-1 text-xs">
+                  ОК
+                </button>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setTitleDraft(board.title);
+                  setEditingTitle(true);
+                }}
+                className="inline-flex max-w-56 items-center gap-1 truncate rounded px-1 text-sm text-neutral-400 transition-colors hover:text-amber-300"
+                title="Изменить название раздела"
+              >
+                <span className="truncate">{board.title || "(название)"}</span>
+                <PencilIcon className="h-3 w-3 shrink-0 opacity-60" />
+              </button>
+            )}
           </div>
           <div className="mt-1 text-xs text-neutral-500">
             {formatNumber(board.media_total)} файлов · {formatNumber(board.threads_active)} тредов ·{" "}
@@ -143,6 +222,42 @@ function BoardRow({
             title="Контент доступен только по коду"
             onChange={() => void onPatch(board.slug, { is_private: !board.is_private })}
           />
+          <span className="inline-flex items-center gap-1 rounded-lg border border-neutral-800 bg-neutral-900 px-1 py-1">
+            <button
+              type="button"
+              disabled={position <= 1}
+              onClick={() => void onMove(board.slug, -1)}
+              title="Выше в очереди парсинга"
+              className="rounded px-1 text-neutral-400 transition-colors hover:text-amber-300 disabled:opacity-30"
+            >
+              <ChevronUpIcon className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              disabled={position >= total}
+              onClick={() => void onMove(board.slug, 1)}
+              title="Ниже в очереди парсинга"
+              className="rounded px-1 text-neutral-400 transition-colors hover:text-amber-300 disabled:opacity-30"
+            >
+              <ChevronDownIcon className="h-4 w-4" />
+            </button>
+          </span>
+          <button
+            type="button"
+            disabled={busyKey === board.slug}
+            onClick={() => {
+              const count = board.media_total;
+              const msg =
+                count > 0
+                  ? `Удалить раздел /${board.slug} и ${formatNumber(count)} файлов из хранилища?`
+                  : `Удалить раздел /${board.slug}?`;
+              if (window.confirm(msg)) void onDelete(board.slug);
+            }}
+            title="Удалить раздел (БД + файлы в B2)"
+            className="rounded-lg border border-red-500/30 px-1.5 py-1 text-neutral-400 transition-colors hover:border-red-500/60 hover:text-red-400"
+          >
+            <TrashIcon className="h-4 w-4" />
+          </button>
         </div>
       </div>
 
@@ -218,7 +333,7 @@ export function ForumTab({
   query: string;
   onQuery: (v: string) => void;
   onRefresh: () => void;
-  onAdd: (slug: string) => Promise<void>;
+  onAdd: (slug: string, name?: string | null) => Promise<void>;
 }) {
   const q = query.trim().toLowerCase();
   const filtered = (forum ?? []).filter(
@@ -300,7 +415,11 @@ export function ForumTab({
                   Управлять →
                 </Link>
               ) : (
-                <button type="button" onClick={() => void onAdd(f.slug)} className="btn-ghost px-2.5 py-1.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => void onAdd(f.slug, f.name)}
+                  className="btn-ghost px-2.5 py-1.5 text-xs"
+                >
                   <PlusIcon className="h-3.5 w-3.5" />
                   Добавить
                 </button>

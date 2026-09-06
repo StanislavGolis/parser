@@ -17,6 +17,7 @@ export interface AdminBoard extends Board {
   parse_enabled: boolean;
   is_visible: boolean;
   has_access_code: boolean;
+  sort_order: number;
   media_total: number;
   media_downloaded: number;
   media_in_b2: number;
@@ -46,6 +47,10 @@ export interface AdminOverview {
   generated_at: string;
   totals: SystemTotals;
   boards: AdminBoard[];
+  parser_up: boolean;
+  parser_enabled: boolean;
+  parser_alive: boolean;
+  parser_current_board: string | null;
 }
 
 /** Доска форума (список из index.json двача) в сопоставлении с нашей БД. */

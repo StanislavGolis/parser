@@ -18,17 +18,19 @@ from typing import Dict, List, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.common import hash_access_code
-from src.api.deps import verify_admin
+from src.api.deps import get_b2, verify_admin
 from src.api.schemas import (
     AdminBoardOut,
     AdminOverview,
     BoardCreate,
+    BoardReorder,
     BoardUpdate,
     ForumBoardOut,
+    ResetResult,
     SystemTotals,
     ThreadListOut,
     ToggleResult,
@@ -37,6 +39,8 @@ from src.api.stats_service import collect_board_stats
 from src.api.threads_service import build_thread_outs, list_threads
 from src.core.db import get_session
 from src.core.models import Board, Media
+from src.core.redis_client import redis_client
+from src.services.b2_uploader import B2Uploader
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -62,6 +66,7 @@ def _admin_out(board: Board, m: Optional[dict] = None) -> AdminBoardOut:
         is_private=board.is_private,
         parse_enabled=board.parse_enabled,
         has_access_code=bool(board.access_code_hash),
+        sort_order=board.sort_order,
         media_total=int(m.get("media_total", 0)),
         media_downloaded=int(m.get("media_downloaded", 0)),
         media_in_b2=int(m.get("media_in_b2", 0)),
@@ -83,9 +88,9 @@ async def _load_board(session: AsyncSession, slug: str) -> Board:
 
 
 async def _all_boards_with_stats(session: AsyncSession) -> List[AdminBoardOut]:
-    """Все доски (включая скрытые) с флагами и статистикой."""
+    """Все доски (включая скрытые) с флагами и статистикой, в порядке очереди."""
     boards_result = await session.execute(
-        select(Board).order_by(Board.slug)
+        select(Board).order_by(Board.sort_order, Board.slug)
     )
     boards = boards_result.scalars().all()
     stats, _totals = await collect_board_stats(session)
@@ -112,7 +117,41 @@ async def admin_overview(
         totals.views_total += b.views_total
         totals.downloads_total += b.downloads_total
 
-    return AdminOverview(generated_at=datetime.utcnow(), totals=totals, boards=boards)
+    # Статус парсера (демон пишет heartbeat в Redis; включение — кнопка в админке)
+    parser_up = bool(await redis_client.exists("parser:up"))
+    parser_enabled = (await redis_client.get("parser:enabled")) == "1"
+    parser_current: Optional[str] = await redis_client.get("parser:current_board")
+    parser_alive = bool(await redis_client.exists("parser:alive"))
+
+    return AdminOverview(
+        generated_at=datetime.utcnow(),
+        totals=totals,
+        boards=boards,
+        parser_up=parser_up,
+        parser_enabled=parser_enabled,
+        parser_alive=parser_alive,
+        parser_current_board=parser_current,
+    )
+
+
+@router.post("/parser/start")
+async def parser_start(
+    _=Depends(verify_admin),
+):
+    """Запускает парсинг: демон парсера подхватит флаг в течение ~5 секунд."""
+    await redis_client.set("parser:enabled", "1")
+    return {"ok": True, "enabled": True}
+
+
+@router.post("/parser/stop")
+async def parser_stop(
+    _=Depends(verify_admin),
+):
+    """Останавливает парсинг (демон остаётся запущенным и ждёт команды)."""
+    await redis_client.delete("parser:enabled")
+    await redis_client.delete("parser:alive")
+    await redis_client.delete("parser:current_board")
+    return {"ok": True, "enabled": False}
 
 
 async def _fetch_forum_boards() -> List[dict]:
@@ -197,7 +236,15 @@ async def create_board(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Board already exists")
 
-    board = Board(slug=slug, title=slug, parse_enabled=False, is_visible=False)
+    max_order = (await session.execute(select(func.max(Board.sort_order)))).scalar() or 0
+    name = (payload.name or "").strip()
+    board = Board(
+        slug=slug,
+        title=name[:100] or slug,
+        parse_enabled=False,
+        is_visible=False,
+        sort_order=int(max_order) + 1,
+    )
     session.add(board)
     await session.commit()
     await session.refresh(board)
@@ -224,6 +271,9 @@ async def update_board(
         board.is_visible = payload.is_visible
     if payload.is_private is not None:
         board.is_private = payload.is_private
+    if payload.title is not None:
+        title = payload.title.strip()
+        board.title = title[:100] if title else board.slug
 
     if payload.access_code is not None:
         code = payload.access_code.strip()
@@ -242,6 +292,115 @@ async def update_board(
 
     stats, _ = await collect_board_stats(session)
     return _admin_out(board, stats.get(board.id))
+
+
+@router.post("/boards/reorder")
+async def reorder_boards(
+    payload: BoardReorder,
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Задаёт порядок очереди парсинга (sort_order по порядку slugs)."""
+    result = await session.execute(select(Board))
+    boards = {b.slug: b for b in result.scalars().all()}
+
+    # Доски из списка — в заданном порядке, остальные — в конец (по алфавиту)
+    extra = sorted(set(boards) - set(payload.slugs))
+    ordered_slugs = payload.slugs + extra
+    for idx, slug in enumerate(ordered_slugs):
+        board = boards.get(slug)
+        if board is not None:
+            board.sort_order = idx
+    await session.commit()
+    return {"ok": True, "count": len(ordered_slugs)}
+
+
+@router.delete("/boards/{slug}", response_model=ResetResult)
+async def delete_board(
+    slug: str,
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+    b2: B2Uploader = Depends(get_b2),
+):
+    """Удаляет раздел: записи БД + все его объекты в B2."""
+    board = await _load_board(session, slug)
+
+    # 1) Все ключи раздела: из БД (точный список media.b2_key) + по префиксу
+    #    (осиротевшие объекты, которые могли остаться от сбоев).
+    db_keys = [
+        k
+        for k in (
+            await session.execute(
+                select(Media.b2_key).where(
+                    Media.board_id == board.id, Media.b2_key.isnot(None)
+                )
+            )
+        ).scalars().all()
+        if k
+    ]
+    prefix = f"board_{board.id}/"
+    prefixed = await b2.list_keys(prefix) or []
+    keys = list(dict.fromkeys(db_keys + list(prefixed)))
+
+    deleted_objects = 0
+    if keys:
+        await b2.delete_keys(keys)
+        deleted_objects = len(keys)
+
+    # 2) Записи БД (каскад по ON DELETE CASCADE)
+    await session.delete(board)
+    await session.commit()
+    return ResetResult(deleted_boards=1, deleted_objects=deleted_objects)
+
+
+@router.post("/cleanup-b2")
+async def cleanup_b2_orphans(
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+    b2: B2Uploader = Depends(get_b2),
+):
+    """Удаляет из B2 объекты, которых нет в БД (мусор после сбоев/прерываний)."""
+    keys = await b2.list_keys("")
+    if not keys:
+        return {"total": 0, "orphans": 0, "deleted": 0}
+
+    known = {
+        k
+        for k in (
+            await session.execute(select(Media.b2_key).where(Media.b2_key.isnot(None)))
+        ).scalars().all()
+        if k
+    }
+    orphans = [k for k in keys if k not in known]
+    if orphans:
+        await b2.delete_keys(orphans)
+    return {"total": len(keys), "orphans": len(orphans), "deleted": len(orphans)}
+
+
+@router.delete("/reset", response_model=ResetResult)
+async def reset_all(
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+    b2: B2Uploader = Depends(get_b2),
+):
+    """Полный сброс: удаляет все доски/медиа из БД и все объекты из B2."""
+    # 0) Сначала останавливаем парсер (прервётся на границе текущего треда),
+    #    иначе TRUNCATE будет ждать его транзакции.
+    await redis_client.delete("parser:enabled")
+    await redis_client.delete("parser:alive")
+    await redis_client.delete("parser:current_board")
+
+    # 1) Объекты B2
+    deleted_objects = 0
+    keys = await b2.list_keys("")
+    if keys:
+        await b2.delete_keys(keys)
+        deleted_objects = len(keys)
+
+    # 2) Данные БД (каскадно: media/threads/stats)
+    await session.execute(text("TRUNCATE TABLE download_stats, view_stats, media, threads_state, boards RESTART IDENTITY CASCADE"))
+    await session.commit()
+    return ResetResult(deleted_objects=deleted_objects)
 
 
 @router.get("/boards/{slug}/threads", response_model=ThreadListOut)

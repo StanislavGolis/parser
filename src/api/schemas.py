@@ -22,6 +22,7 @@ class AdminBoardOut(BoardOut):
     parse_enabled: bool = True
     is_visible: bool = True
     has_access_code: bool = False
+    sort_order: int = 0
 
     # Статистика (агрегируется из БД)
     media_total: int = 0
@@ -53,6 +54,10 @@ class AdminOverview(BaseModel):
     generated_at: datetime
     totals: SystemTotals
     boards: List[AdminBoardOut]
+    parser_up: bool = False          # демон парсера запущен (heartbeat parser:up)
+    parser_enabled: bool = False     # парсинг включён (parser:enabled)
+    parser_alive: bool = False       # парсер прямо сейчас активно работает
+    parser_current_board: Optional[str] = None
 
 
 class ForumBoardOut(BaseModel):
@@ -72,14 +77,26 @@ class ForumBoardOut(BaseModel):
 
 class BoardCreate(BaseModel):
     slug: str
+    name: Optional[str] = None  # настоящее название (из index.json), если известно
 
 
 class BoardUpdate(BaseModel):
     parse_enabled: Optional[bool] = None
     is_visible: Optional[bool] = None
     is_private: Optional[bool] = None
+    title: Optional[str] = None
     # Новый код доступа. Пустая строка/null = сбросить код (доступ закрывается).
     access_code: Optional[str] = None
+
+
+class BoardReorder(BaseModel):
+    """Новый порядок парсинга: слаги досок в требуемой последовательности."""
+    slugs: List[str]
+
+
+class ResetResult(BaseModel):
+    deleted_boards: int = 0
+    deleted_objects: int = 0
 
 
 class AccessRequest(BaseModel):

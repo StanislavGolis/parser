@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { PlusIcon, SpinnerIcon } from "@/components/icons";
 import { BoardsTable, ForumTab } from "@/components/AdminViews";
-import { ApiError, apiPatch, apiPost, apiSend } from "@/lib/api";
+import { ApiError, apiDelete, apiPatch, apiPost, apiSend } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
 import type { AdminBoard, AdminOverview, ForumBoard, SystemTotals } from "@/lib/types";
 
@@ -132,12 +132,98 @@ export default function AdminConsole() {
     setCodes((prev) => ({ ...prev, [slug]: "" }));
   }
 
-  async function addBoard(slug: string) {
+  /** Перемещение доски в очереди парсинга (▲/▼). */
+  async function moveBoard(slug: string, dir: -1 | 1) {
+    if (!token || !overview) return;
+    const boards = overview.boards;
+    const idx = boards.findIndex((b) => b.slug === slug);
+    const jdx = idx + dir;
+    if (idx < 0 || jdx < 0 || jdx >= boards.length) return;
+    const next = [...boards];
+    [next[idx], next[jdx]] = [next[jdx], next[idx]];
+    setOverview({ ...overview, boards: next });
+    try {
+      await apiPost("/api/v1/admin/boards/reorder", { slugs: next.map((b) => b.slug) }, token);
+    } catch (err) {
+      setGlobalError(errText(err));
+      void loadOverview(token);
+    }
+  }
+
+  async function removeBoard(slug: string) {
+    if (!token) return;
+    setBusyKey(slug);
+    try {
+      await apiDelete<{ deleted_boards: number }>(`/api/v1/admin/boards/${encodeURIComponent(slug)}`, token);
+      setOverview((prev) =>
+        prev ? { ...prev, boards: prev.boards.filter((b) => b.slug !== slug) } : prev,
+      );
+    } catch (err) {
+      setGlobalError(errText(err));
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function resetAll() {
+    if (!token) return;
+    if (!window.confirm("Полный сброс: удалить ВСЕ разделы и ВСЕ файлы из хранилища (B2)?")) return;
+    if (!window.confirm("Точно? Действие необратимо: БД и бакет будут очищены.")) return;
+    setGlobalError(null);
+    try {
+      await apiDelete("/api/v1/admin/reset", token);
+      await loadOverview(token);
+    } catch (err) {
+      setGlobalError(errText(err));
+    }
+  }
+
+  async function startParser() {
+    if (!token) return;
+    try {
+      await apiPost("/api/v1/admin/parser/start", undefined, token);
+      setGlobalError(null);
+      await loadOverview(token);
+    } catch (err) {
+      setGlobalError(errText(err));
+    }
+  }
+
+  async function stopParser() {
+    if (!token) return;
+    try {
+      await apiPost("/api/v1/admin/parser/stop", undefined, token);
+      await loadOverview(token);
+    } catch (err) {
+      setGlobalError(errText(err));
+    }
+  }
+
+  async function cleanupB2() {
+    if (!token) return;
+    setGlobalError(null);
+    try {
+      const r = await apiPost<{ total: number; orphans: number; deleted: number }>(
+        "/api/v1/admin/cleanup-b2",
+        undefined,
+        token,
+      );
+      setGlobalError(
+        r.deleted > 0
+          ? `Мусор в B2 удалён: ${r.deleted} объектов (проверено ${r.total})`
+          : "Мусора в B2 нет (все объекты соответствуют записям).",
+      );
+    } catch (err) {
+      setGlobalError(errText(err));
+    }
+  }
+
+  async function addBoard(slug: string, name?: string | null) {
     if (!token || creating) return;
     setCreating(true);
     setGlobalError(null);
     try {
-      await apiPost<AdminBoard>("/api/v1/admin/boards", { slug }, token);
+      await apiPost<AdminBoard>("/api/v1/admin/boards", { slug, name: name ?? undefined }, token);
       await loadOverview(token);
       setForum((prev) =>
         prev
@@ -210,6 +296,26 @@ export default function AdminConsole() {
           <button type="button" onClick={logout} className="btn-ghost px-3 py-1.5 text-xs">
             Выйти
           </button>
+          {tab === "boards" ? (
+            <>
+              <button
+                type="button"
+                onClick={() => void cleanupB2()}
+                className="btn-ghost px-3 py-1.5 text-xs"
+                title="Удалить из B2 объекты, которых нет в базе"
+              >
+                Очистить B2
+              </button>
+              <button
+                type="button"
+                onClick={() => void resetAll()}
+                className="rounded-lg border border-red-500/40 px-3 py-1.5 text-xs text-red-400 transition-colors hover:bg-red-500/10"
+                title="Удалить все разделы и файлы"
+              >
+                Сбросить всё
+              </button>
+            </>
+          ) : null}
         </div>
       </div>
 
@@ -222,6 +328,13 @@ export default function AdminConsole() {
       {tab === "boards" ? (
         <>
           {totals ? <TotalsBar totals={totals} /> : null}
+          {overview ? (
+            <QueueStatus
+              overview={overview}
+              onStart={() => void startParser()}
+              onStop={() => void stopParser()}
+            />
+          ) : null}
 
           <form
             onSubmit={(e) => {
@@ -251,6 +364,13 @@ export default function AdminConsole() {
             onSetCodes={setCodes}
             onPatch={patch}
             onSetCode={setCode}
+            onMove={moveBoard}
+            onRename={async (slug, title) => {
+              await patch(slug, { title });
+            }}
+            onDelete={async (slug) => {
+              await removeBoard(slug);
+            }}
           />
         </>
       ) : (
@@ -288,6 +408,87 @@ function TotalsBar({ totals }: { totals: SystemTotals }) {
           <div className="mt-0.5 text-base font-semibold tabular-nums text-neutral-100">{value}</div>
         </div>
       ))}
+    </div>
+  );
+}
+
+/** Статус парсера: демон, включение, текущая доска и очередь парсинга. */
+function QueueStatus({
+  overview,
+  onStart,
+  onStop,
+}: {
+  overview: AdminOverview;
+  onStart: () => void;
+  onStop: () => void;
+}) {
+  const parsed = overview.boards.filter((b) => b.parse_enabled);
+  const current = overview.parser_current_board;
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-neutral-800 bg-neutral-900/40 px-3 py-2 text-sm">
+      <span className="flex items-center gap-2">
+        <span
+          className={`h-2 w-2 rounded-full ${
+            overview.parser_up
+              ? overview.parser_alive
+                ? "bg-emerald-400"
+                : "bg-amber-400"
+              : "bg-neutral-600"
+          }`}
+        />
+        <span
+          className={
+            overview.parser_up
+              ? overview.parser_alive
+                ? "text-neutral-200"
+                : "text-amber-300"
+              : "text-neutral-500"
+          }
+        >
+          {!overview.parser_up
+            ? "Парсер-демон не запущен"
+            : overview.parser_alive
+              ? "Парсер работает"
+              : "Парсер на паузе"}
+        </span>
+      </span>
+
+      {!overview.parser_up ? (
+        <span className="text-xs text-neutral-600">
+          демон не запущен — выполните: docker compose -f docker-compose.prod.yml start parser
+        </span>
+      ) : overview.parser_enabled ? (
+        <button type="button" onClick={onStop} className="btn-ghost px-3 py-1 text-xs">
+          Остановить
+        </button>
+      ) : (
+        <button type="button" onClick={onStart} className="btn-primary px-3 py-1 text-xs">
+          Запустить парсер
+        </button>
+      )}
+
+      {overview.parser_alive && current ? (
+        <span className="text-neutral-300">
+          сейчас парсит: <b className="text-amber-300">/{current}</b>
+        </span>
+      ) : null}
+
+      <span className="text-neutral-500">
+        очередь ({formatNumber(parsed.length)}):{" "}
+        {parsed.length === 0 ? (
+          <span className="text-neutral-600">нет досок с включённым парсингом</span>
+        ) : (
+          parsed.map((b, i) => (
+            <span key={b.slug}>
+              {i > 0 ? " → " : ""}
+              <span className={b.slug === current ? "font-semibold text-amber-300" : "text-neutral-400"}>
+                /{b.slug}
+              </span>
+            </span>
+          ))
+        )}
+      </span>
     </div>
   );
 }

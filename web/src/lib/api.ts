@@ -72,3 +72,8 @@ export async function apiPost<T>(path: string, body?: unknown, token?: string): 
 export async function apiPatch<T>(path: string, body?: unknown, token?: string): Promise<T> {
   return apiSend<T>(path, { method: "PATCH", body, token });
 }
+
+/** DELETE к API из браузера. */
+export async function apiDelete<T>(path: string, token?: string): Promise<T> {
+  return apiSend<T>(path, { method: "DELETE", token });
+}

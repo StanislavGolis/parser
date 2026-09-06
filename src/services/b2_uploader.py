@@ -136,6 +136,26 @@ class B2Uploader:
             print(f"   [err] Ошибка удаления из B2: {e}")
             return False
 
+    async def delete_keys(self, keys: List[str]) -> bool:
+        """Пакетно удаляет объекты из бакета (батчами до 1000)."""
+        if not self.is_configured or self.client is None or not keys:
+            return False
+
+        def _delete_batch(batch: List[str]) -> None:
+            self.client.delete_objects(
+                Bucket=self.bucket_name,
+                Delete={"Objects": [{"Key": k} for k in batch], "Quiet": True},
+            )
+
+        try:
+            for i in range(0, len(keys), 1000):
+                await asyncio.to_thread(_delete_batch, keys[i:i + 1000])
+            print(f"   [del]  Удалено объектов из B2: {len(keys)}")
+            return True
+        except Exception as e:
+            print(f"   [err] Ошибка пакетного удаления из B2: {e}")
+            return False
+
     def generate_presigned_url(self, remote_key: str, expires_in: Optional[int] = None) -> Optional[str]:
         """Генерирует временную подписанную ссылку на файл (по умолчанию 1 час).
 

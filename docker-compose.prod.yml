@@ -142,8 +142,8 @@ services:
       # NEXT_PUBLIC_API_BASE не задаём: браузер ходит на тот же origin
       # (/api проксируется nginx на сервис api).
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/ || exit 1"]
-      interval: 10s
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/favicon.svg || exit 1"]
+      interval: 15s
       timeout: 5s
       retries: 12
       start_period: 15s
