@@ -1,59 +1,120 @@
-from sqlalchemy import Column, Integer, String, DateTime, BigInteger, Boolean, Text, ForeignKey
-from sqlalchemy.ext.declarative import declarative_base
+# src/core/models.py
 from datetime import datetime
+from sqlalchemy import (
+    Column, Integer, String, DateTime, BigInteger, Boolean, Text,
+    ForeignKey, Enum, Float, UniqueConstraint, Index,
+)
+from sqlalchemy.orm import relationship
+from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()
 
+
 class Board(Base):
+    """Доска / раздел форума."""
     __tablename__ = "boards"
-    
+
     id = Column(Integer, primary_key=True)
     slug = Column(String(50), unique=True, nullable=False)
-    name = Column(String(100))
-    last_parsed_at = Column(DateTime, default=datetime.utcnow)
-    is_active = Column(Boolean, default=True)
+    title = Column(String(100), nullable=False, default="")
+    description = Column(Text, nullable=True)
+    is_visible = Column(Boolean, nullable=False, default=True)
 
-class Thread(Base):
-    __tablename__ = "threads"
-    
-    id = Column(Integer, primary_key=True)
-    board_id = Column(Integer, ForeignKey("boards.id"))
-    thread_id = Column(Integer, nullable=False)  # Внешний ID треда
-    title = Column(String(500))
-    created_at = Column(DateTime)
-    last_updated = Column(DateTime)
-    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-class MediaFile(Base):
-    __tablename__ = "media_files"
-    
+    threads_state = relationship("ThreadState", back_populates="board")
+    media = relationship("Media", back_populates="board")
+
+
+class ThreadState(Base):
+    """Служебная таблица для инкрементального парсинга тредов."""
+    __tablename__ = "threads_state"
+    __table_args__ = (
+        UniqueConstraint("board_id", "thread_id", name="uq_threads_state_board_thread"),
+    )
+
     id = Column(Integer, primary_key=True)
-    board_id = Column(Integer, ForeignKey("boards.id"))
-    thread_id = Column(Integer, ForeignKey("threads.id"))
-    
-    thread_external_id = Column(Integer)
-    post_external_id = Column(Integer)
-    
-    original_filename = Column(String(255))
-    file_hash = Column(String(64))
-    file_size = Column(BigInteger)
-    
-    storage_path = Column(String(500))
-    thumbnail_path = Column(String(500), nullable=True)
-    
-    file_type = Column(String(10))
-    mime_type = Column(String(100))
-    
+    board_id = Column(Integer, ForeignKey("boards.id", ondelete="CASCADE"), nullable=False)
+    thread_id = Column(Integer, nullable=False)  # внешний ID треда на форуме
+
+    posts_count = Column(Integer, nullable=False, default=0)
+    files_count = Column(Integer, nullable=False, default=0)
+    last_scanned_at = Column(DateTime, nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+
+    board = relationship("Board", back_populates="threads_state")
+
+
+class Media(Base):
+    """Медиафайл, скачанный с форума."""
+    __tablename__ = "media"
+    __table_args__ = (
+        Index("ix_media_board_created", "board_id", "created_at"),
+        Index("ix_media_popularity", "popularity_score"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    board_id = Column(Integer, ForeignKey("boards.id", ondelete="CASCADE"), nullable=False)
+    thread_id = Column(Integer, nullable=False)  # внешний ID треда (источник)
+
+    original_name = Column(String(255), nullable=False)  # displayname с форума
+    source_url = Column(String(500), nullable=True)
+    file_hash = Column(String(64), unique=True, nullable=True)  # SHA-256 после скачивания
+    source_md5 = Column(String(32), nullable=False, index=True)  # md5 из API двача
+    file_size = Column(BigInteger, nullable=False, default=0)
+    mime_type = Column(String(100), nullable=False, default="application/octet-stream")
+    media_type = Column(
+        Enum("image", "video", name="media_type_enum"),
+        nullable=False,
+    )
+
+    b2_bucket = Column(String(255), nullable=True)
+    b2_key = Column(String(500), nullable=True, index=True)
+
     width = Column(Integer, nullable=True)
     height = Column(Integer, nullable=True)
-    
-    b2_key = Column(String(500), nullable=True)
-    
-    status = Column(String(20), default='downloaded')
-    
-    ai_description = Column(Text, nullable=True)
-    ai_tags = Column(Text, nullable=True)
-    ai_processed = Column(Boolean, default=False)
-    
-    parsed_at = Column(DateTime, default=datetime.utcnow)
-    views = Column(Integer, default=0)
+
+    download_status = Column(
+        Enum("new", "downloaded", "uploaded", "verified", "missing", name="download_status_enum"),
+        nullable=False,
+        default="new",
+    )
+    is_visible = Column(Boolean, nullable=False, default=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    duplicate_of_id = Column(Integer, ForeignKey("media.id", ondelete="SET NULL"), nullable=True)
+
+    views_count = Column(Integer, nullable=False, default=0)
+    downloads_count = Column(Integer, nullable=False, default=0)
+    popularity_score = Column(Float, nullable=False, default=0.0)
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    board = relationship("Board", back_populates="media")
+
+
+class ViewStat(Base):
+    """Статистика просмотров по IP-хешу (анти-накрутка)."""
+    __tablename__ = "view_stats"
+    __table_args__ = (
+        Index("ix_view_stats_media_viewed", "media_id", "viewed_at"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    media_id = Column(Integer, ForeignKey("media.id", ondelete="CASCADE"), nullable=False)
+    ip_hash = Column(String(64), nullable=False)
+    viewed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class DownloadStat(Base):
+    """Статистика скачиваний по IP-хешу (анти-накрутка)."""
+    __tablename__ = "download_stats"
+    __table_args__ = (
+        Index("ix_download_stats_media_downloaded", "media_id", "downloaded_at"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    media_id = Column(Integer, ForeignKey("media.id", ondelete="CASCADE"), nullable=False)
+    ip_hash = Column(String(64), nullable=False)
+    downloaded_at = Column(DateTime, nullable=False, default=datetime.utcnow)
