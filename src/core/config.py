@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     B2_APPLICATION_KEY: str = ""
     B2_BUCKET_NAME: str = ""
     B2_ENDPOINT: str = "https://s3.us-west-000.backblazeb2.com"
+    B2_SIGNED_URL_TTL: int = 3600  # срок жизни подписанного URL в секундах (1 час)
     
     class Config:
         env_file = ".env"

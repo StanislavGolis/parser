@@ -1,16 +1,16 @@
 # src/services/b2_uploader.py
-"""Загрузчик в Backblaze B2 (временная реализация на прямом REST API).
+"""Загрузчик в Backblaze B2 через S3 API (boto3).
 
-Полный переезд на boto3 / S3-API — Этап 4 роадмапа ТЗ v3.
-Если B2 не настроен в .env — загрузчик безопасно деградирует:
-файлы остаются в локальном хранилище (status='downloaded').
+- Не блокирует event loop: синхронные вызовы boto3 уходят в asyncio.to_thread.
+- Если B2 не настроен в .env — безопасно деградирует:
+  файлы остаются в локальном хранилище (status='downloaded').
 """
 import asyncio
-import hashlib
 from pathlib import Path
 from typing import List, Optional
 
-import requests
+import boto3
+from botocore.config import Config as BotoConfig
 
 from src.core.config import settings
 
@@ -22,11 +22,8 @@ class B2Uploader:
         self.key_id = settings.B2_KEY_ID
         self.application_key = settings.B2_APPLICATION_KEY
         self.bucket_name = settings.B2_BUCKET_NAME
-
-        self.auth_token: Optional[str] = None
-        self.api_url: Optional[str] = None
-        self.account_id: Optional[str] = None
-        self.bucket_id: Optional[str] = None
+        self.endpoint_url = settings.B2_ENDPOINT
+        self.signed_url_ttl = settings.B2_SIGNED_URL_TTL
 
         self.is_configured = bool(
             self.key_id
@@ -35,140 +32,110 @@ class B2Uploader:
             and self.bucket_name != self.PLACEHOLDER_BUCKET
         )
 
+        self.client = None
         if self.is_configured:
-            self._authorize_sync()
+            self._init_client()
         else:
             print("   ⚠️ Backblaze B2 не настроен — файлы будут сохранены локально")
 
-    # ---------- Авторизация ----------
+    # ───────────────────── Инициализация ─────────────────────
 
-    def _authorize_sync(self):
+    def _init_client(self) -> None:
+        """Создаёт S3-клиент boto3 и проверяет доступ к бакету."""
         try:
-            response = requests.get(
-                "https://api.backblazeb2.com/b2api/v1/b2_authorize_account",
-                auth=(self.key_id, self.application_key),
-                timeout=30,
+            self.client = boto3.client(
+                "s3",
+                endpoint_url=self.endpoint_url,
+                aws_access_key_id=self.key_id,
+                aws_secret_access_key=self.application_key,
+                config=BotoConfig(
+                    signature_version="s3v4",
+                    connect_timeout=30,
+                    read_timeout=600,
+                    retries={"max_attempts": 3},
+                ),
             )
-            response.raise_for_status()
-            data = response.json()
-
-            self.auth_token = data["authorizationToken"]
-            self.api_url = data["apiUrl"]
-            self.account_id = data["accountId"]
-
-            bucket_response = requests.post(
-                f"{self.api_url}/b2api/v1/b2_list_buckets",
-                headers={"Authorization": self.auth_token},
-                json={"accountId": self.account_id},
-                timeout=30,
-            )
-            bucket_response.raise_for_status()
-            buckets = bucket_response.json().get("buckets", [])
-
-            for bucket in buckets:
-                if bucket["bucketName"] == self.bucket_name:
-                    self.bucket_id = bucket["bucketId"]
-                    break
-
-            if not self.bucket_id:
-                self.is_configured = False
-                print(f"   ❌ Bucket '{self.bucket_name}' не найден в B2")
-                return
-
-            print("   ✅ Авторизован в Backblaze B2")
-
+            # Проверка прав доступа к бакету
+            self.client.head_bucket(Bucket=self.bucket_name)
+            print(f"   ✅ Подключение к B2 установлено (boto3/S3), бакет: {self.bucket_name}")
         except Exception as e:
             self.is_configured = False
-            print(f"   ⚠️ Ошибка авторизации в B2: {e}")
+            self.client = None
+            print(f"   ⚠️ Ошибка подключения к B2: {e} — файлы будут сохранены локально")
 
-    # ---------- Загрузка ----------
+    # ───────────────────── Операции с файлами ─────────────────────
 
     async def upload_file(self, local_path: Path, remote_key: str) -> Optional[str]:
-        """Загружает файл в B2. Возвращает fileId или None (если B2 недоступен)."""
-        if not self.is_configured or not self.auth_token or not self.bucket_id:
+        """Загружает файл в B2. Возвращает remote_key или None при ошибке."""
+        if not self.is_configured or self.client is None:
             return None
 
         try:
-            loop = asyncio.get_event_loop()
-
-            def _get_upload_url():
-                response = requests.post(
-                    f"{self.api_url}/b2api/v1/b2_get_upload_url",
-                    headers={"Authorization": self.auth_token},
-                    json={"bucketId": self.bucket_id},
-                    timeout=30,
-                )
-                response.raise_for_status()
-                return response.json()
-
-            upload_data = await loop.run_in_executor(None, _get_upload_url)
-            upload_url = upload_data["uploadUrl"]
-            upload_auth = upload_data["authorizationToken"]
-
-            with open(local_path, "rb") as f:
-                file_data = f.read()
-
-            sha1 = hashlib.sha1(file_data).hexdigest()
-
-            def _upload():
-                response = requests.post(
-                    upload_url,
-                    headers={
-                        "Authorization": upload_auth,
-                        "X-Bz-File-Name": remote_key,
-                        "Content-Type": "b2/x-auto",
-                        "X-Bz-Content-Sha1": sha1,
-                    },
-                    data=file_data,
-                    timeout=600,
-                )
-                response.raise_for_status()
-                return response.json()
-
-            result = await loop.run_in_executor(None, _upload)
-
+            await asyncio.to_thread(
+                self.client.upload_file,
+                str(local_path),
+                self.bucket_name,
+                remote_key,
+            )
             print(f"   ✅ Загружен в B2: {remote_key}")
-            return result.get("fileId")
-
+            return remote_key
         except Exception as e:
             print(f"   ❌ Ошибка загрузки в B2: {e}")
             return None
 
     async def list_keys(self, prefix: str = "") -> Optional[List[str]]:
-        """Возвращает список ключей (fileNames) в бакете, постранично."""
-        if not self.is_configured or not self.auth_token or not self.bucket_id:
+        """Возвращает список ключей (Objects) в бакете, постранично."""
+        if not self.is_configured or self.client is None:
             return None
 
         try:
-            loop = asyncio.get_event_loop()
             keys: List[str] = []
-            start_name = None
 
-            while True:
-                def _list_page():
-                    payload = {"bucketId": self.bucket_id, "maxFileCount": 1000}
-                    if prefix:
-                        payload["prefix"] = prefix
-                    if start_name:
-                        payload["startFileName"] = start_name
-                    response = requests.post(
-                        f"{self.api_url}/b2api/v1/b2_list_file_names",
-                        headers={"Authorization": self.auth_token},
-                        json=payload,
-                        timeout=60,
-                    )
-                    response.raise_for_status()
-                    return response.json()
+            def _list_all() -> List[str]:
+                result: List[str] = []
+                paginator = self.client.get_paginator("list_objects_v2")
+                for page in paginator.paginate(Bucket=self.bucket_name, Prefix=prefix):
+                    for obj in page.get("Contents") or []:
+                        result.append(obj["Key"])
+                return result
 
-                data = await loop.run_in_executor(None, _list_page)
-                for f_obj in data.get("files") or []:
-                    keys.append(f_obj.get("fileName"))
-                start_name = data.get("nextFileName")
-                if not start_name:
-                    break
-
+            keys = await asyncio.to_thread(_list_all)
             return keys
-
         except Exception as e:
             print(f"   ❌ Ошибка листинга B2: {e}")
+            return None
+
+    async def delete_object(self, remote_key: str) -> bool:
+        """Удаляет объект из бакета."""
+        if not self.is_configured or self.client is None:
+            return False
+
+        try:
+            await asyncio.to_thread(
+                self.client.delete_object,
+                Bucket=self.bucket_name,
+                Key=remote_key,
+            )
+            print(f"   🗑  Удалён объект из B2: {remote_key}")
+            return True
+        except Exception as e:
+            print(f"   ❌ Ошибка удаления из B2: {e}")
+            return False
+
+    def generate_presigned_url(self, remote_key: str, expires_in: Optional[int] = None) -> Optional[str]:
+        """Генерирует временную подписанную ссылку на файл (по умолчанию 1 час).
+
+        Нужно для бэкенда сайта (отдача приватного контента).
+        """
+        if not self.is_configured or self.client is None:
+            return None
+
+        try:
+            return self.client.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": self.bucket_name, "Key": remote_key},
+                ExpiresIn=expires_in or self.signed_url_ttl,
+            )
+        except Exception as e:
+            print(f"   ❌ Ошибка генерации подписанного URL: {e}")
             return None
