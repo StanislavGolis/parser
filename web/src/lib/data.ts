@@ -12,7 +12,6 @@ import { cookies } from "next/headers";
 import { ApiError } from "./api";
 import { SERVER_API_BASE } from "./env";
 import type {
-  AdminBoard,
   Board,
   MediaDetail,
   MediaItem,
@@ -20,6 +19,7 @@ import type {
   MediaType,
   PeriodKey,
   SortKey,
+  ThreadList,
 } from "./types";
 
 const REVALIDATE = {
@@ -73,11 +73,23 @@ export async function getBoardMediaPage(
   page: number,
   perPage: number,
   type?: MediaType | null,
+  threadId?: number | null,
 ): Promise<MediaList> {
   const q = new URLSearchParams({ page: String(page), per_page: String(perPage), sort });
   if (type) q.set("type", type);
+  if (threadId) q.set("thread", String(threadId));
   const fallback: MediaList = { items: [], page, per_page: perPage, total: 0 };
   return serverFetch<MediaList>(`/api/v1/boards/${encodeURIComponent(slug)}/media?${q}`, REVALIDATE.board, fallback);
+}
+
+export async function getBoardThreads(
+  slug: string,
+  page: number,
+  perPage: number,
+): Promise<ThreadList> {
+  const q = new URLSearchParams({ page: String(page), per_page: String(perPage) });
+  const fallback: ThreadList = { items: [], page, per_page: perPage, total: 0 };
+  return serverFetch<ThreadList>(`/api/v1/boards/${encodeURIComponent(slug)}/threads?${q}`, REVALIDATE.board, fallback);
 }
 
 export async function getTopMedia(

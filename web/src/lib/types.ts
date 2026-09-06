@@ -12,11 +12,81 @@ export interface Board {
   is_private: boolean;
 }
 
-/** Доска в админ-панели. */
+/** Доска в админ-панели (с живой статистикой). */
 export interface AdminBoard extends Board {
   parse_enabled: boolean;
   is_visible: boolean;
   has_access_code: boolean;
+  media_total: number;
+  media_downloaded: number;
+  media_in_b2: number;
+  media_missing: number;
+  threads_active: number;
+  files_in_catalog: number;
+  last_scan: string | null;
+  views_total: number;
+  downloads_total: number;
+}
+
+/** Итоговые цифры системы (в админке). */
+export interface SystemTotals {
+  boards_total: number;
+  boards_parsed: number;
+  media_total: number;
+  media_in_b2: number;
+  media_downloaded: number;
+  media_missing: number;
+  threads_active: number;
+  files_in_catalog: number;
+  views_total: number;
+  downloads_total: number;
+}
+
+export interface AdminOverview {
+  generated_at: string;
+  totals: SystemTotals;
+  boards: AdminBoard[];
+}
+
+/** Доска форума (список из index.json двача) в сопоставлении с нашей БД. */
+export interface ForumBoard {
+  slug: string;
+  name: string | null;
+  category: string | null;
+  threads_on_forum: number;
+  in_db: boolean;
+  parse_enabled: boolean;
+  is_visible: boolean;
+  is_private: boolean;
+  media_total: number;
+  media_in_b2: number;
+  threads_active: number;
+}
+
+/** Тред доски со статистикой файлов и превью. */
+export interface BoardThread {
+  board_id: number;
+  thread_id: number;
+  subject: string | null;
+  comment: string | null;
+  posts_count: number;
+  files_count: number;
+  thread_timestamp: string | null;
+  last_scanned_at: string | null;
+  is_active: boolean;
+  media_total: number;
+  media_downloaded: number;
+  media_in_b2: number;
+  media_missing: number;
+  media_visible: number;
+  preview: MediaItem[];
+}
+
+export interface ThreadList {
+  items: BoardThread[];
+  page: number;
+  per_page: number;
+  total: number;
 }
 
 export interface MediaItem {

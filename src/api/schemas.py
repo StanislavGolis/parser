@@ -18,10 +18,56 @@ class BoardOut(BaseModel):
 
 
 class AdminBoardOut(BoardOut):
-    """Доска в админке: добавляет флаги управления и признак заданного кода."""
+    """Доска в админке: флаги управления и живая статистика контента."""
     parse_enabled: bool = True
     is_visible: bool = True
     has_access_code: bool = False
+
+    # Статистика (агрегируется из БД)
+    media_total: int = 0
+    media_downloaded: int = 0
+    media_in_b2: int = 0
+    media_missing: int = 0
+    threads_active: int = 0
+    files_in_catalog: int = 0
+    last_scan: Optional[datetime] = None
+    views_total: int = 0
+    downloads_total: int = 0
+
+
+class SystemTotals(BaseModel):
+    boards_total: int = 0
+    boards_parsed: int = 0
+    media_total: int = 0
+    media_in_b2: int = 0
+    media_downloaded: int = 0
+    media_missing: int = 0
+    threads_active: int = 0
+    files_in_catalog: int = 0
+    views_total: int = 0
+    downloads_total: int = 0
+
+
+class AdminOverview(BaseModel):
+    """Снапшот для админ-панели (обновляется polling'ом)."""
+    generated_at: datetime
+    totals: SystemTotals
+    boards: List[AdminBoardOut]
+
+
+class ForumBoardOut(BaseModel):
+    """Доска форума (из index.json двача), сопоставленная с нашей БД."""
+    slug: str
+    name: Optional[str] = None
+    category: Optional[str] = None
+    threads_on_forum: int = 0
+    in_db: bool = False
+    parse_enabled: bool = False
+    is_visible: bool = False
+    is_private: bool = False
+    media_total: int = 0
+    media_in_b2: int = 0
+    threads_active: int = 0
 
 
 class BoardCreate(BaseModel):
@@ -65,6 +111,38 @@ class MediaOut(BaseModel):
 
 class MediaListOut(BaseModel):
     items: List[MediaOut]
+    page: int
+    per_page: int
+    total: int
+
+
+class ThreadOut(BaseModel):
+    """Тред доски с агрегированной статистикой файлов (для сайта/админки)."""
+    model_config = ConfigDict(from_attributes=True)
+
+    board_id: int
+    thread_id: int
+    subject: Optional[str] = None
+    comment: Optional[str] = None
+    posts_count: int = 0
+    files_count: int = 0          # файлов в каталоге на последний скан (обнаружено)
+    thread_timestamp: Optional[datetime] = None
+    last_scanned_at: Optional[datetime] = None
+    is_active: bool = True
+
+    # Статистика по файлам из нашей БД
+    media_total: int = 0          # всего записей в БД
+    media_downloaded: int = 0     # скачано (без выгрузки в B2)
+    media_in_b2: int = 0          # загружено в B2 (uploaded+verified)
+    media_missing: int = 0        # файл потерян
+    media_visible: int = 0        # видимых на сайте
+
+    # Несколько последних файлов треда для превью
+    preview: List[MediaOut] = []
+
+
+class ThreadListOut(BaseModel):
+    items: List[ThreadOut]
     page: int
     per_page: int
     total: int

@@ -8,6 +8,7 @@
 """
 import asyncio
 import os
+import re
 from datetime import datetime
 from typing import List, Optional
 
@@ -174,6 +175,25 @@ class DvachParser:
 
         await self.session.commit()
 
+    @staticmethod
+    def _clean_comment(html: Optional[str]) -> Optional[str]:
+        """Переводит HTML-комментарий ОП в короткий plaintext для хранения."""
+        if not html:
+            return None
+        text = re.sub(r"<[^>]+>", " ", html)
+        text = re.sub(r"\s+", " ", text).strip()
+        return text[:400] or None
+
+    @staticmethod
+    def _thread_meta(t: dict) -> dict:
+        """Вытаскивает отображаемые метаданные треда из элемента каталога."""
+        ts = t.get("timestamp")
+        return {
+            "subject": (t.get("subject") or "").strip()[:500] or None,
+            "comment": DvachParser._clean_comment(t.get("comment")),
+            "thread_timestamp": datetime.fromtimestamp(int(ts)) if ts else None,
+        }
+
     async def process_board(self, board_slug: str):
         """Полный цикл обработки одной доски."""
         print(f"[info] Начинаем парсинг доски /{board_slug}")
@@ -207,6 +227,7 @@ class DvachParser:
             thread_id = int(t["num"])
             posts_count = int(t.get("posts_count") or 0)
             files_count = int(t.get("files_count") or 0)
+            meta = self._thread_meta(t)
 
             state = await self.thread_state_repo.get_by_board_thread(board.id, thread_id)
             if state is None:
@@ -216,6 +237,9 @@ class DvachParser:
                     posts_count=posts_count,
                     files_count=files_count,
                     is_active=True,
+                    subject=meta["subject"],
+                    comment=meta["comment"],
+                    thread_timestamp=meta["thread_timestamp"],
                 )
                 self.session.add(state)
                 need_scan = True
@@ -225,6 +249,14 @@ class DvachParser:
                 need_scan = (state.posts_count != posts_count) or (state.files_count != files_count)
                 reason = "изменения" if need_scan else \
                     f"без изменений (постов: {state.posts_count}, файлов: {state.files_count})"
+
+            # Актуализируем метаданные треда (subject/comment/time) каждый цикл
+            if meta["subject"]:
+                state.subject = meta["subject"]
+            if meta["comment"]:
+                state.comment = meta["comment"]
+            if meta["thread_timestamp"]:
+                state.thread_timestamp = meta["thread_timestamp"]
 
             if need_scan:
                 files = await self.fetch_thread_files(board_slug, thread_id)

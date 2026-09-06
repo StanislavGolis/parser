@@ -52,13 +52,14 @@ async def board_media(
     slug: str,
     request: Request,
     page: int = Query(1, ge=1),
-    per_page: int = Query(30, ge=1, le=100),
+    per_page: int = Query(30, ge=1, le=300),
     sort: str = Query("new", pattern="^(new|popular)$"),
     media_type: Optional[str] = Query(None, alias="type", pattern="^(image|video)$"),
+    thread: Optional[int] = Query(None, description="Показать файлы только этого треда"),
     session: AsyncSession = Depends(get_session),
     b2: B2Uploader = Depends(get_b2),
 ):
-    """Список файлов доски с пагинацией и сортировкой."""
+    """Список файлов доски с пагинацией и сортировкой (можно фильтровать по треду)."""
     await check_rate_limit(client_ip(request))
 
     board_result = await session.execute(
@@ -75,6 +76,8 @@ async def board_media(
     filters = list(VISIBLE_FILTER) + [Media.board_id == board.id]
     if media_type:
         filters.append(Media.media_type == media_type)
+    if thread is not None:
+        filters.append(Media.thread_id == thread)
 
     total = (
         await session.execute(select(func.count()).select_from(Media).where(*filters))

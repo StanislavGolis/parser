@@ -1,13 +1,15 @@
 # src/api/routes/boards.py
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.common import access_cookie_name, hash_access_code
-from src.api.deps import check_rate_limit, client_ip
-from src.api.schemas import AccessRequest, AccessResult, BoardOut
+from src.api.common import access_cookie_name, board_access_granted, hash_access_code
+from src.api.deps import check_rate_limit, client_ip, get_b2
+from src.api.schemas import AccessRequest, AccessResult, BoardOut, ThreadListOut
+from src.api.threads_service import build_thread_outs, list_threads
 from src.core.db import get_session
 from src.core.models import Board, Media
+from src.services.b2_uploader import B2Uploader
 
 router = APIRouter(prefix="/api/v1/boards", tags=["boards"])
 
@@ -54,6 +56,35 @@ async def list_boards(
             is_private=board.is_private,
         ))
     return boards
+
+
+@router.get("/{slug}/threads", response_model=ThreadListOut)
+async def board_threads(
+    slug: str,
+    request: Request,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(15, ge=1, le=50),
+    session: AsyncSession = Depends(get_session),
+    b2: B2Uploader = Depends(get_b2),
+):
+    """Треды доски (активные) с метаданными и статистикой файлов.
+
+    Приватная доска доступна только с валидным cookie кода.
+    """
+    await check_rate_limit(client_ip(request))
+
+    result = await session.execute(
+        select(Board).where(Board.slug == slug, Board.is_visible.is_(True))
+    )
+    board = result.scalar_one_or_none()
+    if not board:
+        raise HTTPException(status_code=404, detail="Board not found")
+    if board.is_private and not board_access_granted(request, board):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    threads, total = await list_threads(session, board.id, page, per_page)
+    items = await build_thread_outs(session, board.id, threads, b2=b2, with_preview=True)
+    return ThreadListOut(items=items, page=page, per_page=per_page, total=total)
 
 
 @router.post("/{slug}/access", response_model=AccessResult)

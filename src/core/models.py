@@ -42,6 +42,11 @@ class ThreadState(Base):
     board_id = Column(Integer, ForeignKey("boards.id", ondelete="CASCADE"), nullable=False)
     thread_id = Column(Integer, nullable=False)  # внешний ID треда на форуме
 
+    # Метаданные треда (для отображения списка тредов на сайте/в админке)
+    subject = Column(String(500), nullable=True)          # тема треда (catalog.subject)
+    comment = Column(Text, nullable=True)                 # текст ОП без HTML (обрезанный)
+    thread_timestamp = Column(DateTime, nullable=True)    # время создания треда (catalog.timestamp)
+
     posts_count = Column(Integer, nullable=False, default=0)
     files_count = Column(Integer, nullable=False, default=0)
     last_scanned_at = Column(DateTime, nullable=True)
