@@ -24,6 +24,7 @@ class Board(Base):
     is_private = Column(Boolean, nullable=False, default=False)     # контент по коду доступа
     access_code_hash = Column(String(64), nullable=True)            # sha256 кода доступа
     sort_order = Column(Integer, nullable=False, default=0)         # порядок парсинга (очередь)
+    parse_mode = Column(String(16), nullable=False, default="all")  # all | selected — как выбирать треды
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -60,6 +61,12 @@ class ThreadState(Base):
     files_count = Column(Integer, nullable=False, default=0)
     last_scanned_at = Column(DateTime, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
+
+    # Управление из админки (этап: управление контентом)
+    parse_enabled = Column(Boolean, nullable=False, default=True)   # тред участвует в скачивании
+    is_visible = Column(Boolean, nullable=False, default=True)      # показывать публично
+    is_private = Column(Boolean, nullable=False, default=False)     # контент только по коду
+    access_code_hash = Column(String(64), nullable=True)            # sha256 кода доступа треда
 
     board = relationship("Board", back_populates="threads_state")
 

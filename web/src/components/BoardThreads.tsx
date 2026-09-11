@@ -3,9 +3,9 @@
 import { useCallback, useState } from "react";
 
 import Lightbox from "@/components/Lightbox";
-import { FilmIcon, ImageIcon, SpinnerIcon } from "@/components/icons";
+import { FilmIcon, ImageIcon, LockIcon, SpinnerIcon } from "@/components/icons";
 import When from "@/components/When";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
 import { mediaUrl } from "@/lib/env";
 import { formatNumber, plural } from "@/lib/format";
 import type { BoardThread, MediaItem, MediaList, ThreadList } from "@/lib/types";
@@ -57,15 +57,32 @@ export default function BoardThreads({ slug, initial }: BoardThreadsProps) {
     }
   }, [slug, page, loading]);
 
-  async function openThread(threadId: number, startIndex = 0) {
+  async function fetchThreadMedia(threadId: number): Promise<MediaList> {
+    const q = new URLSearchParams({ thread: String(threadId), per_page: "300", sort: "new" });
+    return apiGet<MediaList>(`/api/v1/boards/${encodeURIComponent(slug)}/media?${q}`);
+  }
+
+  async function openThread(threadId: number, isPrivate: boolean, startIndex = 0) {
     setOpeningThread(threadId);
     try {
-      const q = new URLSearchParams({ thread: String(threadId), per_page: "300", sort: "new" });
-      const data = await apiGet<MediaList>(`/api/v1/boards/${encodeURIComponent(slug)}/media?${q}`);
-      if (data.items.length === 0) {
-        setOpeningThread(null);
-        return;
+      let data = await fetchThreadMedia(threadId);
+
+      // Закрытый тред: спрашиваем код доступа и пробуем снова
+      if (data.items.length === 0 && isPrivate) {
+        const code = window.prompt("Тред закрыт. Введите код доступа:");
+        if (!code) return;
+        const res = await apiPost<{ granted: boolean }>(
+          `/api/v1/boards/${encodeURIComponent(slug)}/threads/${threadId}/access`,
+          { code },
+        );
+        if (!res.granted) {
+          setError("Неверный код доступа.");
+          return;
+        }
+        data = await fetchThreadMedia(threadId);
       }
+
+      if (data.items.length === 0) return;
       setLightbox({ items: data.items, index: Math.min(startIndex, data.items.length - 1) });
     } catch {
       setError("Не удалось открыть тред. Попробуйте ещё раз.");
@@ -95,8 +112,8 @@ export default function BoardThreads({ slug, initial }: BoardThreadsProps) {
             slug={slug}
             thread={t}
             opening={openingThread === t.thread_id}
-            onOpenAll={() => void openThread(t.thread_id)}
-            onOpenAt={(i) => void openThread(t.thread_id, i)}
+            onOpenAll={() => void openThread(t.thread_id, t.is_private)}
+            onOpenAt={(i) => void openThread(t.thread_id, t.is_private, i)}
           />
         ))}
       </div>
@@ -168,6 +185,11 @@ function ThreadCard({
           </h2>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-text-muted">
             <span>№{thread.thread_id}</span>
+            {thread.is_private ? (
+              <span className="inline-flex items-center gap-1 rounded-[3px] bg-accent-warning/15 px-1.5 py-0.5 text-accent-warning">
+                <LockIcon className="h-3 w-3" /> закрытый
+              </span>
+            ) : null}
             {thread.thread_timestamp ? <When iso={thread.thread_timestamp} /> : null}
             <span>
               {formatNumber(thread.posts_count)} {plural(thread.posts_count, ["пост", "поста", "постов"])}

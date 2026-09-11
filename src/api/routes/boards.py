@@ -3,12 +3,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.common import access_cookie_name, board_access_granted, hash_access_code
+from src.api.common import (
+    access_cookie_name,
+    allowed_private_thread_ids,
+    board_access_granted,
+    hash_access_code,
+    thread_access_cookie_name,
+)
 from src.api.deps import check_rate_limit, client_ip, get_s3
 from src.api.schemas import AccessRequest, AccessResult, BoardOut, ThreadListOut
 from src.api.threads_service import build_thread_outs, list_threads
 from src.core.db import get_session
-from src.core.models import Board, Media
+from src.core.models import Board, Media, ThreadState
 from src.services.s3_storage import S3Storage
 
 router = APIRouter(prefix="/api/v1/boards", tags=["boards"])
@@ -82,8 +88,11 @@ async def board_threads(
     if board.is_private and not board_access_granted(request, board):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    threads, total = await list_threads(session, board.id, page, per_page)
-    items = await build_thread_outs(session, board.id, threads, s3=s3, with_preview=True)
+    threads, total = await list_threads(session, board.id, page, per_page, only_visible=True)
+    allowed = await allowed_private_thread_ids(session, request, board)
+    items = await build_thread_outs(
+        session, board.id, threads, s3=s3, with_preview=True, allowed_private_ids=allowed
+    )
     return ThreadListOut(items=items, page=page, per_page=per_page, total=total)
 
 
@@ -118,6 +127,58 @@ async def board_access(
 
     response.set_cookie(
         key=access_cookie_name(board.slug),
+        value=code_hash,
+        max_age=ACCESS_COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        path="/",
+    )
+    return AccessResult(granted=True)
+
+
+@router.post("/{slug}/threads/{thread_id}/access", response_model=AccessResult)
+async def thread_access(
+    slug: str,
+    thread_id: int,
+    payload: AccessRequest,
+    request: Request,
+    response: Response,
+    session: AsyncSession = Depends(get_session),
+):
+    """Проверка кода доступа к приватному треду.
+
+    При успехе выставляет httpOnly-cookie bt_{board_id}_{thread_id} (sha256 кода).
+    """
+    await check_rate_limit(client_ip(request))
+
+    result = await session.execute(
+        select(Board).where(Board.slug == slug, Board.is_visible.is_(True))
+    )
+    board = result.scalar_one_or_none()
+    if not board:
+        raise HTTPException(status_code=404, detail="Board not found")
+
+    thread_result = await session.execute(
+        select(ThreadState).where(
+            ThreadState.board_id == board.id,
+            ThreadState.thread_id == thread_id,
+            ThreadState.is_visible.is_(True),
+        )
+    )
+    thread = thread_result.scalar_one_or_none()
+    if not thread or not thread.is_private:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    code = (payload.code or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="Code is empty")
+
+    code_hash = hash_access_code(code)
+    if not thread.access_code_hash or code_hash != thread.access_code_hash:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    response.set_cookie(
+        key=thread_access_cookie_name(board.id, thread.thread_id),
         value=code_hash,
         max_age=ACCESS_COOKIE_MAX_AGE,
         httponly=True,

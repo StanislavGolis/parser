@@ -32,13 +32,16 @@ from src.api.schemas import (
     ForumBoardOut,
     ResetResult,
     SystemTotals,
+    ThreadBulkUpdate,
     ThreadListOut,
+    ThreadOut,
+    ThreadUpdate,
     ToggleResult,
 )
 from src.api.stats_service import collect_board_stats
 from src.api.threads_service import build_thread_outs, list_threads
 from src.core.db import get_session
-from src.core.models import Board, Media
+from src.core.models import Board, Media, ThreadState
 from src.core.redis_client import redis_client
 from src.services.s3_storage import S3Storage
 
@@ -65,6 +68,7 @@ def _admin_out(board: Board, m: Optional[dict] = None) -> AdminBoardOut:
         is_visible=board.is_visible,
         is_private=board.is_private,
         parse_enabled=board.parse_enabled,
+        parse_mode=board.parse_mode,
         has_access_code=bool(board.access_code_hash),
         sort_order=board.sort_order,
         media_total=int(m.get("media_total", 0)),
@@ -271,6 +275,11 @@ async def update_board(
         board.is_visible = payload.is_visible
     if payload.is_private is not None:
         board.is_private = payload.is_private
+    if payload.parse_mode is not None:
+        mode = payload.parse_mode.strip().lower()
+        if mode not in ("all", "selected"):
+            raise HTTPException(status_code=400, detail="parse_mode: ожидается all или selected")
+        board.parse_mode = mode
     if payload.title is not None:
         title = payload.title.strip()
         board.title = title[:100] if title else board.slug
@@ -444,5 +453,84 @@ async def toggle_media(
     media.is_visible = not media.is_visible
     await session.commit()
     return ToggleResult(id=media.id, is_visible=media.is_visible)
+
+
+async def _load_thread(session: AsyncSession, board: Board, thread_id: int) -> ThreadState:
+    result = await session.execute(
+        select(ThreadState).where(
+            ThreadState.board_id == board.id,
+            ThreadState.thread_id == thread_id,
+        )
+    )
+    thread = result.scalar_one_or_none()
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    return thread
+
+
+@router.patch("/boards/{slug}/threads/{thread_id}", response_model=ThreadOut)
+async def update_thread(
+    slug: str,
+    thread_id: int,
+    payload: ThreadUpdate,
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Обновляет флаги треда и/или код доступа к приватному треду.
+
+    access_code: непустая строка — установить/сменить код; пустая строка — сбросить.
+    """
+    board = await _load_board(session, slug)
+    thread = await _load_thread(session, board, thread_id)
+
+    if payload.parse_enabled is not None:
+        thread.parse_enabled = payload.parse_enabled
+    if payload.is_visible is not None:
+        thread.is_visible = payload.is_visible
+    if payload.is_private is not None:
+        thread.is_private = payload.is_private
+    if payload.access_code is not None:
+        code = payload.access_code.strip()
+        thread.access_code_hash = hash_access_code(code) if code else None
+
+    if thread.is_private and not thread.access_code_hash:
+        raise HTTPException(
+            status_code=400,
+            detail="Для приватного треда нужно задать код доступа",
+        )
+
+    await session.commit()
+    items = await build_thread_outs(session, board.id, [thread], with_preview=False)
+    return items[0]
+
+
+@router.post("/boards/{slug}/threads/bulk")
+async def bulk_update_threads(
+    slug: str,
+    payload: ThreadBulkUpdate,
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Массово меняет флаги выбранных тредов доски (Парсить/Показывать/По коду)."""
+    board = await _load_board(session, slug)
+    if not payload.thread_ids:
+        return {"ok": True, "updated": 0}
+
+    result = await session.execute(
+        select(ThreadState).where(
+            ThreadState.board_id == board.id,
+            ThreadState.thread_id.in_(payload.thread_ids),
+        )
+    )
+    threads = result.scalars().all()
+    for thread in threads:
+        if payload.parse_enabled is not None:
+            thread.parse_enabled = payload.parse_enabled
+        if payload.is_visible is not None:
+            thread.is_visible = payload.is_visible
+        if payload.is_private is not None:
+            thread.is_private = payload.is_private
+    await session.commit()
+    return {"ok": True, "updated": len(threads)}
 
 

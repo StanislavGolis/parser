@@ -21,7 +21,7 @@ export default function AdminBoardThreadsPage({ params }: { params: { slug: stri
       </Link>
       <h2 className="text-xl font-bold">Треды раздела /{slug}</h2>
       <p className="mt-1 text-sm text-neutral-500">
-        Статистика по каждому треду: сколько файлов обнаружено, скачано, в S3.
+        Управление тредами: что парсить, что показывать публично и что открывать по коду.
       </p>
       <div className="mt-5">
         <AdminBoardThreads slug={slug} />

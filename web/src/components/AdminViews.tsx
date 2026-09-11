@@ -211,6 +211,16 @@ function BoardRow({
             onChange={() => void onPatch(board.slug, { parse_enabled: !board.parse_enabled })}
           />
           <Switch
+            checked={board.parse_mode === "all"}
+            label={board.parse_mode === "all" ? "Все треды" : "Выбранные"}
+            title="Какие треды парсить: все или только включённые вручную (в разделе тредов)"
+            onChange={() =>
+              void onPatch(board.slug, {
+                parse_mode: board.parse_mode === "all" ? "selected" : "all",
+              })
+            }
+          />
+          <Switch
             checked={board.is_visible}
             label="На сайте"
             title="Показывать раздел на сайте"

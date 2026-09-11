@@ -18,6 +18,8 @@ export interface AdminBoard extends Board {
   is_visible: boolean;
   has_access_code: boolean;
   sort_order: number;
+  /** Режим выбора тредов: all — все, selected — только включённые вручную. */
+  parse_mode: "all" | "selected";
   media_total: number;
   media_downloaded: number;
   media_in_s3: number;
@@ -79,6 +81,11 @@ export interface BoardThread {
   thread_timestamp: string | null;
   last_scanned_at: string | null;
   is_active: boolean;
+  /** Управление из админки. */
+  parse_enabled: boolean;
+  is_visible: boolean;
+  is_private: boolean;
+  has_access_code: boolean;
   media_total: number;
   media_downloaded: number;
   media_in_s3: number;

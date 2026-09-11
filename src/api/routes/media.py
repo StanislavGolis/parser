@@ -10,11 +10,19 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.common import VISIBLE_FILTER, board_access_granted, build_media_url, sign_media_urls
+from src.api.common import (
+    VISIBLE_FILTER,
+    allowed_private_thread_ids,
+    board_access_granted,
+    build_media_url,
+    sign_media_urls,
+    thread_access_granted,
+    visible_thread_clause,
+)
 from src.api.deps import check_rate_limit, client_ip, get_s3, ip_hash
 from src.api.schemas import DownloadResult, MediaDetailOut, MediaListOut, MediaOut, ViewResult
 from src.core.db import get_session
-from src.core.models import Board, DownloadStat, Media, ViewStat
+from src.core.models import Board, DownloadStat, Media, ThreadState, ViewStat
 from src.services.s3_storage import S3Storage
 
 router = APIRouter(prefix="/api/v1", tags=["media"])
@@ -48,6 +56,19 @@ async def _check_media_board_access(
         raise HTTPException(status_code=404, detail="Media not found")
     if board.is_private and not board_access_granted(request, board):
         raise HTTPException(status_code=403, detail="Access denied")
+
+    # Видимость и приватность треда — сквозная проверка для файлов
+    thread_result = await session.execute(
+        select(ThreadState).where(
+            ThreadState.board_id == media.board_id,
+            ThreadState.thread_id == media.thread_id,
+        )
+    )
+    thread = thread_result.scalar_one_or_none()
+    if not thread or not thread.is_active or not thread.is_visible:
+        raise HTTPException(status_code=404, detail="Media not found")
+    if not thread_access_granted(request, board, thread):
+        raise HTTPException(status_code=403, detail="Access denied")
     return board
 
 
@@ -77,7 +98,8 @@ async def board_media(
     if board.is_private and not board_access_granted(request, board):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    filters = list(VISIBLE_FILTER) + [Media.board_id == board.id]
+    allowed = await allowed_private_thread_ids(session, request, board)
+    filters = list(VISIBLE_FILTER) + [Media.board_id == board.id, visible_thread_clause(allowed)]
     if media_type:
         filters.append(Media.media_type == media_type)
     if thread is not None:

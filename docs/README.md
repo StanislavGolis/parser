@@ -29,6 +29,9 @@
 - [x] Админ-центр управления контентом: парсер-демон с кнопками запуска/остановки,
       очередь парсинга, переименование/удаление разделов (БД + S3), «очистка S3»,
       полный сброс, доски форума из `index.json`.
+- [x] Этап 2: управление контентом на уровне тредов — флаги «Парсить / На сайте / По коду»,
+      режим доски `parse_mode` (all|selected), код закрытого треда (cookie `bt_...`),
+      сквозная проверка видимости/приватности тредов в публичных эндпоинтах.
 
 **Известные ограничения:**
 - Исходящий трафик S3 (Timeweb Cloud) тарифицируется; медиа проксируется через VPS,
@@ -111,6 +114,7 @@ GET   /api/v1/boards                       доски (вкл. приватны�
 GET   /api/v1/boards/{slug}/threads        треды доски (метаданные + статистика + превью)
 GET   /api/v1/boards/{slug}/media          файлы доски (?thread=, ?sort=, ?type=)
 POST  /api/v1/boards/{slug}/access         код доступа (=> httpOnly-cookie ba_{slug}, 24 ч)
+POST  /api/v1/boards/{slug}/threads/{id}/access  код закрытого треда (=> cookie bt_{board}_{thread})
 GET   /api/v1/media/{id} | /view | /download | /raw   (raw — поток S3 без раскрытия бакета)
 GET   /api/v1/feed?type=&page=             новинки (без приватных)
 GET   /api/v1/top?type=&period=&limit=     топ день/неделя/месяц (без приватных)
@@ -121,10 +125,12 @@ GET   /api/v1/admin/overview               сводка: доски + стати
 GET   /api/v1/admin/forum                  все доски форума (index.json 2ch)
 GET   /api/v1/admin/boards                 доски с флагами/статистикой
 POST  /api/v1/admin/boards                 создать по slug (+name)
-PATCH /api/v1/admin/boards/{slug}          флаги / title / код
+PATCH /api/v1/admin/boards/{slug}          флаги / title / код / parse_mode (all|selected)
 DELETE /api/v1/admin/boards/{slug}         удалить раздел (БД + файлы S3)
 POST  /api/v1/admin/boards/reorder         порядок очереди парсинга
-GET   /api/v1/admin/boards/{slug}/threads  треды раздела (для админки)
+GET   /api/v1/admin/boards/{slug}/threads  треды раздела (флаги + статистика)
+PATCH /api/v1/admin/boards/{slug}/threads/{id}  флаги треда + код доступа
+POST  /api/v1/admin/boards/{slug}/threads/bulk  массовые флаги выбранных тредов
 POST  /api/v1/admin/parser/start|stop      управление парсером
 POST  /api/v1/admin/cleanup-storage             удалить объекты S3 без записей в БД
 DELETE /api/v1/admin/reset                 полный сброс (БД + S3), парсер ставится на паузу

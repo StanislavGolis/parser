@@ -23,6 +23,7 @@ class AdminBoardOut(BoardOut):
     is_visible: bool = True
     has_access_code: bool = False
     sort_order: int = 0
+    parse_mode: str = "all"  # all | selected
 
     # Статистика (агрегируется из БД)
     media_total: int = 0
@@ -84,9 +85,27 @@ class BoardUpdate(BaseModel):
     parse_enabled: Optional[bool] = None
     is_visible: Optional[bool] = None
     is_private: Optional[bool] = None
+    parse_mode: Optional[str] = None  # all | selected
     title: Optional[str] = None
     # Новый код доступа. Пустая строка/null = сбросить код (доступ закрывается).
     access_code: Optional[str] = None
+
+
+class ThreadUpdate(BaseModel):
+    """Флаги треда и/или код доступа к приватному треду."""
+    parse_enabled: Optional[bool] = None
+    is_visible: Optional[bool] = None
+    is_private: Optional[bool] = None
+    # Непустая строка — установить/сменить код; пустая строка — сбросить код.
+    access_code: Optional[str] = None
+
+
+class ThreadBulkUpdate(BaseModel):
+    """Массовое изменение флагов выбранных тредов одной доски."""
+    thread_ids: List[int]
+    parse_enabled: Optional[bool] = None
+    is_visible: Optional[bool] = None
+    is_private: Optional[bool] = None
 
 
 class BoardReorder(BaseModel):
@@ -149,6 +168,12 @@ class ThreadOut(BaseModel):
     thread_timestamp: Optional[datetime] = None
     last_scanned_at: Optional[datetime] = None
     is_active: bool = True
+
+    # Управление (админка) и приватность
+    parse_enabled: bool = True
+    is_visible: bool = True
+    is_private: bool = False
+    has_access_code: bool = False
 
     # Статистика по файлам из нашей БД
     media_total: int = 0          # всего записей в БД

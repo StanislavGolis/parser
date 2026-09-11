@@ -240,25 +240,23 @@ class DvachParser:
             meta = self._thread_meta(t)
 
             state = await self.thread_state_repo.get_by_board_thread(board.id, thread_id)
-            if state is None:
+            is_new = state is None
+            if is_new:
                 state = ThreadState(
                     board_id=board.id,
                     thread_id=thread_id,
                     posts_count=posts_count,
                     files_count=files_count,
                     is_active=True,
+                    # Режим доски: all — новые треды парсим, selected — только включённые вручную
+                    parse_enabled=(board.parse_mode == "all"),
                     subject=meta["subject"],
                     comment=meta["comment"],
                     thread_timestamp=meta["thread_timestamp"],
                 )
                 self.session.add(state)
-                need_scan = True
-                reason = "новый тред"
             else:
                 state.is_active = True
-                need_scan = (state.posts_count != posts_count) or (state.files_count != files_count)
-                reason = "изменения" if need_scan else \
-                    f"без изменений (постов: {state.posts_count}, файлов: {state.files_count})"
 
             # Актуализируем метаданные треда (subject/comment/time) каждый цикл
             if meta["subject"]:
@@ -268,24 +266,36 @@ class DvachParser:
             if meta["thread_timestamp"]:
                 state.thread_timestamp = meta["thread_timestamp"]
 
-            if need_scan:
-                files = await self.fetch_thread_files(board_slug, thread_id)
-                print(f"   [thread] Тред {thread_id} — {reason}: {len(files)} файлов")
-                for meta in files:
-                    # Быстрая реакция на «Остановить» — проверяем между файлами
-                    if self.stop_check is not None and await self.stop_check():
-                        await self.session.commit()  # сохраняем уже скачанное
-                        print("   [stop] Обработка доски прервана командой из админки")
-                        return
-                    await self.process_file(board, state, meta)
-                    await asyncio.sleep(settings.REQUEST_DELAY * 0.5)
-
-                state.posts_count = posts_count
-                state.files_count = files_count
-                state.last_scanned_at = datetime.utcnow()
-                scanned += 1
+            if not state.parse_enabled:
+                # Тред отключён в админке: счётчики не трогаем, чтобы при включении
+                # он снова попал в сканирование.
+                print(f"   [skip]  Тред {thread_id} — парсинг отключён в админке")
             else:
-                print(f"   [skip]  Тред {thread_id} — {reason}")
+                need_scan = is_new or (state.posts_count != posts_count) or (state.files_count != files_count)
+                if is_new:
+                    reason = "новый тред"
+                else:
+                    reason = "изменения" if need_scan else \
+                        f"без изменений (постов: {state.posts_count}, файлов: {state.files_count})"
+
+                if need_scan:
+                    files = await self.fetch_thread_files(board_slug, thread_id)
+                    print(f"   [thread] Тред {thread_id} — {reason}: {len(files)} файлов")
+                    for meta in files:
+                        # Быстрая реакция на «Остановить» — проверяем между файлами
+                        if self.stop_check is not None and await self.stop_check():
+                            await self.session.commit()  # сохраняем уже скачанное
+                            print("   [stop] Обработка доски прервана командой из админки")
+                            return
+                        await self.process_file(board, state, meta)
+                        await asyncio.sleep(settings.REQUEST_DELAY * 0.5)
+
+                    state.posts_count = posts_count
+                    state.files_count = files_count
+                    state.last_scanned_at = datetime.utcnow()
+                    scanned += 1
+                else:
+                    print(f"   [skip]  Тред {thread_id} — {reason}")
 
             await asyncio.sleep(settings.REQUEST_DELAY)
 

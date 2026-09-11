@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.common import VISIBLE_FILTER, sign_media_urls
+from src.api.common import VISIBLE_FILTER, sign_media_urls, visible_thread_clause
 from src.api.deps import check_rate_limit, client_ip, get_s3
 from src.api.schemas import MediaListOut, MediaOut
 from src.core.db import get_session
@@ -37,6 +37,7 @@ async def search_media(
     filters = list(VISIBLE_FILTER) + [
         Board.is_visible.is_(True),
         Board.is_private.is_(False),
+        visible_thread_clause(),
         or_(
             Media.original_name.ilike(pattern),
             Media.source_md5.ilike(pattern),

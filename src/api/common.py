@@ -4,10 +4,11 @@ import hashlib
 from typing import Iterable, Optional
 
 from fastapi import Request
+from sqlalchemy import exists, or_, select
 
 from src.api.schemas import MediaOut
 from src.core.config import settings
-from src.core.models import Board, Media
+from src.core.models import Board, Media, ThreadState
 from src.services.s3_storage import S3Storage
 
 # Базовый фильтр публичного показа файла.
@@ -42,6 +43,77 @@ def board_access_granted(request: Request, board: Board) -> bool:
         return False
     cookie = request.cookies.get(access_cookie_name(board.slug))
     return bool(cookie) and cookie == board.access_code_hash
+
+
+# ─────────────────── Доступ к приватным тредам ───────────────────
+
+# Префикс httpOnly-cookie доступа к приватному треду: bt_{board_id}_{thread_id}
+THREAD_ACCESS_COOKIE_PREFIX = "bt_"
+
+
+def thread_access_cookie_name(board_id: int, thread_id: int) -> str:
+    return f"{THREAD_ACCESS_COOKIE_PREFIX}{board_id}_{thread_id}"
+
+
+def thread_access_granted(request: Request, board: Board, thread: ThreadState) -> bool:
+    """Есть ли у запроса доступ к приватному треду.
+
+    Доступ даёт либо персональный cookie треда, либо (если доска приватная)
+    действующий код доски — он открывает все её треды.
+    """
+    if not thread.is_private:
+        return True
+    if board.is_private and board_access_granted(request, board):
+        return True
+    if not thread.access_code_hash:
+        return False
+    cookie = request.cookies.get(thread_access_cookie_name(board.id, thread.thread_id))
+    return bool(cookie) and cookie == thread.access_code_hash
+
+
+async def allowed_private_thread_ids(session, request: Request, board: Board) -> set:
+    """Набор внешних thread_id приватных тредов доски, доступных этому запросу."""
+    result = await session.execute(
+        select(ThreadState.thread_id, ThreadState.access_code_hash).where(
+            ThreadState.board_id == board.id,
+            ThreadState.is_private.is_(True),
+        )
+    )
+    board_ok = board.is_private and board_access_granted(request, board)
+    allowed: set = set()
+    for thread_id, code_hash in result.all():
+        if board_ok:
+            allowed.add(int(thread_id))
+            continue
+        if not code_hash:
+            continue
+        cookie = request.cookies.get(thread_access_cookie_name(board.id, int(thread_id)))
+        if cookie and cookie == code_hash:
+            allowed.add(int(thread_id))
+    return allowed
+
+
+def visible_thread_clause(allowed_private_ids: Optional[set] = None):
+    """SQL-условие: медиа принадлежит видимому треду.
+
+    Скрытые треды (is_visible=False) исключаются всегда; приватные —
+    только если их thread_id есть в allowed_private_ids (доступ подтверждён).
+    """
+    if allowed_private_ids:
+        priv_cond = or_(
+            ThreadState.is_private.is_(False),
+            ThreadState.thread_id.in_(allowed_private_ids),
+        )
+    else:
+        priv_cond = ThreadState.is_private.is_(False)
+
+    return exists().where(
+        ThreadState.board_id == Media.board_id,
+        ThreadState.thread_id == Media.thread_id,
+        ThreadState.is_active.is_(True),
+        ThreadState.is_visible.is_(True),
+        priv_cond,
+    )
 
 
 def build_media_url(

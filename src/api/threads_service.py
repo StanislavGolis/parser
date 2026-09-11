@@ -25,20 +25,26 @@ async def list_threads(
     board_id: int,
     page: int,
     per_page: int,
+    only_visible: bool = False,
 ) -> Tuple[List[ThreadState], int]:
-    """Активные треды доски (пагинация), новые сверху."""
+    """Треды доски (пагинация), новые сверху.
+
+    only_visible=True — публичный режим: только активные и видимые треды
+    (скрытые/приватные в общий список не попадают).
+    """
+    filters = [ThreadState.board_id == board_id, ThreadState.is_active.is_(True)]
+    if only_visible:
+        filters.append(ThreadState.is_visible.is_(True))
+
     total = (
         await session.execute(
-            select(func.count()).select_from(ThreadState).where(
-                ThreadState.board_id == board_id,
-                ThreadState.is_active.is_(True),
-            )
+            select(func.count()).select_from(ThreadState).where(*filters)
         )
     ).scalar() or 0
 
     result = await session.execute(
         select(ThreadState)
-        .where(ThreadState.board_id == board_id, ThreadState.is_active.is_(True))
+        .where(*filters)
         .order_by(ThreadState.thread_timestamp.desc().nullslast(), ThreadState.thread_id.desc())
         .offset((page - 1) * per_page)
         .limit(per_page)
@@ -119,11 +125,13 @@ async def build_thread_outs(
     *,
     s3: Optional[S3Storage] = None,
     with_preview: bool = True,
+    allowed_private_ids: Optional[set] = None,
 ) -> List[ThreadOut]:
     """Собирает ThreadOut для списка тредов (+ статистика и превью)."""
     if not threads:
         return []
 
+    allowed = allowed_private_ids or set()
     stats = await _media_stats(session, board_id)
     thread_ids = [t.thread_id for t in threads]
     previews = await _previews(session, board_id, thread_ids) if with_preview else {}
@@ -141,6 +149,10 @@ async def build_thread_outs(
             thread_timestamp=t.thread_timestamp,
             last_scanned_at=t.last_scanned_at,
             is_active=t.is_active,
+            parse_enabled=t.parse_enabled,
+            is_visible=t.is_visible,
+            is_private=t.is_private,
+            has_access_code=bool(t.access_code_hash),
             media_total=s.get("media_total", 0),
             media_downloaded=s.get("media_downloaded", 0),
             media_in_s3=s.get("media_in_s3", 0),
@@ -149,7 +161,9 @@ async def build_thread_outs(
             preview=[],
         )
 
-        if with_preview:
+        # Превью приватного треда отдаём только при подтверждённом доступе
+        can_preview = (not t.is_private) or (t.thread_id in allowed)
+        if with_preview and can_preview:
             media_items = previews.get(t.thread_id, [])
             if media_items:
                 preview_out = [MediaOut.model_validate(m) for m in media_items]
