@@ -14,7 +14,8 @@ HTTP_PORT=8081 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 Настройки берутся из `.env` (см. `.env.prod.example`):
-- `B2_*` — если заполнены, API генерирует presigned URL, парсер заливает файлы в бакет;
+- `S3_*` — доступы к приватному бакету S3 (Timeweb Cloud): парсер заливает файлы,
+  а API отдаёт их клиенту через прокси (`/api/v1/media/{id}/raw`);
 - `BOARDS_TO_PARSE`, `REQUEST_DELAY`, `PARSE_INTERVAL` — поведение парсера;
 - `ADMIN_TOKEN`, `API_RATE_LIMIT` — API.
 
@@ -61,7 +62,27 @@ docker compose -f docker-compose.prod.yml up -d --build
 - Наружу открыт только `nginx` (порт `HTTP_PORT`). PostgreSQL/Redis наружу
   не пробрасываются.
 - Данные (тома `pgdata`, `media`) переживают перезапуск; `down -v` удаляет их.
-- Медиа раздаётся браузеру напрямую из Backblaze B2 по временным presigned URL
-  (срок `B2_SIGNED_URL_TTL`, по умолчанию 1 час).
-- Если B2 не настроен — парсер складывает файлы в том `media`, а сайт
+- Медиа отдаёт наш API (`/api/v1/media/{id}/raw`): файл стримится из приватного S3,
+  бакет и его адрес клиенту не раскрываются (nginx: `proxy_buffering off`).
+- Если S3 не настроен — парсер складывает файлы в том `media`, а сайт
   показывает заглушки вместо превью (функционал API сохраняется).
+
+## Секреты и переменные окружения
+
+- **Реальные секреты — только в `.env`** (корень репозитория). Файл в `.gitignore` и не коммитится.
+- В репозиторий попадают только **шаблоны без секретов**: `.env.example`,
+  `.env.prod.example`, `web/.env.example`.
+- Локально: `cp .env.example .env`. На VPS: `cp .env.prod.example .env`.
+- Секреты не должны попадать в код, логи, конфиги nginx/compose и в git-историю.
+- Если секрет уже попал в коммит — **сначала отзовите/смените его**, затем чистите историю.
+
+Очистка истории от случайно закоммиченного `.env` (git-filter-repo):
+
+```bash
+pip install git-filter-repo
+git filter-repo --invert-paths --path .env
+git push --force --all
+git push --force --tags
+```
+
+После перезаписи истории в других клонах: `git fetch --all && git reset --hard origin/main`.

@@ -21,7 +21,7 @@ async def media_stats_by_board(session: AsyncSession) -> Dict[int, dict]:
             func.count(Media.id).label("media_total"),
             func.count()
             .filter(Media.download_status.in_(UPLOADED_STATUSES))
-            .label("media_in_b2"),
+            .label("media_in_s3"),
             func.count()
             .filter(Media.download_status == "downloaded")
             .label("media_downloaded"),
@@ -38,7 +38,7 @@ async def media_stats_by_board(session: AsyncSession) -> Dict[int, dict]:
     for r in rows:
         stats[r.board_id] = {
             "media_total": int(r.media_total or 0),
-            "media_in_b2": int(r.media_in_b2 or 0),
+            "media_in_s3": int(r.media_in_s3 or 0),
             "media_downloaded": int(r.media_downloaded or 0),
             "media_missing": int(r.media_missing or 0),
             "media_visible": int(r.media_visible or 0),
@@ -82,7 +82,7 @@ async def collect_board_stats(
     boards: Dict[int, dict] = {}
     totals = {
         "media_total": 0,
-        "media_in_b2": 0,
+        "media_in_s3": 0,
         "media_downloaded": 0,
         "media_missing": 0,
         "media_visible": 0,

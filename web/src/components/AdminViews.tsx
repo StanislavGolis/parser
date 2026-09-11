@@ -253,7 +253,7 @@ function BoardRow({
                   : `Удалить раздел /${board.slug}?`;
               if (window.confirm(msg)) void onDelete(board.slug);
             }}
-            title="Удалить раздел (БД + файлы в B2)"
+            title="Удалить раздел (БД + файлы в S3)"
             className="rounded border border-accent-danger/30 px-1.5 py-1 text-text-secondary transition-colors hover:border-accent-danger/60 hover:text-accent-danger"
           >
             <TrashIcon className="h-4 w-4" />
@@ -267,7 +267,7 @@ function BoardRow({
           В БД: <b className="text-text-primary">{formatNumber(board.media_total)}</b>
         </span>
         <span>
-          В B2: <b className="text-accent-secondary">{formatNumber(board.media_in_b2)}</b>
+          В S3: <b className="text-accent-secondary">{formatNumber(board.media_in_s3)}</b>
         </span>
         <span>
           Скачано: <b className="text-text-primary">{formatNumber(board.media_downloaded)}</b>
@@ -401,8 +401,8 @@ export function ForumTab({
                   {f.in_db ? (
                     <>
                       {" "}
-                      · у нас: {formatNumber(f.media_total)} файлов (в B2:{" "}
-                      {formatNumber(f.media_in_b2)})
+                      · у нас: {formatNumber(f.media_total)} файлов (в S3:{" "}
+                      {formatNumber(f.media_in_s3)})
                     </>
                   ) : null}
                 </div>

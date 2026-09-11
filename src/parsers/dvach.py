@@ -21,7 +21,7 @@ from src.core.models import Board, Media, ThreadState
 from src.repositories.board_repo import BoardRepository
 from src.repositories.media_repo import MediaRepository
 from src.repositories.thread_state_repo import ThreadStateRepository
-from src.services.b2_uploader import B2Uploader
+from src.services.s3_storage import S3Storage
 from src.services.downloader import DownloaderService
 from src.services.media_validator import MediaValidator
 from src.services.reconciliation import ReconciliationService
@@ -55,7 +55,7 @@ class DvachParser:
 
         self.downloader = DownloaderService()
         self.storage = StorageService(settings.STORAGE_PATH)
-        self.b2_uploader = B2Uploader()
+        self.s3_storage = S3Storage()
 
         self.http_session: Optional[aiohttp.ClientSession] = None
 
@@ -316,7 +316,7 @@ class DvachParser:
     # ───────────────────── Обработка файла ─────────────────────
 
     async def process_file(self, board: Board, thread_state: ThreadState, meta: dict):
-        """Скачивание, валидация, загрузка в B2 и запись в БД одного файла."""
+        """Скачивание, валидация, загрузка в S3 и запись в БД одного файла."""
         try:
             # 1. Фильтрация по метаданным (до скачивания)
             valid, error = MediaValidator.is_allowed(
@@ -345,8 +345,8 @@ class DvachParser:
                     width=meta.get("width"),
                     height=meta.get("height"),
                     duplicate_of_id=existing.id,
-                    b2_key=existing.b2_key,
-                    b2_bucket=existing.b2_bucket,
+                    s3_key=existing.s3_key,
+                    s3_bucket=existing.s3_bucket,
                     download_status=(
                         "uploaded" if existing.download_status in ("uploaded", "verified") else "new"
                     ),
@@ -389,17 +389,17 @@ class DvachParser:
                 filename=meta["filename"],
             )
 
-            # 6. Загрузка в B2 (если настроен)
-            b2_key = None
+            # 6. Загрузка в S3 (если настроен)
+            s3_key = None
             local_deleted = False
-            if self.b2_uploader.is_configured:
+            if self.s3_storage.is_configured:
                 remote_key = f"board_{board.id}/thread_{thread_state.thread_id}/{meta['filename']}"
-                b2_key = await self.b2_uploader.upload_file(
+                s3_key = await self.s3_storage.upload_file(
                     self.storage.get_file_path(storage_path),
                     remote_key,
                     content_type=meta["mime_type"],
                 )
-                if b2_key:
+                if s3_key:
                     local_path = self.storage.get_file_path(storage_path)
                     if local_path.exists():
                         os.remove(local_path)
@@ -418,18 +418,18 @@ class DvachParser:
                 file_size=meta["size_bytes"],
                 mime_type=meta["mime_type"],
                 media_type=meta["media_type"],
-                b2_bucket=settings.B2_BUCKET_NAME if b2_key else None,
-                b2_key=b2_key,
+                s3_bucket=settings.storage_bucket if s3_key else None,
+                s3_key=s3_key,
                 width=meta.get("width"),
                 height=meta.get("height"),
-                download_status="uploaded" if b2_key else "downloaded",
+                download_status="uploaded" if s3_key else "downloaded",
                 is_visible=True,
                 is_active=True,
             )
             await self.session.flush()
 
-            if b2_key:
-                print(f"   [ok] Загружен в B2: {meta['original_name']} (ID: {media.id})")
+            if s3_key:
+                print(f"   [ok] Загружен в S3: {meta['original_name']} (ID: {media.id})")
             else:
                 print(f"   [warn] Сохранён локально: {meta['original_name']} (ID: {media.id}, статус: downloaded)")
 
@@ -439,7 +439,7 @@ class DvachParser:
     # ───────────────────── Reconciliation ─────────────────────
 
     async def run_reconciliation(self) -> None:
-        """Сверка БД с локальным кэшем и B2 (актуальность данных и хранилища)."""
+        """Сверка БД с локальным кэшем и S3 (актуальность данных и хранилища)."""
         print("[sync] Запуск сверки данных (reconciliation)...")
-        service = ReconciliationService(self.session, self.storage, self.b2_uploader)
+        service = ReconciliationService(self.session, self.storage, self.s3_storage)
         await service.run()

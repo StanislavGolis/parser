@@ -8,6 +8,7 @@ import {
   ImageIcon,
   PlayIcon,
 } from "@/components/icons";
+import { mediaUrl } from "@/lib/env";
 import { formatBytes, formatCompact } from "@/lib/format";
 import type { Board, MediaItem } from "@/lib/types";
 
@@ -55,7 +56,7 @@ export default function MediaCard({ media, board, showTop = false, onOpen }: Med
         {canShow && !isVideo ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={media.url ?? undefined}
+            src={mediaUrl(media.url)}
             alt={media.original_name}
             loading="lazy"
             decoding="async"
@@ -67,7 +68,7 @@ export default function MediaCard({ media, board, showTop = false, onOpen }: Med
           <>
             {/* Браузерный кадр видео (preload=metadata) */}
             <video
-              src={media.url ?? undefined}
+              src={mediaUrl(media.url)}
               muted
               playsInline
               preload="metadata"
@@ -82,7 +83,7 @@ export default function MediaCard({ media, board, showTop = false, onOpen }: Med
             </span>
           </>
         ) : (
-          /* Плейсхолдер: нет URL или файл недоступен (лимиты B2 и т.п.) */
+          /* Плейсхолдер: нет URL или файл недоступен (лимиты S3 и т.п.) */
           <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-ink-secondary">
             {isVideo ? <FilmIcon className="h-6 w-6 text-text-muted" /> : <ImageIcon className="h-6 w-6 text-text-muted" />}
             <span className="badge badge-muted">недоступно</span>

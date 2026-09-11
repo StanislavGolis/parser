@@ -23,13 +23,13 @@ class MediaRepository(BaseRepository[Media]):
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
 
-    async def get_by_b2_key(self, b2_key: str) -> Optional[Media]:
-        query = select(Media).where(Media.b2_key == b2_key)
+    async def get_by_s3_key(self, s3_key: str) -> Optional[Media]:
+        query = select(Media).where(Media.s3_key == s3_key)
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
 
     async def get_downloaded_local(self, board_id: int, limit: int = 200):
-        """Записи со статусом downloaded — кандидаты на перезаливку в B2."""
+        """Записи со статусом downloaded — кандидаты на перезаливку в S3."""
         query = select(Media).where(Media.download_status == "downloaded")
         if board_id:
             query = query.where(Media.board_id == board_id)

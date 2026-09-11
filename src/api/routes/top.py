@@ -6,11 +6,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.common import VISIBLE_FILTER, sign_media_urls
-from src.api.deps import check_rate_limit, client_ip, get_b2
+from src.api.deps import check_rate_limit, client_ip, get_s3
 from src.api.schemas import MediaOut
 from src.core.db import get_session
 from src.core.models import Board, Media
-from src.services.b2_uploader import B2Uploader
+from src.services.s3_storage import S3Storage
 
 router = APIRouter(prefix="/api/v1/top", tags=["top"])
 
@@ -28,7 +28,7 @@ async def top_media(
     period: str = Query("week", pattern="^(day|week|month)$"),
     limit: int = Query(50, ge=1, le=200),
     session: AsyncSession = Depends(get_session),
-    b2: B2Uploader = Depends(get_b2),
+    s3: S3Storage = Depends(get_s3),
 ):
     """Топ контента по популярности за период."""
     await check_rate_limit(client_ip(request))
@@ -56,5 +56,5 @@ async def top_media(
     items = result.scalars().all()
 
     out = [MediaOut.model_validate(m) for m in items]
-    sign_media_urls(out, items, b2)
+    sign_media_urls(out, items, s3)
     return out

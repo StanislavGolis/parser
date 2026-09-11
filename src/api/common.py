@@ -6,8 +6,9 @@ from typing import Iterable, Optional
 from fastapi import Request
 
 from src.api.schemas import MediaOut
+from src.core.config import settings
 from src.core.models import Board, Media
-from src.services.b2_uploader import B2Uploader
+from src.services.s3_storage import S3Storage
 
 # Базовый фильтр публичного показа файла.
 VISIBLE_FILTER = (
@@ -43,17 +44,36 @@ def board_access_granted(request: Request, board: Board) -> bool:
     return bool(cookie) and cookie == board.access_code_hash
 
 
+def build_media_url(
+    media_id: int,
+    s3: S3Storage,
+    s3_key: Optional[str],
+    download: bool = False,
+) -> Optional[str]:
+    """URL файла для клиента.
+
+    proxy — same-origin ссылка через наш API (S3-бакет клиенту не раскрывается);
+    presigned — прямая временная ссылка на объект (резервный режим).
+    """
+    if not s3_key:
+        return None
+    if settings.MEDIA_DELIVERY == "presigned":
+        return s3.generate_presigned_url(s3_key)
+    suffix = "?download=1" if download else ""
+    return f"/api/v1/media/{media_id}/raw{suffix}"
+
+
 def sign_media_urls(
     items: list[MediaOut],
     sources: Iterable[Media],
-    b2: B2Uploader,
+    s3: S3Storage,
 ) -> list[MediaOut]:
-    """Прикрепляет подписанные URL B2 к элементам списка (для галерей).
+    """Прикрепляет URL файлов к элементам списка (для галерей).
 
-    Подписывание выполняется локально (без сетевых вызовов) и не требует
-    повторного запроса к API на каждый файл.
+    В режиме proxy клиент получает same-origin ссылку на /api/v1/media/{id}/raw,
+    поэтому бакет и его адрес не раскрываются.
     """
     for item, source in zip(items, sources):
-        if source.b2_key:
-            item.url = b2.generate_presigned_url(source.b2_key)
+        if source.s3_key:
+            item.url = build_media_url(source.id, s3, source.s3_key)
     return items

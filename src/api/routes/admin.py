@@ -22,7 +22,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.common import hash_access_code
-from src.api.deps import get_b2, verify_admin
+from src.api.deps import get_s3, verify_admin
 from src.api.schemas import (
     AdminBoardOut,
     AdminOverview,
@@ -40,7 +40,7 @@ from src.api.threads_service import build_thread_outs, list_threads
 from src.core.db import get_session
 from src.core.models import Board, Media
 from src.core.redis_client import redis_client
-from src.services.b2_uploader import B2Uploader
+from src.services.s3_storage import S3Storage
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -69,7 +69,7 @@ def _admin_out(board: Board, m: Optional[dict] = None) -> AdminBoardOut:
         sort_order=board.sort_order,
         media_total=int(m.get("media_total", 0)),
         media_downloaded=int(m.get("media_downloaded", 0)),
-        media_in_b2=int(m.get("media_in_b2", 0)),
+        media_in_s3=int(m.get("media_in_s3", 0)),
         media_missing=int(m.get("media_missing", 0)),
         threads_active=int(m.get("threads_active", 0)),
         files_in_catalog=int(m.get("files_in_catalog", 0)),
@@ -109,7 +109,7 @@ async def admin_overview(
     totals.boards_parsed = sum(1 for b in boards if b.parse_enabled)
     for b in boards:
         totals.media_total += b.media_total
-        totals.media_in_b2 += b.media_in_b2
+        totals.media_in_s3 += b.media_in_s3
         totals.media_downloaded += b.media_downloaded
         totals.media_missing += b.media_missing
         totals.threads_active += b.threads_active
@@ -206,7 +206,7 @@ async def admin_forum_boards(
             is_visible=board.is_visible if board else False,
             is_private=board.is_private if board else False,
             media_total=int(s.get("media_total", 0)),
-            media_in_b2=int(s.get("media_in_b2", 0)),
+            media_in_s3=int(s.get("media_in_s3", 0)),
             threads_active=int(s.get("threads_active", 0)),
         ))
     return out
@@ -320,31 +320,31 @@ async def delete_board(
     slug: str,
     _=Depends(verify_admin),
     session: AsyncSession = Depends(get_session),
-    b2: B2Uploader = Depends(get_b2),
+    s3: S3Storage = Depends(get_s3),
 ):
-    """Удаляет раздел: записи БД + все его объекты в B2."""
+    """Удаляет раздел: записи БД + все его объекты в S3."""
     board = await _load_board(session, slug)
 
-    # 1) Все ключи раздела: из БД (точный список media.b2_key) + по префиксу
+    # 1) Все ключи раздела: из БД (точный список media.s3_key) + по префиксу
     #    (осиротевшие объекты, которые могли остаться от сбоев).
     db_keys = [
         k
         for k in (
             await session.execute(
-                select(Media.b2_key).where(
-                    Media.board_id == board.id, Media.b2_key.isnot(None)
+                select(Media.s3_key).where(
+                    Media.board_id == board.id, Media.s3_key.isnot(None)
                 )
             )
         ).scalars().all()
         if k
     ]
     prefix = f"board_{board.id}/"
-    prefixed = await b2.list_keys(prefix) or []
+    prefixed = await s3.list_keys(prefix) or []
     keys = list(dict.fromkeys(db_keys + list(prefixed)))
 
     deleted_objects = 0
     if keys:
-        await b2.delete_keys(keys)
+        await s3.delete_keys(keys)
         deleted_objects = len(keys)
 
     # 2) Записи БД (каскад по ON DELETE CASCADE)
@@ -353,27 +353,27 @@ async def delete_board(
     return ResetResult(deleted_boards=1, deleted_objects=deleted_objects)
 
 
-@router.post("/cleanup-b2")
-async def cleanup_b2_orphans(
+@router.post("/cleanup-storage")
+async def cleanup_storage_orphans(
     _=Depends(verify_admin),
     session: AsyncSession = Depends(get_session),
-    b2: B2Uploader = Depends(get_b2),
+    s3: S3Storage = Depends(get_s3),
 ):
-    """Удаляет из B2 объекты, которых нет в БД (мусор после сбоев/прерываний)."""
-    keys = await b2.list_keys("")
+    """Удаляет из S3 объекты, которых нет в БД (мусор после сбоев/прерываний)."""
+    keys = await s3.list_keys("")
     if not keys:
         return {"total": 0, "orphans": 0, "deleted": 0}
 
     known = {
         k
         for k in (
-            await session.execute(select(Media.b2_key).where(Media.b2_key.isnot(None)))
+            await session.execute(select(Media.s3_key).where(Media.s3_key.isnot(None)))
         ).scalars().all()
         if k
     }
     orphans = [k for k in keys if k not in known]
     if orphans:
-        await b2.delete_keys(orphans)
+        await s3.delete_keys(orphans)
     return {"total": len(keys), "orphans": len(orphans), "deleted": len(orphans)}
 
 
@@ -381,20 +381,20 @@ async def cleanup_b2_orphans(
 async def reset_all(
     _=Depends(verify_admin),
     session: AsyncSession = Depends(get_session),
-    b2: B2Uploader = Depends(get_b2),
+    s3: S3Storage = Depends(get_s3),
 ):
-    """Полный сброс: удаляет все доски/медиа из БД и все объекты из B2."""
+    """Полный сброс: удаляет все доски/медиа из БД и все объекты из S3."""
     # 0) Сначала останавливаем парсер (прервётся на границе текущего треда),
     #    иначе TRUNCATE будет ждать его транзакции.
     await redis_client.delete("parser:enabled")
     await redis_client.delete("parser:alive")
     await redis_client.delete("parser:current_board")
 
-    # 1) Объекты B2
+    # 1) Объекты S3
     deleted_objects = 0
-    keys = await b2.list_keys("")
+    keys = await s3.list_keys("")
     if keys:
-        await b2.delete_keys(keys)
+        await s3.delete_keys(keys)
         deleted_objects = len(keys)
 
     # 2) Данные БД (каскадно: media/threads/stats)

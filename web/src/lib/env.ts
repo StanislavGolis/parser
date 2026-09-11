@@ -19,6 +19,13 @@ export function joinApi(base: string, path: string): string {
   return `${base}${path}`;
 }
 
+/** Разрешает URL медиа из API (относительный /api/... → адрес клиентского API). */
+export function mediaUrl(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  if (/^https?:\/\//i.test(url)) return url;
+  return apiPathForClient(url);
+}
+
 export function apiPathForClient(path: string): string {
   return joinApi(PUBLIC_API_BASE, path);
 }

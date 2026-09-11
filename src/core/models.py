@@ -87,8 +87,8 @@ class Media(Base):
         nullable=False,
     )
 
-    b2_bucket = Column(String(255), nullable=True)
-    b2_key = Column(String(500), nullable=True, index=True)
+    s3_bucket = Column(String(255), nullable=True)
+    s3_key = Column(String(500), nullable=True, index=True)
     local_path = Column(String(500), nullable=True)  # относительный путь в локальном кэше
 
     width = Column(Integer, nullable=True)

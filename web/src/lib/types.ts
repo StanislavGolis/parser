@@ -20,7 +20,7 @@ export interface AdminBoard extends Board {
   sort_order: number;
   media_total: number;
   media_downloaded: number;
-  media_in_b2: number;
+  media_in_s3: number;
   media_missing: number;
   threads_active: number;
   files_in_catalog: number;
@@ -34,7 +34,7 @@ export interface SystemTotals {
   boards_total: number;
   boards_parsed: number;
   media_total: number;
-  media_in_b2: number;
+  media_in_s3: number;
   media_downloaded: number;
   media_missing: number;
   threads_active: number;
@@ -64,7 +64,7 @@ export interface ForumBoard {
   is_visible: boolean;
   is_private: boolean;
   media_total: number;
-  media_in_b2: number;
+  media_in_s3: number;
   threads_active: number;
 }
 
@@ -81,7 +81,7 @@ export interface BoardThread {
   is_active: boolean;
   media_total: number;
   media_downloaded: number;
-  media_in_b2: number;
+  media_in_s3: number;
   media_missing: number;
   media_visible: number;
   preview: MediaItem[];
@@ -110,7 +110,7 @@ export interface MediaItem {
   created_at: string;
   source_md5?: string | null;
   file_hash?: string | null;
-  /** Подписанный URL на файл в B2 (может отсутствовать, если B2 не настроен). */
+  /** Подписанный URL на файл в S3 (может отсутствовать, если S3 не настроен). */
   url: string | null;
 }
 

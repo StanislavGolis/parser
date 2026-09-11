@@ -1,17 +1,21 @@
 # src/api/routes/media.py
+import asyncio
+import re
+import urllib.parse
 from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.common import VISIBLE_FILTER, board_access_granted, sign_media_urls
-from src.api.deps import check_rate_limit, client_ip, get_b2, ip_hash
+from src.api.common import VISIBLE_FILTER, board_access_granted, build_media_url, sign_media_urls
+from src.api.deps import check_rate_limit, client_ip, get_s3, ip_hash
 from src.api.schemas import DownloadResult, MediaDetailOut, MediaListOut, MediaOut, ViewResult
 from src.core.db import get_session
 from src.core.models import Board, DownloadStat, Media, ViewStat
-from src.services.b2_uploader import B2Uploader
+from src.services.s3_storage import S3Storage
 
 router = APIRouter(prefix="/api/v1", tags=["media"])
 
@@ -57,7 +61,7 @@ async def board_media(
     media_type: Optional[str] = Query(None, alias="type", pattern="^(image|video)$"),
     thread: Optional[int] = Query(None, description="Показать файлы только этого треда"),
     session: AsyncSession = Depends(get_session),
-    b2: B2Uploader = Depends(get_b2),
+    s3: S3Storage = Depends(get_s3),
 ):
     """Список файлов доски с пагинацией и сортировкой (можно фильтровать по треду)."""
     await check_rate_limit(client_ip(request))
@@ -97,7 +101,7 @@ async def board_media(
     items = result.scalars().all()
 
     out = [MediaOut.model_validate(m) for m in items]
-    sign_media_urls(out, items, b2)
+    sign_media_urls(out, items, s3)
     return MediaListOut(
         items=out,
         page=page,
@@ -111,9 +115,9 @@ async def media_detail(
     media_id: int,
     request: Request,
     session: AsyncSession = Depends(get_session),
-    b2: B2Uploader = Depends(get_b2),
+    s3: S3Storage = Depends(get_s3),
 ):
-    """Информация о файле + подписанный URL для просмотра."""
+    """Информация о файле + URL для просмотра."""
     await check_rate_limit(client_ip(request))
 
     media = await _get_visible_media(session, media_id)
@@ -121,7 +125,7 @@ async def media_detail(
     board = await _check_media_board_access(request, session, media)
     data = MediaDetailOut.model_validate(media)
     data.board_slug = board.slug if board else ""
-    data.url = b2.generate_presigned_url(media.b2_key) if media.b2_key else None
+    data.url = build_media_url(media.id, s3, media.s3_key)
     return data
 
 
@@ -162,19 +166,19 @@ async def media_download(
     media_id: int,
     request: Request,
     session: AsyncSession = Depends(get_session),
-    b2: B2Uploader = Depends(get_b2),
+    s3: S3Storage = Depends(get_s3),
 ):
-    """Отметить скачивание и вернуть подписанный URL."""
+    """Отметить скачивание и вернуть URL файла."""
     await check_rate_limit(client_ip(request))
 
     media = await _get_visible_media(session, media_id)
-    if not media.b2_key:
+    if not media.s3_key:
         raise HTTPException(status_code=409, detail="File not available")
 
     await _check_media_board_access(request, session, media)
-    url = b2.generate_presigned_url(media.b2_key)
+    url = build_media_url(media.id, s3, media.s3_key, download=True)
     if not url:
-        raise HTTPException(status_code=503, detail="B2 is not configured")
+        raise HTTPException(status_code=503, detail="Storage is not configured")
 
     iph = ip_hash(client_ip(request))
     cutoff = datetime.utcnow() - timedelta(hours=DEDUP_PERIOD_HOURS)
@@ -195,3 +199,77 @@ async def media_download(
         await session.commit()
 
     return DownloadResult(media_id=media.id, counted=not already, url=url)
+
+
+# ─────────────── Анонимная отдача файлов (прокси S3) ───────────────
+
+# Размер чанка потоковой отдачи (256 КБ)
+STREAM_CHUNK_SIZE = 256 * 1024
+
+
+def _content_disposition(filename: str) -> str:
+    """Content-Disposition с поддержкой не-ASCII имён (RFC 5987)."""
+    fallback = re.sub(r"[^\w.\-]+", "_", filename) or "file"
+    quoted = urllib.parse.quote(filename, safe="")
+    return f'attachment; filename="{fallback}"; filename*=UTF-8\'\'{quoted}'
+
+
+@router.get("/media/{media_id}/raw")
+async def media_raw(
+    media_id: int,
+    request: Request,
+    download: bool = Query(False),
+    session: AsyncSession = Depends(get_session),
+    s3: S3Storage = Depends(get_s3),
+):
+    """Отдаёт содержимое файла через наш API (S3-бакет клиенту не раскрывается).
+
+    Поддерживает Range (видео, докачка) и Content-Disposition при `?download=1`.
+    """
+    await check_rate_limit(client_ip(request))
+
+    media = await _get_visible_media(session, media_id)
+    if not media.s3_key:
+        raise HTTPException(status_code=404, detail="File not available")
+
+    board = await _check_media_board_access(request, session, media)
+
+    if not s3.is_configured:
+        raise HTTPException(status_code=503, detail="Storage is not configured")
+
+    obj = await s3.open_object_stream(media.s3_key, range_header=request.headers.get("range"))
+    if obj is None or obj.get("body") is None:
+        raise HTTPException(status_code=404, detail="File not found in storage")
+
+    headers = {"Accept-Ranges": obj.get("accept_ranges") or "bytes"}
+    if obj.get("content_length") is not None:
+        headers["Content-Length"] = str(obj["content_length"])
+    if obj.get("content_range"):
+        headers["Content-Range"] = obj["content_range"]
+    if obj.get("etag"):
+        headers["ETag"] = obj["etag"]
+    if download:
+        headers["Content-Disposition"] = _content_disposition(media.original_name)
+    headers["Cache-Control"] = (
+        "private, max-age=3600" if board.is_private else "public, max-age=3600"
+    )
+
+    status_code = 206 if obj.get("content_range") else 200
+
+    async def _stream():
+        body = obj["body"]
+        try:
+            while True:
+                chunk = await asyncio.to_thread(body.read, STREAM_CHUNK_SIZE)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            await asyncio.to_thread(body.close)
+
+    return StreamingResponse(
+        _stream(),
+        status_code=status_code,
+        media_type=obj.get("content_type") or media.mime_type,
+        headers=headers,
+    )

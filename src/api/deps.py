@@ -1,5 +1,5 @@
 # src/api/deps.py
-"""Общие зависимости API: rate limiting, admin-токен, IP-хеш, B2."""
+"""Общие зависимости API: rate limiting, admin-токен, IP-хеш, S3."""
 import hashlib
 from functools import lru_cache
 from typing import Optional
@@ -8,13 +8,13 @@ from fastapi import Header, HTTPException, Request, status
 
 from src.core.config import settings
 from src.core.redis_client import redis_client
-from src.services.b2_uploader import B2Uploader
+from src.services.s3_storage import S3Storage
 
 
 @lru_cache(maxsize=1)
-def get_b2() -> B2Uploader:
-    """FastAPI-зависимость: загрузчик B2 (кэшируется, head_bucket один раз)."""
-    return B2Uploader()
+def get_s3() -> S3Storage:
+    """FastAPI-зависимость: загрузчик S3 (кэшируется, head_bucket один раз)."""
+    return S3Storage()
 
 
 def client_ip(request: Request) -> str:

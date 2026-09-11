@@ -77,7 +77,7 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
                 <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-secondary">
                   <span>каталог: {formatNumber(t.files_count)}</span>
                   <span>в БД: {formatNumber(t.media_total)}</span>
-                  <span>в B2: {formatNumber(t.media_in_b2)}</span>
+                  <span>в S3: {formatNumber(t.media_in_s3)}</span>
                   <span>скачано: {formatNumber(t.media_downloaded)}</span>
                   <span>пропущено: {formatNumber(t.media_missing)}</span>
                   <span>видимых: {formatNumber(t.media_visible)}</span>

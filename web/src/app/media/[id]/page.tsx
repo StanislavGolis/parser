@@ -8,6 +8,7 @@ import When from "@/components/When";
 import { ArrowLeftIcon, DownloadIcon, EyeIcon, FilmIcon } from "@/components/icons";
 import { ApiError } from "@/lib/api";
 import { getBoards, getMediaDetail } from "@/lib/data";
+import { mediaUrl } from "@/lib/env";
 import { formatBytes, formatNumber } from "@/lib/format";
 import type { MediaDetail } from "@/lib/types";
 
@@ -65,13 +66,13 @@ export default async function MediaDetailPage({ params }: DetailProps) {
             media.media_type === "image" ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={media.url}
+                src={mediaUrl(media.url)}
                 alt={media.original_name}
                 referrerPolicy="no-referrer"
                 className="max-h-[80vh] w-auto max-w-full rounded-lg object-contain"
               />
             ) : (
-              <video src={media.url} controls preload="metadata" playsInline className="max-h-[80vh] w-auto max-w-full rounded-lg">
+              <video src={mediaUrl(media.url)} controls preload="metadata" playsInline className="max-h-[80vh] w-auto max-w-full rounded-lg">
                 Ваш браузер не поддерживает HTML5-видео.
               </video>
             )

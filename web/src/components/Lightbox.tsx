@@ -14,6 +14,7 @@ import {
   ImageIcon,
 } from "@/components/icons";
 import { apiGet } from "@/lib/api";
+import { mediaUrl } from "@/lib/env";
 import { formatBytes, formatCompact } from "@/lib/format";
 import type { BoardsById, MediaItem, ViewResult } from "@/lib/types";
 
@@ -119,7 +120,7 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
         {canShow ? (
           isVideo ? (
             <video
-              src={media.url ?? undefined}
+              src={mediaUrl(media.url)}
               controls
               autoPlay
               playsInline
@@ -131,7 +132,7 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={media.url ?? undefined}
+              src={mediaUrl(media.url)}
               alt={media.original_name}
               referrerPolicy="no-referrer"
               onError={() => setFailed(true)}

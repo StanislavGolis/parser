@@ -6,6 +6,7 @@ import Lightbox from "@/components/Lightbox";
 import { FilmIcon, ImageIcon, SpinnerIcon } from "@/components/icons";
 import When from "@/components/When";
 import { apiGet } from "@/lib/api";
+import { mediaUrl } from "@/lib/env";
 import { formatNumber, plural } from "@/lib/format";
 import type { BoardThread, MediaItem, MediaList, ThreadList } from "@/lib/types";
 
@@ -205,7 +206,7 @@ function ThreadCard({
               {m.url && m.media_type === "image" ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={m.url}
+                  src={mediaUrl(m.url)}
                   alt={m.original_name}
                   loading="lazy"
                   decoding="async"

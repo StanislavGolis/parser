@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.common import sign_media_urls
 from src.api.schemas import MediaOut, ThreadOut
 from src.core.models import Media, ThreadState
-from src.services.b2_uploader import B2Uploader
+from src.services.s3_storage import S3Storage
 
 UPLOADED_STATUSES = ("uploaded", "verified")
 # Сколько последних файлов треда отдавать превью
@@ -54,7 +54,7 @@ async def _media_stats(session: AsyncSession, board_id: int) -> Dict[int, dict]:
             func.count(Media.id).label("media_total"),
             func.count()
             .filter(Media.download_status.in_(UPLOADED_STATUSES))
-            .label("media_in_b2"),
+            .label("media_in_s3"),
             func.count()
             .filter(Media.download_status == "downloaded")
             .label("media_downloaded"),
@@ -70,7 +70,7 @@ async def _media_stats(session: AsyncSession, board_id: int) -> Dict[int, dict]:
     for r in rows:
         stats[r.thread_id] = {
             "media_total": int(r.media_total or 0),
-            "media_in_b2": int(r.media_in_b2 or 0),
+            "media_in_s3": int(r.media_in_s3 or 0),
             "media_downloaded": int(r.media_downloaded or 0),
             "media_missing": int(r.media_missing or 0),
             "media_visible": int(r.media_visible or 0),
@@ -83,7 +83,7 @@ async def _previews(
     board_id: int,
     thread_ids: List[int],
 ) -> Dict[int, List[Media]]:
-    """Последние PREVIEW_SIZE видимых файлов (с B2-ключом) по каждому треду."""
+    """Последние PREVIEW_SIZE видимых файлов (с S3-ключом) по каждому треду."""
     if not thread_ids:
         return {}
     rn = func.row_number().over(
@@ -95,7 +95,7 @@ async def _previews(
         .where(
             Media.board_id == board_id,
             Media.is_visible.is_(True),
-            Media.b2_key.isnot(None),
+            Media.s3_key.isnot(None),
         )
         .subquery()
     )
@@ -117,7 +117,7 @@ async def build_thread_outs(
     board_id: int,
     threads: List[ThreadState],
     *,
-    b2: Optional[B2Uploader] = None,
+    s3: Optional[S3Storage] = None,
     with_preview: bool = True,
 ) -> List[ThreadOut]:
     """Собирает ThreadOut для списка тредов (+ статистика и превью)."""
@@ -143,7 +143,7 @@ async def build_thread_outs(
             is_active=t.is_active,
             media_total=s.get("media_total", 0),
             media_downloaded=s.get("media_downloaded", 0),
-            media_in_b2=s.get("media_in_b2", 0),
+            media_in_s3=s.get("media_in_s3", 0),
             media_missing=s.get("media_missing", 0),
             media_visible=s.get("media_visible", 0),
             preview=[],
@@ -153,8 +153,8 @@ async def build_thread_outs(
             media_items = previews.get(t.thread_id, [])
             if media_items:
                 preview_out = [MediaOut.model_validate(m) for m in media_items]
-                if b2 is not None:
-                    sign_media_urls(preview_out, media_items, b2)
+                if s3 is not None:
+                    sign_media_urls(preview_out, media_items, s3)
                 item.preview = preview_out
         out.append(item)
 

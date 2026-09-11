@@ -27,7 +27,7 @@ class AdminBoardOut(BoardOut):
     # Статистика (агрегируется из БД)
     media_total: int = 0
     media_downloaded: int = 0
-    media_in_b2: int = 0
+    media_in_s3: int = 0
     media_missing: int = 0
     threads_active: int = 0
     files_in_catalog: int = 0
@@ -40,7 +40,7 @@ class SystemTotals(BaseModel):
     boards_total: int = 0
     boards_parsed: int = 0
     media_total: int = 0
-    media_in_b2: int = 0
+    media_in_s3: int = 0
     media_downloaded: int = 0
     media_missing: int = 0
     threads_active: int = 0
@@ -71,7 +71,7 @@ class ForumBoardOut(BaseModel):
     is_visible: bool = False
     is_private: bool = False
     media_total: int = 0
-    media_in_b2: int = 0
+    media_in_s3: int = 0
     threads_active: int = 0
 
 
@@ -152,8 +152,8 @@ class ThreadOut(BaseModel):
 
     # Статистика по файлам из нашей БД
     media_total: int = 0          # всего записей в БД
-    media_downloaded: int = 0     # скачано (без выгрузки в B2)
-    media_in_b2: int = 0          # загружено в B2 (uploaded+verified)
+    media_downloaded: int = 0     # скачано (без выгрузки в S3)
+    media_in_s3: int = 0          # загружено в S3 (uploaded+verified)
     media_missing: int = 0        # файл потерян
     media_visible: int = 0        # видимых на сайте
 

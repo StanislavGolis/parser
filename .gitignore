@@ -10,9 +10,20 @@ storage/media/
 *.db
 *.sqlite3
 
-# Файлы окружения
-.env
-.env.local
+# ── Файлы окружения ──────────────────────────────────────────────
+# Реальные секреты — только в .env (и локальных вариантах), НЕ коммитим.
+.env*
+# Шаблоны без секретов — коммитим (исключения из правила .env*).
+!.env.example
+!.env.prod.example
+!**/.env.example
+
+# IDE (Visual Studio)
+.vs/
+
+# Node/Next.js (фронтенд)
+node_modules/
+web/.next/
 
 # Логи
 *.log

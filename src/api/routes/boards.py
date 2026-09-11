@@ -4,12 +4,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.common import access_cookie_name, board_access_granted, hash_access_code
-from src.api.deps import check_rate_limit, client_ip, get_b2
+from src.api.deps import check_rate_limit, client_ip, get_s3
 from src.api.schemas import AccessRequest, AccessResult, BoardOut, ThreadListOut
 from src.api.threads_service import build_thread_outs, list_threads
 from src.core.db import get_session
 from src.core.models import Board, Media
-from src.services.b2_uploader import B2Uploader
+from src.services.s3_storage import S3Storage
 
 router = APIRouter(prefix="/api/v1/boards", tags=["boards"])
 
@@ -65,7 +65,7 @@ async def board_threads(
     page: int = Query(1, ge=1),
     per_page: int = Query(15, ge=1, le=50),
     session: AsyncSession = Depends(get_session),
-    b2: B2Uploader = Depends(get_b2),
+    s3: S3Storage = Depends(get_s3),
 ):
     """Треды доски (активные) с метаданными и статистикой файлов.
 
@@ -83,7 +83,7 @@ async def board_threads(
         raise HTTPException(status_code=403, detail="Access denied")
 
     threads, total = await list_threads(session, board.id, page, per_page)
-    items = await build_thread_outs(session, board.id, threads, b2=b2, with_preview=True)
+    items = await build_thread_outs(session, board.id, threads, s3=s3, with_preview=True)
     return ThreadListOut(items=items, page=page, per_page=per_page, total=total)
 
 

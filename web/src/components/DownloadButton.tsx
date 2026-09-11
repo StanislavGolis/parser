@@ -4,11 +4,12 @@ import { useState } from "react";
 
 import { DownloadIcon, SpinnerIcon } from "@/components/icons";
 import { ApiError, apiGet } from "@/lib/api";
+import { mediaUrl } from "@/lib/env";
 import type { DownloadResult } from "@/lib/types";
 
 /**
  * Кнопка «Скачать»: отмечает скачивание на бэкенде (/media/{id}/download)
- * и открывает полученный подписанный URL файла.
+ * и открывает полученный URL файла (через наш API).
  */
 export default function DownloadButton({
   mediaId,
@@ -25,14 +26,14 @@ export default function DownloadButton({
     try {
       const res = await apiGet<DownloadResult>(`/api/v1/media/${mediaId}/download`);
       if (res?.url) {
-        // Открываем подписанный URL как обычное скачивание.
-        window.location.assign(res.url);
+        // Открываем URL файла (наш API) как обычное скачивание.
+        window.location.assign(mediaUrl(res.url) ?? res.url);
       }
       setState("idle");
     } catch (err) {
       const status = err instanceof ApiError ? err.status : 0;
       if (status === 409 || status === 503) {
-        // Файл пока недоступен (нет объекта в B2) — сервер отвечает осознанно.
+        // Файл пока недоступен (нет объекта в S3) — сервер отвечает осознанно.
         setState("idle");
         window.alert("Файл временно недоступен. Попробуйте позже.");
       } else {

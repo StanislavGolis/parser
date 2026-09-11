@@ -1,8 +1,8 @@
-# src/services/b2_uploader.py
-"""Загрузчик в Backblaze B2 через S3 API (boto3).
+# src/services/s3_storage.py
+"""Загрузчик в S3-совместимое хранилище (Timeweb Cloud) через boto3.
 
 - Не блокирует event loop: синхронные вызовы boto3 уходят в asyncio.to_thread.
-- Если B2 не настроен в .env — безопасно деградирует:
+- Если S3 не настроен в .env — безопасно деградирует:
   файлы остаются в локальном хранилище (status='downloaded').
 """
 import asyncio
@@ -12,17 +12,20 @@ from typing import List, Optional
 
 import boto3
 from botocore.config import Config as BotoConfig
+from botocore.exceptions import ClientError
 
 from src.core.config import settings
 
 
-class B2Uploader:
+class S3Storage:
     def __init__(self):
-        self.key_id = settings.B2_KEY_ID
-        self.application_key = settings.B2_APPLICATION_KEY
-        self.bucket_name = settings.B2_BUCKET_NAME
-        self.endpoint_url = settings.B2_ENDPOINT
-        self.signed_url_ttl = settings.B2_SIGNED_URL_TTL
+        self.key_id = settings.storage_access_key
+        self.application_key = settings.storage_secret_key
+        self.bucket_name = settings.storage_bucket
+        self.endpoint_url = settings.storage_endpoint
+        self.region = settings.storage_region
+        self.addressing_style = settings.S3_ADDRESSING_STYLE
+        self.signed_url_ttl = settings.S3_SIGNED_URL_TTL
 
         self.is_configured = bool(
             self.key_id
@@ -34,7 +37,7 @@ class B2Uploader:
         if self.is_configured:
             self._init_client()
         else:
-            print("   [warn] Backblaze B2 не настроен — файлы будут сохранены локально")
+            print("   [warn] S3 не настроен — файлы будут сохранены локально")
 
     # ───────────────────── Инициализация ─────────────────────
 
@@ -43,11 +46,13 @@ class B2Uploader:
         try:
             self.client = boto3.client(
                 "s3",
+                region_name=self.region,
                 endpoint_url=self.endpoint_url,
                 aws_access_key_id=self.key_id,
                 aws_secret_access_key=self.application_key,
                 config=BotoConfig(
                     signature_version="s3v4",
+                    s3={"addressing_style": self.addressing_style},
                     connect_timeout=30,
                     read_timeout=600,
                     retries={"max_attempts": 3},
@@ -55,11 +60,11 @@ class B2Uploader:
             )
             # Проверка прав доступа к бакету
             self.client.head_bucket(Bucket=self.bucket_name)
-            print(f"   [ok] Подключение к B2 установлено (boto3/S3), бакет: {self.bucket_name}")
+            print(f"   [ok] Подключение к S3 установлено (boto3), бакет: {self.bucket_name}")
         except Exception as e:
             self.is_configured = False
             self.client = None
-            print(f"   [warn] Ошибка подключения к B2: {e} — файлы будут сохранены локально")
+            print(f"   [warn] Ошибка подключения к S3: {e} — файлы будут сохранены локально")
 
     # ───────────────────── Операции с файлами ─────────────────────
 
@@ -69,10 +74,10 @@ class B2Uploader:
         remote_key: str,
         content_type: Optional[str] = None,
     ) -> Optional[str]:
-        """Загружает файл в B2. Возвращает remote_key или None при ошибке.
+        """Загружает файл в S3. Возвращает remote_key или None при ошибке.
 
         Content-Type задаётся явно (content_type или по расширению имени),
-        иначе B2 хранит application/octet-stream и видео не воспроизводится
+        иначе S3 хранит application/octet-stream и видео не воспроизводится
         браузером по presigned URL.
         """
         if not self.is_configured or self.client is None:
@@ -91,10 +96,10 @@ class B2Uploader:
                 remote_key,
                 ExtraArgs=extra_args,
             )
-            print(f"   [ok] Загружен в B2: {remote_key} ({ct or 'без Content-Type'})")
+            print(f"   [ok] Загружен в S3: {remote_key} ({ct or 'без Content-Type'})")
             return remote_key
         except Exception as e:
-            print(f"   [err] Ошибка загрузки в B2: {e}")
+            print(f"   [err] Ошибка загрузки в S3: {e}")
             return None
 
     async def list_keys(self, prefix: str = "") -> Optional[List[str]]:
@@ -116,7 +121,7 @@ class B2Uploader:
             keys = await asyncio.to_thread(_list_all)
             return keys
         except Exception as e:
-            print(f"   [err] Ошибка листинга B2: {e}")
+            print(f"   [err] Ошибка листинга S3: {e}")
             return None
 
     async def delete_object(self, remote_key: str) -> bool:
@@ -130,10 +135,10 @@ class B2Uploader:
                 Bucket=self.bucket_name,
                 Key=remote_key,
             )
-            print(f"   [del]  Удалён объект из B2: {remote_key}")
+            print(f"   [del]  Удалён объект из S3: {remote_key}")
             return True
         except Exception as e:
-            print(f"   [err] Ошибка удаления из B2: {e}")
+            print(f"   [err] Ошибка удаления из S3: {e}")
             return False
 
     async def delete_keys(self, keys: List[str]) -> bool:
@@ -150,10 +155,10 @@ class B2Uploader:
         try:
             for i in range(0, len(keys), 1000):
                 await asyncio.to_thread(_delete_batch, keys[i:i + 1000])
-            print(f"   [del]  Удалено объектов из B2: {len(keys)}")
+            print(f"   [del]  Удалено объектов из S3: {len(keys)}")
             return True
         except Exception as e:
-            print(f"   [err] Ошибка пакетного удаления из B2: {e}")
+            print(f"   [err] Ошибка пакетного удаления из S3: {e}")
             return False
 
     def generate_presigned_url(self, remote_key: str, expires_in: Optional[int] = None) -> Optional[str]:
@@ -173,3 +178,40 @@ class B2Uploader:
         except Exception as e:
             print(f"   [err] Ошибка генерации подписанного URL: {e}")
             return None
+
+    # ─────────────── Потоковая отдача (прокси через API) ───────────────
+
+    async def open_object_stream(self, remote_key: str, range_header: Optional[str] = None):
+        """Открывает объект для потоковой отдачи через наш API.
+
+        Возвращает словарь с телом (botocore StreamingBody) и метаданными либо
+        None, если объекта нет. Синхронные вызовы boto3 выполняются в отдельном
+        потоке, чтобы не блокировать event loop.
+        """
+        if not self.is_configured or self.client is None:
+            return None
+
+        params = {"Bucket": self.bucket_name, "Key": remote_key}
+        if range_header:
+            params["Range"] = range_header
+
+        try:
+            resp = await asyncio.to_thread(self.client.get_object, **params)
+        except ClientError as e:
+            code = (getattr(e, "response", None) or {}).get("Error", {}).get("Code", "")
+            if code in ("NoSuchKey", "NoSuchBucket", "404"):
+                return None
+            print(f"   [err] Ошибка чтения из S3: {e}")
+            return None
+        except Exception as e:
+            print(f"   [err] Ошибка чтения из S3: {e}")
+            return None
+
+        return {
+            "body": resp.get("Body"),
+            "content_type": resp.get("ContentType"),
+            "content_length": resp.get("ContentLength"),
+            "content_range": resp.get("ContentRange"),
+            "accept_ranges": resp.get("AcceptRanges"),
+            "etag": resp.get("ETag"),
+        }

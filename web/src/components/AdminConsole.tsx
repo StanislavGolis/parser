@@ -167,7 +167,7 @@ export default function AdminConsole() {
 
   async function resetAll() {
     if (!token) return;
-    if (!window.confirm("Полный сброс: удалить ВСЕ разделы и ВСЕ файлы из хранилища (B2)?")) return;
+    if (!window.confirm("Полный сброс: удалить ВСЕ разделы и ВСЕ файлы из хранилища (S3)?")) return;
     if (!window.confirm("Точно? Действие необратимо: БД и бакет будут очищены.")) return;
     setGlobalError(null);
     try {
@@ -199,19 +199,19 @@ export default function AdminConsole() {
     }
   }
 
-  async function cleanupB2() {
+  async function cleanupStorage() {
     if (!token) return;
     setGlobalError(null);
     try {
       const r = await apiPost<{ total: number; orphans: number; deleted: number }>(
-        "/api/v1/admin/cleanup-b2",
+        "/api/v1/admin/cleanup-storage",
         undefined,
         token,
       );
       setGlobalError(
         r.deleted > 0
-          ? `Мусор в B2 удалён: ${r.deleted} объектов (проверено ${r.total})`
-          : "Мусора в B2 нет (все объекты соответствуют записям).",
+          ? `Мусор в S3 удалён: ${r.deleted} объектов (проверено ${r.total})`
+          : "Мусора в S3 нет (все объекты соответствуют записям).",
       );
     } catch (err) {
       setGlobalError(errText(err));
@@ -300,11 +300,11 @@ export default function AdminConsole() {
             <>
               <button
                 type="button"
-                onClick={() => void cleanupB2()}
+                onClick={() => void cleanupStorage()}
                 className="btn-ghost px-3 py-1.5 text-xs"
-                title="Удалить из B2 объекты, которых нет в базе"
+                title="Удалить из S3 объекты, которых нет в базе"
               >
-                Очистить B2
+                Очистить S3
               </button>
               <button
                 type="button"
@@ -393,7 +393,7 @@ function TotalsBar({ totals }: { totals: SystemTotals }) {
     ["Доски", `${formatNumber(totals.boards_total)} (парсим ${formatNumber(totals.boards_parsed)})`],
     ["Треды", formatNumber(totals.threads_active)],
     ["Файлов в БД", formatNumber(totals.media_total)],
-    ["В B2", formatNumber(totals.media_in_b2)],
+    ["В S3", formatNumber(totals.media_in_s3)],
     ["Скачано", formatNumber(totals.media_downloaded)],
     ["Пропущено", formatNumber(totals.media_missing)],
     ["В каталоге", formatNumber(totals.files_in_catalog)],

@@ -7,11 +7,11 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.common import VISIBLE_FILTER, sign_media_urls
-from src.api.deps import check_rate_limit, client_ip, get_b2
+from src.api.deps import check_rate_limit, client_ip, get_s3
 from src.api.schemas import MediaListOut, MediaOut
 from src.core.db import get_session
 from src.core.models import Board, Media
-from src.services.b2_uploader import B2Uploader
+from src.services.s3_storage import S3Storage
 
 router = APIRouter(prefix="/api/v1/search", tags=["search"])
 
@@ -24,7 +24,7 @@ async def search_media(
     per_page: int = Query(30, ge=1, le=100),
     media_type: Optional[str] = Query(None, alias="type", pattern="^(image|video)$"),
     session: AsyncSession = Depends(get_session),
-    b2: B2Uploader = Depends(get_b2),
+    s3: S3Storage = Depends(get_s3),
 ):
     """Поиск по имени файла, md5 или sha-256 (только публичные видимые файлы)."""
     await check_rate_limit(client_ip(request))
@@ -66,7 +66,7 @@ async def search_media(
     items = result.scalars().all()
 
     out = [MediaOut.model_validate(m) for m in items]
-    sign_media_urls(out, items, b2)
+    sign_media_urls(out, items, s3)
     return MediaListOut(
         items=out,
         page=page,
