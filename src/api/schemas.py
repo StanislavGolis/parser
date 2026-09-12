@@ -33,6 +33,8 @@ class AdminBoardOut(BoardOut):
     media_missing: int = 0
     threads_active: int = 0
     threads_parsing: int = 0
+    threads_pending: int = 0  # треды в очереди на докачку (pending_scan)
+    threads_dead: int = 0     # треды, выпавшие из каталога форума
     files_in_catalog: int = 0
     threads_posts_total: int = 0
     threads_views_total: int = 0
@@ -52,6 +54,8 @@ class SystemTotals(BaseModel):
     media_missing: int = 0
     threads_active: int = 0
     threads_parsing: int = 0
+    threads_pending: int = 0
+    threads_dead: int = 0
     files_in_catalog: int = 0
     threads_posts_total: int = 0
     threads_views_total: int = 0

@@ -189,6 +189,19 @@ function BoardRow({
             {board.last_scan ? (
               <> · скан: {new Date(board.last_scan + "Z").toLocaleString("ru-RU")}</>
             ) : null}
+            {board.threads_pending > 0 ? (
+              <span className="badge badge-ok ml-2" title="Треды стоят в очереди на докачку (фаза B)">
+                в очереди: {formatNumber(board.threads_pending)}
+              </span>
+            ) : null}
+            {board.threads_dead > 0 ? (
+              <span
+                className="badge border-accent-danger text-accent-danger ml-2"
+                title="Треды выпали из каталога форума — смотрите чип «Мёртвые» в списке тредов"
+              >
+                мёртвых: {formatNumber(board.threads_dead)}
+              </span>
+            ) : null}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">

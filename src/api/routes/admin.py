@@ -99,6 +99,8 @@ def _admin_out(
         media_missing=int(m.get("media_missing", 0)),
         threads_active=int(m.get("threads_active", 0)),
         threads_parsing=int(m.get("threads_parsing", 0)),
+        threads_pending=int(m.get("threads_pending", 0)),
+        threads_dead=int(m.get("threads_dead", 0)),
         files_in_catalog=int(m.get("files_in_catalog", 0)),
         threads_posts_total=int(m.get("threads_posts_total", 0)),
         threads_views_total=int(m.get("threads_views_total", 0)),
@@ -149,6 +151,8 @@ async def admin_overview(
         totals.media_downloaded += b.media_downloaded
         totals.media_missing += b.media_missing
         totals.threads_active += b.threads_active
+        totals.threads_pending += b.threads_pending
+        totals.threads_dead += b.threads_dead
         totals.files_in_catalog += b.files_in_catalog
         totals.views_total += b.views_total
         totals.downloads_total += b.downloads_total

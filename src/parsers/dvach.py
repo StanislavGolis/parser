@@ -475,39 +475,55 @@ class DvachParser:
 
         files_done = 0
         statuses: Dict[str, int] = {}
+        # Пачки файлов: при MAX_PARALLEL_DOWNLOADS > 1 скачивание идёт параллельно
+        # (`_prefetch_batch`), а обработка остаётся последовательной — сессия БД
+        # одна, поэтому запись/S3/деривативы не могут идти в несколько корутин.
+        batch_size = max(1, int(settings.MAX_PARALLEL_DOWNLOADS))
         try:
-            for meta in files:
-                # Быстрая реакция на «Остановить» — проверяем между файлами
-                if self.stop_check is not None and await self.stop_check():
-                    await self.session.commit()  # сохраняем уже скачанное
-                    print("   [stop] Докачка прервана командой из админки")
-                    await self._clear_progress()
-                    return False
-                status = await self.process_file(board, state, meta)
-                statuses[status] = statuses.get(status, 0) + 1
-                files_done += 1
-                await self._progress(
-                    board_slug=board_slug,
-                    phase="files",
-                    thread_id=thread_id,
-                    files_total=files_total,
-                    files_done=files_done,
+            for start in range(0, len(files), batch_size):
+                batch = files[start : start + batch_size]
+                prefetched = (
+                    await self._prefetch_batch(batch, board, state)
+                    if batch_size > 1
+                    else {}
                 )
-
-                # Периодический коммит: файлы становятся видны сайту сразу,
-                # а сбой теряет максимум DB_COMMIT_EVERY_FILES файлов.
-                # last_scanned_at ставится только после полного прохода треда,
-                # поэтому незавершённый тред докачается в следующий цикл,
-                # а уже сохранённые файлы отсеются по md5 без скачивания.
-                every = settings.DB_COMMIT_EVERY_FILES
-                if every > 0 and files_done % every == 0:
-                    await self.session.commit()
-                    print(
-                        f"   [db]   Коммит: сохранено {files_done}/{files_total} "
-                        f"файлов треда {thread_id}"
+                for meta in batch:
+                    # Быстрая реакция на «Остановить» — проверяем между файлами
+                    if self.stop_check is not None and await self.stop_check():
+                        await self.session.commit()  # сохраняем уже скачанное
+                        print("   [stop] Докачка прервана командой из админки")
+                        await self._clear_progress()
+                        return False
+                    status = await self.process_file(
+                        board, state, meta, file_data=prefetched.get(meta["md5"])
+                    )
+                    statuses[status] = statuses.get(status, 0) + 1
+                    files_done += 1
+                    await self._progress(
+                        board_slug=board_slug,
+                        phase="files",
+                        thread_id=thread_id,
+                        files_total=files_total,
+                        files_done=files_done,
                     )
 
-                await asyncio.sleep(settings.REQUEST_DELAY * 0.5)
+                    # Периодический коммит: файлы становятся видны сайту сразу,
+                    # а сбой теряет максимум DB_COMMIT_EVERY_FILES файлов.
+                    # last_scanned_at ставится только после полного прохода треда,
+                    # поэтому незавершённый тред докачается в следующий цикл,
+                    # а уже сохранённые файлы отсеются по md5 без скачивания.
+                    every = settings.DB_COMMIT_EVERY_FILES
+                    if every > 0 and files_done % every == 0:
+                        await self.session.commit()
+                        print(
+                            f"   [db]   Коммит: сохранено {files_done}/{files_total} "
+                            f"файлов треда {thread_id}"
+                        )
+
+                    # В последовательном режиме паузим между файлами (в параллельном
+                    # темп задаёт `_prefetch_batch`: `REQUEST_DELAY` перед запросом)
+                    if batch_size == 1:
+                        await asyncio.sleep(settings.REQUEST_DELAY * 0.5)
 
             # Проход завершён — снимаем тред с очереди.
             # `files_detected` = сколько файлов мы должны были сохранить (без
@@ -537,8 +553,101 @@ class DvachParser:
 
     # ───────────────────── Обработка файла ─────────────────────
 
-    async def process_file(self, board: Board, thread_state: ThreadState, meta: dict) -> str:
+    async def _prefetch_batch(
+        self,
+        files: List[dict],
+        board: Board,
+        thread_state: ThreadState,
+    ) -> Dict[str, bytes]:
+        """Параллельно скачивает файлы пачки (дедупликация — до загрузки).
+
+        Проверки «уже сохранён в треде» / «дубль по md5» и фильтр по метаданным
+        выполняются здесь **до** скачивания — ровно те же, что в `process_file`,
+        поэтому в сеть уходят только файлы, которых у нас ещё нет, и повторных
+        вставок не будет. Ограничения: `MAX_PARALLEL_DOWNLOADS` (сколько запросов
+        одновременно) и `PREFETCH_MAX_BYTES` (суммарный объём пачки; крупные файлы
+        пропускаются и качаются по одному в `process_file`).
+
+        Возвращает {source_md5: байты} — только успешно скачанное.
+        """
+        todo: List[dict] = []
+        seen = set()
+        budget = int(settings.PREFETCH_MAX_BYTES)
+        for meta in files:
+            md5 = meta.get("md5")
+            if not md5 or md5 in seen:
+                continue
+            valid, _ = MediaValidator.is_allowed(
+                meta["filename"],
+                meta["size_bytes"],
+                meta["media_type"],
+                meta.get("width"),
+                meta.get("height"),
+            )
+            if not valid:
+                continue
+            same_thread = await self.media_repo.get_by_board_thread_md5(
+                board.id, thread_state.thread_id, md5
+            )
+            if (
+                same_thread
+                and same_thread.s3_key
+                and same_thread.download_status in UPLOADED_STATUSES
+            ):
+                continue
+            if same_thread is None and await self.media_repo.get_by_md5(md5) is not None:
+                continue
+
+            size = int(meta.get("size_bytes") or 0)
+            if size > budget:
+                continue  # крупный файл — скачаем по одному, не держим в памяти
+            budget -= size
+            seen.add(md5)
+            todo.append(meta)
+
+        if not todo:
+            return {}
+
+        semaphore = asyncio.Semaphore(max(1, int(settings.MAX_PARALLEL_DOWNLOADS)))
+
+        async def download_one(meta: dict):
+            async with semaphore:
+                # Пауза держится внутри семафора: суммарный темп запросов к форуму
+                # не выше, чем в последовательном режиме (REQUEST_DELAY на запрос)
+                await asyncio.sleep(settings.REQUEST_DELAY)
+                data = await self.downloader.download(meta["file_url"])
+                if data:
+                    print(
+                        f"   [par]  Скачано параллельно: {meta['original_name']} "
+                        f"({len(data)} байт)"
+                    )
+                return meta["md5"], data
+
+        results = await asyncio.gather(
+            *(download_one(meta) for meta in todo), return_exceptions=True
+        )
+        fetched: Dict[str, bytes] = {}
+        for result in results:
+            if isinstance(result, BaseException):
+                print(f"   [warn] Параллельная загрузка не удалась: {result}")
+                continue
+            md5, data = result
+            if data:
+                fetched[md5] = data
+        return fetched
+
+    async def process_file(
+        self,
+        board: Board,
+        thread_state: ThreadState,
+        meta: dict,
+        file_data: Optional[bytes] = None,
+    ) -> str:
         """Скачивание, валидация, загрузка в S3 и запись в БД одного файла.
+
+        `file_data` — байты, уже скачанные параллельно (`_prefetch_batch`):
+        дедупликация и фильтр всё равно выполняются здесь, поэтому повторных
+        вставок не будет; если байтов нет — файл скачивается самостоятельно.
 
         Возвращает статус обработки для итоговой сводки по треду:
         `saved` (новый файл сохранён), `have` (уже был в этом треде),
@@ -601,11 +710,12 @@ class DvachParser:
                 print(f"   [dup] Дубль по md5 {meta['md5'][:8]}: duplicate ID {dup.id} → {existing.id}")
                 return "dup"
 
-            # 3. Скачивание
-            print(f"   [down] Скачиваем: {meta['original_name']}")
-            file_data = await self.downloader.download(meta["file_url"])
-            if not file_data:
-                return "err"
+            # 3. Скачивание (если байты не переданы заранее параллельным режимом)
+            if file_data is None:
+                print(f"   [down] Скачиваем: {meta['original_name']}")
+                file_data = await self.downloader.download(meta["file_url"])
+                if not file_data:
+                    return "err"
 
             # 4. Целостность: md5 из API должен совпасть с фактическим
             #    (CDN может пережимать картинки, поэтому для image не фатально)

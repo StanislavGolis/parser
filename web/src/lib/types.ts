@@ -27,6 +27,10 @@ export interface AdminBoard extends Board {
   media_missing: number;
   threads_active: number;
   threads_parsing: number;
+  /** Треды в очереди на докачку. */
+  threads_pending: number;
+  /** Треды, выпавшие из каталога форума. */
+  threads_dead: number;
   files_in_catalog: number;
   threads_posts_total: number;
   threads_views_total: number;
@@ -47,6 +51,8 @@ export interface SystemTotals {
   media_missing: number;
   threads_active: number;
   threads_parsing: number;
+  threads_pending: number;
+  threads_dead: number;
   files_in_catalog: number;
   threads_posts_total: number;
   threads_views_total: number;

@@ -501,6 +501,8 @@ function TotalsBar({ totals }: { totals: SystemTotals }) {
   const items: Array<[string, string]> = [
     ["Доски", `${formatNumber(totals.boards_total)} (парсим ${formatNumber(totals.boards_parsed)})`],
     ["Треды", `${formatNumber(totals.threads_active)} (парсим ${formatNumber(totals.threads_parsing)})`],
+  ["В очереди", formatNumber(totals.threads_pending ?? 0)],
+  ["Мёртвых", formatNumber(totals.threads_dead ?? 0)],
     ["Файлов в БД", formatNumber(totals.media_total)],
     ["В S3", formatNumber(totals.media_in_s3)],
     ["Скачано", formatNumber(totals.media_downloaded)],
