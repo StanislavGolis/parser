@@ -151,9 +151,13 @@ class DvachParser:
 
         files: List[dict] = []
         for post in self._extract_posts(data):
+            post_num = int(post.get("num") or 0)
             for f in post.get("files") or []:
                 meta = self._file_meta(f)
                 if meta:
+                    # Номер поста нужен для инкрементального прохода:
+                    # частые сканы смотрят только посты новее `last_post_num`.
+                    meta["post_num"] = post_num
                     files.append(meta)
         return files
 
@@ -456,15 +460,55 @@ class DvachParser:
         state.last_scan_attempt_at = datetime.utcnow()
         await self.session.commit()
 
-        files = await self.fetch_thread_files(board_slug, thread_id)
-        if files is None:
+        all_files = await self.fetch_thread_files(board_slug, thread_id)
+        if all_files is None:
             # Список файлов не получен — тред остаётся в очереди
             print(f"   [err] Тред {thread_id}: не удалось получить список файлов")
             await self._clear_progress()
             return False
 
+        # «Файлов на форуме» считаем по всему треду и независимо от режима прохода,
+        # поэтому метрика «Недокачано» не зависит от инкрементального среза.
+        state.files_detected = sum(
+            1
+            for meta in all_files
+            if MediaValidator.is_allowed(
+                meta["filename"],
+                meta["size_bytes"],
+                meta["media_type"],
+                meta.get("width"),
+                meta.get("height"),
+            )[0]
+        )
+
+        # Инкрементальный проход: частые сканы по причине «изменения» обрабатывают
+        # только посты новее `last_post_num`, если прошлый проход был без наших
+        # ошибок. Плановый догон («просрочен»), «недокачано» («файлы»), «вручную» и
+        # первый проход идут полным обходом — так повторяются неудавшиеся загрузки
+        # и подхватываются правки старых постов.
+        files = all_files
+        skipped_old = 0
+        incremental = (
+            reason == "изменения"
+            and state.last_post_num is not None
+            and int(state.last_scan_errors or 0) == 0
+        )
+        if incremental:
+            last_num = int(state.last_post_num or 0)
+            files = [
+                meta for meta in all_files if int(meta.get("post_num") or 0) > last_num
+            ]
+            skipped_old = len(all_files) - len(files)
+
         files_total = len(files)
-        print(f"   [thread] Тред {thread_id} ({reason or 'очередь'}): {files_total} файлов")
+        print(
+            f"   [thread] Тред {thread_id} ({reason or 'очередь'}): {files_total} файлов"
+            + (
+                f" (только посты после #{state.last_post_num}, пропущено старых: {skipped_old})"
+                if skipped_old
+                else ""
+            )
+        )
         await self._progress(
             board_slug=board_slug,
             phase="files",
@@ -492,6 +536,15 @@ class DvachParser:
                     if self.stop_check is not None and await self.stop_check():
                         await self.session.commit()  # сохраняем уже скачанное
                         print("   [stop] Докачка прервана командой из админки")
+                        fresh = await self.thread_state_repo.get_by_board_thread(
+                            board.id, thread_id
+                        )
+                        if fresh is not None:
+                            fresh.last_scan_note = (
+                                f"прервано: остановлено вручную "
+                                f"({files_done}/{files_total} файлов)"
+                            )[:255]
+                            await self.session.commit()
                         await self._clear_progress()
                         return False
                     status = await self.process_file(
@@ -525,19 +578,20 @@ class DvachParser:
                     if batch_size == 1:
                         await asyncio.sleep(settings.REQUEST_DELAY * 0.5)
 
-            # Проход завершён — снимаем тред с очереди.
-            # `files_detected` = сколько файлов мы должны были сохранить (без
-            # отброшенных правилами размера/разрешения), поэтому «Недокачано» в
-            # админке показывает только реальные пропуски (битые/ошибки).
-            fetchable = files_total - statuses.get("filtered", 0)
-            if fetchable > 0:
-                state.files_detected = fetchable
-            print(
-                f"   [done] Тред {thread_id}: новых {statuses.get('saved', 0)}, "
-                f"уже было {statuses.get('have', 0)}, дублей {statuses.get('dup', 0)}, "
-                f"битых {statuses.get('invalid', 0)}, отфильтровано {statuses.get('filtered', 0)}, "
-                f"ошибок {statuses.get('err', 0)}"
+            # Проход завершён — снимаем тред с очереди и пишем итог для админки
+            note = (
+                f"новых {statuses.get('saved', 0)}, уже было {statuses.get('have', 0)}, "
+                f"дублей {statuses.get('dup', 0)}, битых {statuses.get('invalid', 0)}, "
+                f"отфильтровано {statuses.get('filtered', 0)}, ошибок {statuses.get('err', 0)}"
             )
+            if skipped_old:
+                note += f" (пропущено старых: {skipped_old})"
+            print(f"   [done] Тред {thread_id}: {note}")
+            state.last_scan_note = note[:255]
+            state.last_scan_errors = int(statuses.get("err", 0))
+            max_post = max((int(meta.get("post_num") or 0) for meta in all_files), default=0)
+            if max_post > 0:
+                state.last_post_num = max_post
             state.pending_scan = False
             state.pending_reason = None
             state.last_scanned_at = datetime.utcnow()
@@ -549,7 +603,25 @@ class DvachParser:
             print(f"   [err] Тред {thread_id} прерван ({files_done}/{files_total}): {e}")
             await self.session.rollback()
             await self._clear_progress()
+            await self._mark_scan_failed(board.id, thread_id, e)
             return False
+
+    async def _mark_scan_failed(self, board_id: int, thread_id: int, error: Exception) -> None:
+        """Записывает итог сбоя прохода: следующий проход уйдёт полным.
+
+        `last_scan_errors > 0` заставляет следующий скан перебрать весь тред, а не
+        только новые посты, — так проблемные файлы не теряются, а админ видит
+        причину в строке треда.
+        """
+        try:
+            fresh = await self.thread_state_repo.get_by_board_thread(board_id, thread_id)
+            if fresh is None:
+                return
+            fresh.last_scan_errors = max(1, int(fresh.last_scan_errors or 0))
+            fresh.last_scan_note = f"прервано: {error}"[:255]
+            await self.session.commit()
+        except Exception as inner:  # noqa: BLE001 — диагностика не должна мешать циклу
+            print(f"   [warn] Не удалось записать итог сбоя треда {thread_id}: {inner}")
 
     # ───────────────────── Обработка файла ─────────────────────
 

@@ -107,6 +107,10 @@ export interface BoardThread {
   pending_scan: boolean;
   pending_reason: string | null;
   last_scan_attempt_at: string | null;
+  /** Итог последнего прохода: до какого поста обработано и сводка. */
+  last_post_num: number | null;
+  last_scan_errors: number;
+  last_scan_note: string | null;
   /** Управление из админки. */
   parse_enabled: boolean;
   is_visible: boolean;

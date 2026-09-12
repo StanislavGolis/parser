@@ -365,6 +365,9 @@ async def build_thread_outs(
             pending_scan=bool(t.pending_scan),
             pending_reason=t.pending_reason,
             last_scan_attempt_at=t.last_scan_attempt_at,
+            last_post_num=t.last_post_num,
+            last_scan_errors=int(t.last_scan_errors or 0),
+            last_scan_note=t.last_scan_note,
             # «Просрочен» считаем только для тредов в работе: остальные не парсим
             is_stale=bool(
                 t.is_active

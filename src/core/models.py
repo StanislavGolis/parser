@@ -79,6 +79,14 @@ class ThreadState(Base):
     pending_reason = Column(String(32), nullable=True)   # новый/изменения/просрочен/не скачивался/файлы
     last_scan_attempt_at = Column(DateTime, nullable=True)  # время последней попытки скана
 
+    # Инкрементальный проход: номер последнего поста, полностью обработанного
+    # «чистым» проходом — частые сканы смотрят только посты новее него.
+    last_post_num = Column(Integer, nullable=True)
+    # Сколько файлов упало в последнем проходе: >0 → следующий проход полный.
+    last_scan_errors = Column(Integer, nullable=False, default=0)
+    # Итог последнего прохода для админки (без чтения логов).
+    last_scan_note = Column(String(255), nullable=True)
+
     # Управление из админки (этап: управление контентом)
     parse_enabled = Column(Boolean, nullable=False, default=False)  # тред участвует в скачивании
     is_visible = Column(Boolean, nullable=False, default=False)     # показывать публично

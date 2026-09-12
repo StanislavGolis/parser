@@ -85,7 +85,8 @@ class ThreadDiscovery:
                     continue
                 allowed, _ = MediaValidator.is_allowed(
                     name,
-                    int(f.get("size") or 0),
+                    # В API 2ch размер файла указан в килобайтах
+                    int(f.get("size") or 0) * 1024,
                     media_type,
                     f.get("width"),
                     f.get("height"),

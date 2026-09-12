@@ -501,6 +501,19 @@ export default function AdminBoardThreads({
                   <span className="text-text-muted">просмотров: {formatNumber(t.views_count)}</span>
                 </div>
 
+                {t.last_scan_note ? (
+                  <div
+                    className={`mt-1 font-mono text-[10px] ${
+                      t.last_scan_errors > 0 ? "text-accent-warning" : "text-text-muted"
+                    }`}
+                    title={`Итог последнего прохода${
+                      t.last_scanned_at ? ` (${formatUtc(t.last_scanned_at)})` : ""
+                    }${t.last_post_num ? `, обработано по пост #${t.last_post_num}` : ""}`}
+                  >
+                    итог скана: {t.last_scan_note}
+                  </div>
+                ) : null}
+
                 {!t.is_active ? (
                   <div className="mt-2 flex flex-wrap items-center gap-2 rounded border border-accent-danger/40 bg-accent-danger/10 px-2 py-1.5 text-[11px] text-accent-danger">
                     <span className="font-mono uppercase tracking-wider">нет в каталоге</span>

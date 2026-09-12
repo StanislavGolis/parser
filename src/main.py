@@ -156,6 +156,12 @@ async def main():
             await heartbeat_task
         except (asyncio.CancelledError, Exception):
             pass
+        # Закрываем Redis-пул: иначе при остановке процесса redis-py ругается
+        # «Event loop is closed» в AbstractConnection.__del__
+        try:
+            await redis_client.aclose()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

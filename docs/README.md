@@ -50,6 +50,13 @@ docker compose -f docker-compose.prod.yml up -d --build
       `DEAD_THREAD_AFTER_MISSES` промахов каталога (обрезанный каталог 2ch больше не
       «убивает» живые треды); `STALE_SCAN_HOURS` — плановый догон; метрика
       «Недокачано» (`files_detected` без файлов, отброшенных правилами размера).
+- [x] **Инкрементальный проход и итог скана**: частые сканы по причине «изменения»
+      обрабатывают только посты новее `last_post_num` (горячие треды не
+      перебираются целиком), а плановый догон, «недокачано», «вручную» и первый
+      проход идут полным обходом; сбой (`last_scan_errors > 0`) делает следующий
+      проход полным. Итог прохода («новых 12, уже было 319, дублей 3, битых 5,
+      отфильтровано 24, ошибок 1») хранится в `last_scan_note` и виден в строке
+      треда в админке — разбор недокачки не требует чтения логов.
 - [x] **Параллельные загрузки**: `MAX_PARALLEL_DOWNLOADS` (дефолт 2) — файлы
       качаются пачками (замер на пачке 11 МБ: ~1.8× быстрее), а валидация, S3,
       деривативы и запись в БД остаются последовательными (одна сессия);
@@ -432,7 +439,8 @@ n9o0p1q2r3s4  премиум: boards/threads/media.is_premium, users.premium_unt
 o0p1q2r3s4t5  метки и избранное: media_marks, favorites, media.marks_count
 p1q2r3s4t5u6  объединение: favorites → media_marks, удаление таблицы favorites
 q2r3s4t5u6v7  threads_state.misses/missing_since (гигиена обхода)
-r3s4t5u6v7w8  threads_state.pending_scan/pending_reason/last_scan_attempt_at  ← head
+r3s4t5u6v7w8  threads_state.pending_scan/pending_reason/last_scan_attempt_at
+s4t5u6v7w8x9  threads_state.last_post_num/last_scan_errors/last_scan_note  ← head
 ```
 
 Полезные запросы:
@@ -510,7 +518,7 @@ DELETE /api/v1/admin/reset                           полный сброс (Б
 - обновление кода: `git pull && docker compose -f docker-compose.prod.yml up -d --build`
   (помните про общий образ `parser-backend` — §2);
 - миграции применяются сервисом `migrate` при старте; текущая голова —
-  `r3s4t5u6v7w8`;
+  `s4t5u6v7w8x9`;
 - проверка после выкатки: `X-Cache-Status` у `thumb_blur` (`MISS → HIT`), 403 у
   премиум-`web` без подписки, 401 у `/raw` без сессии;
 - обязательные переменные парсера: `DB_COMMIT_EVERY_FILES` (дефолт 25),
@@ -527,16 +535,19 @@ DELETE /api/v1/admin/reset                           полный сброс (Б
 2. **Бэкапы БД в S3** по cron (сейчас `pg_dump` руками, см. `DEPLOY.md`) +
    контроль лимитов бакета.
 
-**Парсер (продолжение гигиены обхода — шаги 1–3 сделаны)**
+**Парсер**
 3. ~~Параллельные загрузки~~ — сделано (`MAX_PARALLEL_DOWNLOADS`): качаем пачками,
    обработка остаётся последовательной; осталось проверить выигрыш на длинной
    очереди и, при необходимости, поднять лимит до 3.
-4. Причина пропуска файла в БД (`threads_state.last_scan_note`), чтобы разбивка
-   `[done]` (битых/отфильтровано/ошибок) была видна в админке, а не только в логах.
+4. ~~Причина пропуска файла в БД~~ — сделано: `last_scan_note` / `last_scan_errors`
+   в `threads_state`, итог виден в строке треда.
 5. ~~Счётчики очереди/мёртвых на обзорной панели~~ — сделано
    (`threads_pending`/`threads_dead` в карточках разделов и в итогах системы).
-6. Инкрементальный проход внутри треда по `last_post_num` — горячие треды не
-   проходятся целиком каждый раз.
+6. ~~Инкрементальный проход по `last_post_num`~~ — сделано: частые сканы берут
+   только новые посты, полный обход — на догоне и после сбоя.
+7. Дальше по парсеру: точечная сверка `res/{id}.json` для «недокачанных» тредов без
+   полного обхода и вынос тяжёлых стадий (S3/деривативы) из последовательного
+   участка — это даст больше, чем поднятие `MAX_PARALLEL_DOWNLOADS`.
 
 **Премиум и деньги**
 7. Подключить оплату (тарифы/сроки), история активаций (`premium_orders`),
@@ -570,7 +581,7 @@ src/                    python-бэкенд
                         media_validator, storage, reconciliation
   repositories/         доступ к БД (boards/threads/media)
   core/                 config, db, models, redis
-migrations/versions/    alembic-миграции (head: r3s4t5u6v7w8)
+migrations/versions/    alembic-миграции (head: s4t5u6v7w8x9)
 web/                    Next.js 14: app/ (страницы), components/, lib/
 nginx/nginx.conf        конфиг nginx (прокси + дисковый кэш деривативов)
 docker-compose.prod.yml, Dockerfile, .env.example, .env.prod.example

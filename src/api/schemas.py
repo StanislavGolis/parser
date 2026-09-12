@@ -215,6 +215,10 @@ class ThreadOut(BaseModel):
     pending_scan: bool = False
     pending_reason: Optional[str] = None
     last_scan_attempt_at: Optional[datetime] = None
+    # Итог последнего прохода: до какого поста обработано, сколько ошибок, сводка
+    last_post_num: Optional[int] = None
+    last_scan_errors: int = 0
+    last_scan_note: Optional[str] = None
 
     # Управление (админка) и премиум-доступ
     parse_enabled: bool = True
