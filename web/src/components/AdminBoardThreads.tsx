@@ -5,7 +5,13 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { Switch } from "@/components/Switch";
 import { ApiError, apiPatch, apiPost, apiSend } from "@/lib/api";
 import { formatNumber, formatUtc } from "@/lib/format";
-import type { BoardThread, ParserStatus, ScanStatus, ThreadList } from "@/lib/types";
+import type {
+  BoardThread,
+  ParserStatus,
+  ScanStatus,
+  ThreadDeleteResult,
+  ThreadList,
+} from "@/lib/types";
 
 const PER_PAGE = 50;
 
@@ -66,6 +72,7 @@ export default function AdminBoardThreads({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [scan, setScan] = useState<ScanStatus | null>(null);
   const [deep, setDeep] = useState(false);
@@ -169,6 +176,65 @@ export default function AdminBoardThreads({
       }
     },
     [selected, slug, token, load],
+  );
+
+  /** Удаление тредов вместе с файлами (БД + S3): необратимо — двойное подтверждение. */
+  const removeThreads = useCallback(
+    async (threadIds: number[]) => {
+      if (threadIds.length === 0) return;
+      const what =
+        threadIds.length === 1
+          ? `тред №${threadIds[0]} и все его файлы`
+          : `${threadIds.length} тредов и все их файлы`;
+      if (!window.confirm(`Удалить ${what} из базы и хранилища?`)) return;
+
+      // Сначала прикидка (dry-run): показываем объём удаления до необратимого шага.
+      let preview: ThreadDeleteResult | null = null;
+      try {
+        preview = await apiPost<ThreadDeleteResult>(
+          `/api/v1/admin/boards/${encodeURIComponent(slug)}/threads/delete?dry_run=true`,
+          { thread_ids: threadIds },
+          token,
+        );
+      } catch {
+        preview = null;
+      }
+      const details = preview
+        ? `Файлов: ${formatNumber(preview.deleted_media)}, объектов в S3: ${formatNumber(
+            preview.deleted_objects,
+          )}` +
+          (preview.kept_objects > 0
+            ? `, общих объектов оставим: ${formatNumber(preview.kept_objects)}`
+            : "")
+        : "Объём посчитать не удалось";
+      if (!window.confirm(`Действие необратимо. ${details}. Продолжить?`)) return;
+
+      setBusy(true);
+      setError(null);
+      setNotice(null);
+      try {
+        const res = await apiPost<ThreadDeleteResult>(
+          `/api/v1/admin/boards/${encodeURIComponent(slug)}/threads/delete`,
+          { thread_ids: threadIds },
+          token,
+        );
+        setNotice(
+          `Удалено: тредов ${formatNumber(res.deleted_threads)}, файлов ${formatNumber(
+            res.deleted_media,
+          )}, объектов ${formatNumber(res.deleted_objects)}` +
+            (res.kept_objects > 0
+              ? ` · общих объектов оставлено: ${formatNumber(res.kept_objects)}`
+              : ""),
+        );
+        setSelected(new Set());
+        await load(1);
+      } catch (err) {
+        setError(errText(err));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [slug, token, load],
   );
 
   const allSelected = useMemo(
@@ -411,6 +477,21 @@ export default function AdminBoardThreads({
           >
             В очередь
           </button>
+          <span className="mx-1 h-4 w-px bg-line" />
+          <button
+            type="button"
+            disabled={disabled}
+            title="Удалить выбранные треды вместе с файлами: записи в базе + объекты в S3. Необратимо"
+            onClick={() => void removeThreads([...selected])}
+            className="rounded border border-accent-danger/40 px-2.5 py-1 text-xs text-accent-danger transition-colors hover:bg-accent-danger/15 disabled:opacity-50"
+          >
+            Удалить файлы
+          </button>
+        </div>
+      ) : null}
+      {notice ? (
+        <div className="mb-3 rounded border border-accent-primary/40 bg-accent-primary/10 px-3 py-2 text-xs text-text-primary">
+          {notice}
         </div>
       ) : null}
       {threads === null ? (
@@ -487,6 +568,15 @@ export default function AdminBoardThreads({
                         унаследовано от доски
                       </span>
                     ) : null}
+                    <button
+                      type="button"
+                      disabled={busyKey === `t${t.thread_id}` || busy}
+                      title="Удалить тред и его файлы из базы и хранилища (S3). Необратимо: парсинг треда выключается, файлы удаляются"
+                      onClick={() => void removeThreads([t.thread_id])}
+                      className="rounded border border-accent-danger/40 px-2 py-0.5 font-mono text-[10px] text-accent-danger transition-colors hover:bg-accent-danger/15 disabled:opacity-50"
+                    >
+                      удалить
+                    </button>
                   </div>
                 </div>
 

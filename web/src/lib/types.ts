@@ -127,6 +127,17 @@ export interface BoardThread {
   preview: MediaItem[];
 }
 
+/** Итог удаления тредов вместе с файлами (админка). */
+export interface ThreadDeleteResult {
+  deleted_threads: number;
+  deleted_media: number;
+  deleted_objects: number;
+  /** Объекты, которые оставили: на них ссылаются файлы других тредов. */
+  kept_objects: number;
+  /** true — это только прикидка, ничего не удалено. */
+  dry_run?: boolean;
+}
+
 export interface ThreadList {
   items: BoardThread[];
   page: number;

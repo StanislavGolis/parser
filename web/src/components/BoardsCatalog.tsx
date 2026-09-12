@@ -7,6 +7,7 @@ import { LockIcon, StarIcon } from "@/components/icons";
 import { mediaUrl } from "@/lib/env";
 import { formatNumber } from "@/lib/format";
 import type { Board } from "@/lib/types";
+import { useImgLoaded } from "@/lib/useImgLoaded";
 
 type Filter = "all" | "free" | "premium";
 
@@ -21,9 +22,10 @@ const MOSAIC_TILES = 4;
 
 /** Плитка обложки: пульсирующий скелетон → плавное появление превью. */
 function CoverTile({ src, eager = false }: { src?: string; eager?: boolean }) {
-  const [loaded, setLoaded] = useState(false);
-  // Пустая плитка (в разделе меньше 4 файлов) остаётся скелетоном.
-  const showSkeleton = Boolean(src) && !loaded;
+  // Тот же приём, что и в карточках медиа: `complete` + таймаут, иначе плитка
+  // из кэша навсегда осталась бы под скелетоном.
+  const img = useImgLoaded(src ?? "", 1200);
+  const showSkeleton = Boolean(src) && !img.loaded;
 
   return (
     <span className="relative block overflow-hidden bg-ink-tertiary">
@@ -33,14 +35,15 @@ function CoverTile({ src, eager = false }: { src?: string; eager?: boolean }) {
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
+          ref={img.setRef}
           src={src}
           alt=""
           loading={eager ? "eager" : "lazy"}
           decoding="async"
           referrerPolicy="no-referrer"
-          onLoad={() => setLoaded(true)}
+          onLoad={img.onLoad}
           className={`h-full w-full object-cover transition-all duration-300 group-hover:scale-[1.04] ${
-            loaded ? "opacity-100" : "opacity-0"
+            img.loaded ? "opacity-100" : "opacity-0"
           }`}
         />
       ) : (
@@ -56,7 +59,7 @@ function CoverMosaic({ board, eager = false }: { board: Board; eager?: boolean }
   return (
     <span
       className="grid grid-cols-2 gap-px border-b border-line bg-line"
-      style={{ aspectRatio: "16 / 9" }}
+      style={{ aspectRatio: "2 / 1" }}
       aria-hidden
     >
       {Array.from({ length: MOSAIC_TILES }, (_, i) => (
@@ -113,7 +116,7 @@ export default function BoardsCatalog({ boards }: { boards: Board[] }) {
       </div>
 
       {/* Сетка разделов: карточка с мозаикой свежих превью */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {visible.map((b, idx) => (
           <Link
             key={b.id}
@@ -123,13 +126,16 @@ export default function BoardsCatalog({ boards }: { boards: Board[] }) {
             {/* Первые две карточки выше сгиба: их плитки грузим сразу (LCP) */}
             <CoverMosaic board={b} eager={idx < 2} />
 
-            <div className="flex flex-1 flex-col justify-between gap-3 p-4">
+            <div className="flex flex-1 flex-col justify-between gap-2 p-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <span className="font-mono text-base font-bold uppercase tracking-wider text-text-primary">
+                  <span className="font-mono text-sm font-bold uppercase tracking-wider text-text-primary">
+                    <span className="mr-1 text-[10px] font-normal tracking-normal text-text-muted">
+                      раздел
+                    </span>
                     /{b.slug}
                   </span>
-                  <p className="mt-1 truncate text-sm text-text-secondary" title={b.title || b.slug}>
+                  <p className="mt-0.5 truncate text-xs text-text-secondary" title={b.title || b.slug}>
                     {b.title || b.slug}
                   </p>
                 </div>
@@ -153,13 +159,13 @@ export default function BoardsCatalog({ boards }: { boards: Board[] }) {
               </div>
 
               <div className="flex items-center justify-between">
-                <span className="font-mono text-[11px] text-text-muted">
+                <span className="font-mono text-[10px] text-text-muted">
                   {formatNumber(b.media_count)} файлов
                 </span>
                 {b.is_premium ? (
-                  <span className="font-mono text-[11px] text-accent-warning">по подписке</span>
+                  <span className="font-mono text-[10px] text-accent-warning">по подписке</span>
                 ) : (
-                  <span className="font-mono text-[11px] text-text-muted transition-colors group-hover:text-accent-primary">
+                  <span className="font-mono text-[10px] text-text-muted transition-colors group-hover:text-accent-primary">
                     открыть →
                   </span>
                 )}

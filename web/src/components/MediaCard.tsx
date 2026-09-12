@@ -15,6 +15,7 @@ import { mediaUrl } from "@/lib/env";
 import { formatBytes, formatCompact, formatDuration } from "@/lib/format";
 import { isLocked, premiumState, blurSrc, thumbSrc } from "@/lib/media";
 import type { Board, MediaItem } from "@/lib/types";
+import { useImgLoaded } from "@/lib/useImgLoaded";
 
 interface MediaCardProps {
   media: MediaItem;
@@ -40,16 +41,16 @@ function aspectOf(media: MediaItem): string {
  */
 export default function MediaCard({ media, board, showTop = false, eager = false, onOpen }: MediaCardProps) {
   const [failed, setFailed] = useState(false);
-  // Пока грузится превью — показываем размытый плейсхолдер (blur-up):
-  // первый экран не мигает пустыми плитками и сетка не «прыгает».
-  const [loaded, setLoaded] = useState(false);
+  // Готовность превью: пока не готово — видна размытая подложка (blur-up).
+  // Хук проверяет `complete` (картинка может быть уже в кэше — тогда события
+  // load не будет) и страхует таймаутом, поэтому «зависший» блюр невозможен.
+  const img = useImgLoaded(`${media.id}:${media.thumb_url ?? media.url ?? ""}`);
   const aspect = aspectOf(media);
   const blur = blurSrc(media);
 
   // Сброс состояния при смене файла (перелистывание/подгрузка)
   useEffect(() => {
     setFailed(false);
-    setLoaded(false);
   }, [media.id, media.url]);
 
   const canShow = Boolean(media.url || media.thumb_url) && !failed;
@@ -91,16 +92,17 @@ export default function MediaCard({ media, board, showTop = false, eager = false
           {canShow && !isVideo ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
+              ref={img.setRef}
               src={thumbSrc(media)}
               alt={locked ? "" : media.original_name}
               loading={eager ? "eager" : "lazy"}
               fetchPriority={eager ? "high" : "auto"}
               decoding="async"
               referrerPolicy="no-referrer"
-              onLoad={() => setLoaded(true)}
+              onLoad={img.onLoad}
               onError={() => setFailed(true)}
               className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
-                loaded || locked ? "opacity-100" : "opacity-0"
+                img.loaded || locked ? "opacity-100" : "opacity-0"
               } ${locked ? "blur-[8px] scale-110" : ""}`}
             />
           ) : canShow && isVideo ? (
@@ -109,16 +111,17 @@ export default function MediaCard({ media, board, showTop = false, eager = false
               {media.thumb_url || locked ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
+                  ref={img.setRef}
                   src={thumbSrc(media)}
                   alt={locked ? "" : media.original_name}
                   loading={eager ? "eager" : "lazy"}
                   fetchPriority={eager ? "high" : "auto"}
                   decoding="async"
                   referrerPolicy="no-referrer"
-                  onLoad={() => setLoaded(true)}
+                  onLoad={img.onLoad}
                   onError={() => setFailed(true)}
                   className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
-                    loaded || locked ? "opacity-100" : "opacity-0"
+                    img.loaded || locked ? "opacity-100" : "opacity-0"
                   } ${locked ? "blur-[8px] scale-110" : ""}`}
                 />
               ) : (

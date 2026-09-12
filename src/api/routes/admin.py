@@ -23,7 +23,7 @@ from typing import Dict, List, Optional
 import aiohttp
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, func, or_, select, text
+from sqlalchemy import and_, delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_s3, verify_admin
@@ -37,6 +37,8 @@ from src.api.schemas import (
     ResetResult,
     SystemTotals,
     ThreadBulkUpdate,
+    ThreadDeleteRequest,
+    ThreadDeleteResult,
     ThreadListOut,
     ThreadOut,
     ThreadUpdate,
@@ -837,6 +839,120 @@ async def bulk_update_threads(
         await sync_threads_media_premium(session, board, payload.thread_ids)
     await session.commit()
     return {"ok": True, "updated": len(threads)}
+
+
+@router.post("/boards/{slug}/threads/delete", response_model=ThreadDeleteResult)
+async def delete_threads(
+    slug: str,
+    payload: ThreadDeleteRequest,
+    dry_run: bool = Query(False, description="Только посчитать объём удаления, ничего не менять"),
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+    s3: S3Storage = Depends(get_s3),
+):
+    """Удаляет треды раздела: файлы из БД и хранилища + тред из выдачи.
+
+    Парсинг треда выключается, а строка треда остаётся «надгробием»: иначе
+    сканирование каталога вернуло бы тред, и парсер скачал бы всё заново.
+    Объекты, на которые ссылаются файлы других тредов (тот же файл в перекрёстном
+    дубле) не удаляем — они попадают в `kept_objects`.
+    `?dry_run=true` — прикидка без изменений (сколько тредов/файлов/объектов).
+    """
+    board = await _load_board(session, slug)
+    ids = [int(t) for t in (payload.thread_ids or [])]
+    if not ids:
+        return ThreadDeleteResult()
+
+    media_rows = (
+        await session.execute(
+            select(Media.id, Media.s3_key, Media.variants).where(
+                Media.board_id == board.id, Media.thread_id.in_(ids)
+            )
+        )
+    ).all()
+    media_ids = [row[0] for row in media_rows]
+
+    own_keys: set = set()
+    for _mid, key, variants in media_rows:
+        if key:
+            own_keys.add(key)
+        for value in (variants or {}).values():
+            if value:
+                own_keys.add(value)
+
+    # Что нельзя трогать: ключи файлов этого же раздела вне удаляемых тредов
+    # (дубли ссылаются на тот же объект в S3).
+    keep: set = set()
+    if own_keys:
+        foreign = (
+            await session.execute(
+                select(Media.s3_key, Media.variants).where(
+                    Media.board_id == board.id, Media.thread_id.notin_(ids)
+                )
+            )
+        ).all()
+        for key, variants in foreign:
+            if key:
+                keep.add(key)
+            for value in (variants or {}).values():
+                if value:
+                    keep.add(value)
+
+    removable = sorted(own_keys - keep)
+
+    threads = (
+        await session.execute(
+            select(ThreadState).where(
+                ThreadState.board_id == board.id, ThreadState.thread_id.in_(ids)
+            )
+        )
+    ).scalars().all()
+
+    if not dry_run:
+        if removable:
+            await s3.delete_keys(removable)
+            # Заодно выкидываем локальный кэш этих файлов (иначе он держит
+            # удалённый контент до следующего прогона LRU).
+            cache = get_media_cache()
+            for key in removable:
+                try:
+                    cache.path_for(key).unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+        if media_ids:
+            # Метки/просмотры/скачивания уходят каскадом (ON DELETE CASCADE).
+            await session.execute(delete(Media).where(Media.id.in_(media_ids)))
+
+        for thread in threads:
+            # «Надгробие»: тред не парсится и не виден, но каталог вернёт его
+            # строку — повторной закачки файлов не будет.
+            thread.parse_enabled = False
+            thread.is_visible = False
+            thread.pending_scan = False
+            thread.pending_reason = None
+            thread.files_count = 0
+            thread.files_detected = 0
+            thread.last_scan_note = "файлы удалены вручную"
+
+        await session.commit()
+
+    logger.info(
+        "threads %s: /%s ids=%s media=%s objects=%s kept=%s",
+        "counted" if dry_run else "deleted",
+        slug,
+        ids,
+        len(media_ids),
+        len(removable),
+        len(own_keys & keep),
+    )
+    return ThreadDeleteResult(
+        deleted_threads=len(threads),
+        deleted_media=len(media_ids),
+        deleted_objects=len(removable),
+        kept_objects=len(own_keys & keep),
+        dry_run=dry_run,
+    )
 
 
 # ───────────── Сканирование каталога доски («Загрузить треды») ─────────────

@@ -182,6 +182,24 @@ class ResetResult(BaseModel):
     deleted_objects: int = 0
 
 
+class ThreadDeleteRequest(BaseModel):
+    """Какие треды раздела удалить вместе с файлами в хранилище."""
+
+    thread_ids: List[int] = []
+
+
+class ThreadDeleteResult(BaseModel):
+    """Итог удаления тредов: треды, записи файлов и объекты в S3."""
+
+    deleted_threads: int = 0
+    deleted_media: int = 0
+    deleted_objects: int = 0
+    # Объекты, которые остались: на них ссылаются файлы других тредов
+    kept_objects: int = 0
+    # Предпросмотр: цифры посчитаны, ничего не удалено
+    dry_run: bool = False
+
+
 class AuthCredentials(BaseModel):
     email: str
     password: str
