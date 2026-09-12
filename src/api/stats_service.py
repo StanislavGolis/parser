@@ -14,7 +14,11 @@ UPLOADED_STATUSES = ("uploaded", "verified")
 
 
 async def media_stats_by_board(session: AsyncSession) -> Dict[int, dict]:
-    """Статистика медиа по доскам."""
+    """Статистика медиа по доскам.
+
+    Дубли-ссылки (`duplicate_of_id`) исключаем: это повторные встречи того же
+    файла, отдельного объекта в хранилище у них нет — иначе счётчики удвоены.
+    """
     rows = await session.execute(
         select(
             Media.board_id.label("board_id"),
@@ -32,6 +36,7 @@ async def media_stats_by_board(session: AsyncSession) -> Dict[int, dict]:
             func.coalesce(func.sum(Media.views_count), 0).label("views_total"),
             func.coalesce(func.sum(Media.downloads_count), 0).label("downloads_total"),
         )
+        .where(Media.duplicate_of_id.is_(None))
         .group_by(Media.board_id)
     )
     stats = {}

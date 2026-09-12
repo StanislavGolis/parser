@@ -31,7 +31,12 @@ async def list_boards(
             Media.board_id.label("board_id"),
             func.count(Media.id).label("cnt"),
         )
-        .where(Media.is_visible.is_(True), Media.is_active.is_(True))
+        .where(
+            Media.is_visible.is_(True),
+            Media.is_active.is_(True),
+            # Дубли-ссылки не файлы: в каталоге считаем только уникальные
+            Media.duplicate_of_id.is_(None),
+        )
         .group_by(Media.board_id)
         .subquery()
     )

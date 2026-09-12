@@ -43,6 +43,9 @@ MIME_BY_EXT = {
     "mkv": "video/x-matroska",
 }
 
+# Статусы, при которых файл лежит в объектном хранилище
+UPLOADED_STATUSES = ("uploaded", "verified")
+
 
 class DvachParser:
     """Инкрементальный парсер досок 2ch.hk."""
@@ -404,8 +407,23 @@ class DvachParser:
                 return
 
             # 2. Дедупликация по source_md5 (до скачивания)
+            # 2.1. Файл уже есть в ЭТОМ треде — повторный проход не должен
+            #      создавать новую запись (иначе статистика и галерея удваиваются).
+            same_thread = await self.media_repo.get_by_board_thread_md5(
+                board.id, thread_state.thread_id, meta["md5"]
+            )
+            if (
+                same_thread
+                and same_thread.s3_key
+                and same_thread.download_status in UPLOADED_STATUSES
+            ):
+                print(f"   [have] Файл уже сохранён в треде: {meta['original_name']}")
+                return
+
+            # 2.2. Такой же файл есть в другом треде/доске — пишем ссылку-дубль
+            #      (объект в S3 переиспользуем, повторно не скачиваем).
             existing = await self.media_repo.get_by_md5(meta["md5"])
-            if existing:
+            if existing and same_thread is None:
                 dup = await self.media_repo.create(
                     board_id=board.id,
                     thread_id=thread_state.thread_id,
@@ -484,30 +502,55 @@ class DvachParser:
                     os.remove(local_path)
                     print(f"   [del]  Локальный файл удалён: {meta['filename']}")
 
-            # 7. Запись в БД
-            media = await self.media_repo.create(
-                board_id=board.id,
-                thread_id=thread_state.thread_id,
-                original_name=meta["original_name"],
-                source_url=meta["file_url"],
-                local_path=storage_path,
-                file_hash=file_sha256,
-                source_md5=meta["md5"],
-                file_size=meta["size_bytes"],
-                mime_type=meta["mime_type"],
-                media_type=meta["media_type"],
-                s3_bucket=settings.storage_bucket if s3_key else None,
-                s3_key=s3_key,
-                variants=variants,
-                duration_seconds=duration_seconds,
-                width=meta.get("width"),
-                height=meta.get("height"),
-                download_status="uploaded" if s3_key else "downloaded",
-                is_visible=True,
-                is_active=True,
-                is_premium=bool(board.is_premium or thread_state.is_premium),
-            )
-            await self.session.flush()
+            # 7. Запись в БД: новую строку создаём только для новых файлов,
+            #    а запись без объекта в S3 (например, прошлый раз не докачали)
+            #    обновляем — так повторные проходы не размножают строки.
+            if same_thread is not None:
+                media = same_thread
+                media.original_name = meta["original_name"]
+                media.source_url = meta["file_url"]
+                media.local_path = storage_path
+                media.file_hash = file_sha256
+                media.file_size = meta["size_bytes"]
+                media.mime_type = meta["mime_type"]
+                media.media_type = meta["media_type"]
+                media.width = meta.get("width")
+                media.height = meta.get("height")
+                if s3_key:
+                    media.s3_bucket = settings.storage_bucket
+                    media.s3_key = s3_key
+                if variants:
+                    media.variants = variants
+                if duration_seconds:
+                    media.duration_seconds = duration_seconds
+                media.download_status = "uploaded" if s3_key else "downloaded"
+                media.is_active = True
+                media.is_premium = bool(board.is_premium or thread_state.is_premium)
+                await self.session.flush()
+            else:
+                media = await self.media_repo.create(
+                    board_id=board.id,
+                    thread_id=thread_state.thread_id,
+                    original_name=meta["original_name"],
+                    source_url=meta["file_url"],
+                    local_path=storage_path,
+                    file_hash=file_sha256,
+                    source_md5=meta["md5"],
+                    file_size=meta["size_bytes"],
+                    mime_type=meta["mime_type"],
+                    media_type=meta["media_type"],
+                    s3_bucket=settings.storage_bucket if s3_key else None,
+                    s3_key=s3_key,
+                    variants=variants,
+                    duration_seconds=duration_seconds,
+                    width=meta.get("width"),
+                    height=meta.get("height"),
+                    download_status="uploaded" if s3_key else "downloaded",
+                    is_visible=True,
+                    is_active=True,
+                    is_premium=bool(board.is_premium or thread_state.is_premium),
+                )
+                await self.session.flush()
 
             if s3_key:
                 print(f"   [ok] Загружен в S3: {meta['original_name']} (ID: {media.id})")

@@ -158,7 +158,9 @@ async def thread_catalog_totals(session: AsyncSession, board_id: int) -> dict:
     ).one()
     downloaded = (
         await session.execute(
-            select(func.count(Media.id)).where(Media.board_id == board_id)
+            select(func.count(Media.id)).where(
+                Media.board_id == board_id, Media.duplicate_of_id.is_(None)
+            )
         )
     ).scalar() or 0
     return {
@@ -170,7 +172,11 @@ async def thread_catalog_totals(session: AsyncSession, board_id: int) -> dict:
 
 
 async def _media_stats(session: AsyncSession, board_id: int) -> Dict[int, dict]:
-    """Статистика файлов по тредам доски: {thread_id: {поля}}."""
+    """Статистика файлов по тредам доски: {thread_id: {поля}}.
+
+    Дубли-ссылки (`duplicate_of_id`) не считаем: это тот же файл, повторно
+    встреченный в другом треде/доске — иначе счётчики удваиваются.
+    """
     rows = await session.execute(
         select(
             Media.thread_id.label("thread_id"),
@@ -186,7 +192,7 @@ async def _media_stats(session: AsyncSession, board_id: int) -> Dict[int, dict]:
             .label("media_missing"),
             func.count().filter(Media.is_visible.is_(True)).label("media_visible"),
         )
-        .where(Media.board_id == board_id)
+        .where(Media.board_id == board_id, Media.duplicate_of_id.is_(None))
         .group_by(Media.thread_id)
     )
     stats = {}
