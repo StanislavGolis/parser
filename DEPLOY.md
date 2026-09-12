@@ -542,7 +542,7 @@ git push --force --tags
 Next.js: `robots.txt` разрешает обход публичных страниц и закрывает служебные
 (`/admin`, `/api/`, `/login`, `/profile`, `/marks`, `/favorites`, `/search`),
 `sitemap.xml` содержит главную, `/new`, `/boards`, `/top`, все разделы
-(`/board/<slug>`) и 200 последних файлов (`/media/<id>`). Адрес берётся из
+(`/board/<slug>`) и 500 последних файлов (`/media/<id>`). Адрес берётся из
 `SITE_URL` — от него же зависят `canonical`, Open Graph и микроразметка.
 
 **Canonical и микроразметка.** В корневом layout задан `metadataBase`, поэтому

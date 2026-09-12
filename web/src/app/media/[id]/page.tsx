@@ -38,8 +38,13 @@ export async function generateMetadata({ params }: DetailProps): Promise<Metadat
   const dims = media.width && media.height ? `${media.width}×${media.height}` : "";
   const description = `${media.original_name} — ${kind} из архива: ${size}${dims}. Превью, просмотры и скачивание оригинала.`;
 
+  // Заголовок с разделом: файл привязан к доске, это усиливает релевантность.
+  const boards = await getBoards();
+  const board = boards.find((b) => b.id === media.board_id);
+  const title = board ? `${media.original_name} · /${board.slug}` : media.original_name;
+
   return {
-    title: media.original_name,
+    title,
     description,
     alternates: { canonical: `/media/${numericId}` },
     openGraph: {
