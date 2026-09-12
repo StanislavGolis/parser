@@ -43,7 +43,12 @@ from src.api.schemas import (
     ToggleResult,
 )
 from src.api.stats_service import collect_board_stats
-from src.api.threads_service import build_thread_outs, list_threads, thread_catalog_totals
+from src.api.threads_service import (
+    build_thread_outs,
+    list_threads,
+    thread_catalog_totals,
+    thread_state_counts,
+)
 from src.core.db import async_session_factory, get_session
 from src.core.models import Board, Media, ThreadState
 from src.core.redis_client import redis_client
@@ -426,15 +431,27 @@ async def admin_board_threads(
     slug: str,
     page: int = Query(1, ge=1),
     per_page: int = Query(30, ge=1, le=100),
+    state: str = Query("all", pattern="^(all|active|parsing|visible|private|off)$"),
+    q: Optional[str] = Query(None, max_length=120),
     _=Depends(verify_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Треды доски со статистикой файлов (для drill-down в админке)."""
+    """Треды доски со статистикой; «в работе» — сверху, с фильтром и поиском."""
     board = await _load_board(session, slug)
-    threads, total = await list_threads(session, board.id, page, per_page)
+    threads, total = await list_threads(
+        session, board.id, page, per_page, state=state, q=q, admin_order=True
+    )
     items = await build_thread_outs(session, board.id, threads, with_preview=False)
     totals = await thread_catalog_totals(session, board.id)
-    return ThreadListOut(items=items, page=page, per_page=per_page, total=total, **totals)
+    counts = await thread_state_counts(session, board.id)
+    return ThreadListOut(
+        items=items,
+        page=page,
+        per_page=per_page,
+        total=total,
+        counts=counts,
+        **totals,
+    )
 
 
 @router.post("/boards/{slug}/toggle", response_model=ToggleResult)

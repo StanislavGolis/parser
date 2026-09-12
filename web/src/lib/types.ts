@@ -112,6 +112,8 @@ export interface ThreadList {
   views_total?: number;
   files_detected_total?: number;
   files_downloaded_total?: number;
+  /** Счётчики по состояниям тредов (для чипов фильтра). */
+  counts?: Record<string, number> | null;
 }
 
 export interface MediaItem {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Switch } from "@/components/Switch";
 import { ApiError, apiPatch, apiPost, apiSend } from "@/lib/api";
@@ -8,6 +8,16 @@ import { formatNumber } from "@/lib/format";
 import type { BoardThread, ScanStatus, ThreadList } from "@/lib/types";
 
 const PER_PAGE = 50;
+
+/** Чипы фильтра по состоянию треда (ключ → подпись). */
+const FILTERS: Array<{ key: string; label: string }> = [
+  { key: "all", label: "Все" },
+  { key: "active", label: "В работе" },
+  { key: "parsing", label: "Парсить" },
+  { key: "visible", label: "На сайте" },
+  { key: "private", label: "По коду" },
+  { key: "off", label: "Без настроек" },
+];
 
 function readToken(): string {
   if (typeof window === "undefined") return "";
@@ -42,6 +52,10 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
     files_downloaded_total: 0,
   });
   const pollRef = useRef<number | null>(null);
+  const [filter, setFilter] = useState<string>("all");
+  const [queryInput, setQueryInput] = useState("");
+  const [appliedQuery, setAppliedQuery] = useState("");
+  const [counts, setCounts] = useState<Record<string, number> | null>(null);
 
   const load = useCallback(
     async (p: number) => {
@@ -49,8 +63,14 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
       setBusy(true);
       setError(null);
       try {
+        const qs = new URLSearchParams({
+          page: String(p),
+          per_page: String(PER_PAGE),
+          state: filter,
+        });
+        if (appliedQuery.trim()) qs.set("q", appliedQuery.trim());
         const data = await apiSend<ThreadList>(
-          `/api/v1/admin/boards/${encodeURIComponent(slug)}/threads?page=${p}&per_page=${PER_PAGE}`,
+          `/api/v1/admin/boards/${encodeURIComponent(slug)}/threads?${qs.toString()}`,
           { token },
         );
         setThreads((prev) => {
@@ -60,6 +80,7 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
         });
         setPage(data.page);
         setTotal(data.total);
+        setCounts(data.counts ?? null);
         setTotals({
           posts_total: data.posts_total ?? 0,
           views_total: data.views_total ?? 0,
@@ -72,7 +93,7 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
         setBusy(false);
       }
     },
-    [slug, token],
+    [slug, token, filter, appliedQuery],
   );
 
   useEffect(() => {
@@ -259,6 +280,63 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
           </div>
         </div>
       ) : null}
+      {/* Фильтры и поиск по тредам */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap gap-1">
+          {FILTERS.map((f) => {
+            const active = filter === f.key;
+            const cnt = counts?.[f.key];
+            return (
+              <button
+                key={f.key}
+                type="button"
+                onClick={() => setFilter(f.key)}
+                className={`rounded border px-2.5 py-1 text-xs transition-colors ${
+                  active
+                    ? "border-accent-primary/50 bg-accent-primary/15 text-accent-primary"
+                    : "border-line bg-ink-tertiary text-text-secondary hover:text-text-primary"
+                }`}
+              >
+                {f.label}
+                {cnt !== undefined ? (
+                  <span className="ml-1 text-text-muted">{formatNumber(cnt)}</span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            setAppliedQuery(queryInput);
+          }}
+          className="ml-auto flex items-center gap-2"
+        >
+          <input
+            type="text"
+            value={queryInput}
+            onChange={(e) => setQueryInput(e.target.value)}
+            placeholder="Поиск по теме / № треда"
+            className="w-56 rounded border border-line bg-ink-secondary px-2.5 py-1.5 text-xs text-text-primary outline-none placeholder:text-text-muted focus:border-accent-primary"
+          />
+          <button type="submit" className="btn-ghost px-2.5 py-1.5 text-xs">
+            Найти
+          </button>
+          {appliedQuery ? (
+            <button
+              type="button"
+              onClick={() => {
+                setQueryInput("");
+                setAppliedQuery("");
+              }}
+              className="btn-ghost px-2.5 py-1.5 text-xs"
+            >
+              Сброс
+            </button>
+          ) : null}
+        </form>
+      </div>
+
       {threads && threads.length > 0 ? (
         <div className="mb-3 flex flex-wrap items-center gap-2 rounded border border-line bg-ink-secondary px-3 py-2 text-xs">
           <label className="inline-flex cursor-pointer items-center gap-2 text-text-secondary">
@@ -288,8 +366,21 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
       ) : (
         <>
           <div className="flex flex-col gap-2">
-            {threads.map((t) => (
-              <div key={t.thread_id} className="rounded border border-line bg-ink-secondary px-4 py-3">
+            {threads.map((t, idx) => {
+              const isWork = t.parse_enabled || t.is_visible || t.is_private;
+              const prev = idx > 0 ? threads[idx - 1] : null;
+              const prevWork = prev ? prev.parse_enabled || prev.is_visible || prev.is_private : null;
+              const showHeader = filter === "all" && (idx === 0 || isWork !== prevWork);
+              return (
+                <Fragment key={t.thread_id}>
+                  {showHeader ? (
+                    <div className="mt-1 font-mono text-[11px] uppercase tracking-wider text-text-muted">
+                      {isWork
+                        ? `в работе (${formatNumber(counts?.active ?? 0)})`
+                        : `без настроек (${formatNumber(counts?.off ?? 0)})`}
+                    </div>
+                  ) : null}
+                  <div className="rounded border border-line bg-ink-secondary px-4 py-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex min-w-0 flex-1 items-center gap-2">
                     <input
@@ -357,8 +448,10 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
                     </button>
                   </div>
                 ) : null}
-              </div>
-            ))}
+                  </div>
+                </Fragment>
+              );
+            })}
           </div>
 
           {threads.length < total ? (

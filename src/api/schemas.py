@@ -212,6 +212,8 @@ class ThreadListOut(BaseModel):
     page: int
     per_page: int
     total: int
+    # Счётчики по состояниям (для чипов фильтра в админке)
+    counts: Optional[dict] = None
     # Суммы по доске (описание страницы сканирования):
     # посты/просмотры/файлы-на-форуме — из каталога и res/{id}.json; скачано — из БД
     posts_total: int = 0
