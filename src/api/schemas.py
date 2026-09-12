@@ -33,6 +33,8 @@ class AdminBoardOut(BoardOut):
     threads_active: int = 0
     threads_parsing: int = 0
     files_in_catalog: int = 0
+    threads_posts_total: int = 0
+    threads_views_total: int = 0
     last_scan: Optional[datetime] = None
     views_total: int = 0
     downloads_total: int = 0
@@ -48,6 +50,8 @@ class SystemTotals(BaseModel):
     threads_active: int = 0
     threads_parsing: int = 0
     files_in_catalog: int = 0
+    threads_posts_total: int = 0
+    threads_views_total: int = 0
     views_total: int = 0
     downloads_total: int = 0
 
@@ -167,6 +171,7 @@ class ThreadOut(BaseModel):
     comment: Optional[str] = None
     posts_count: int = 0
     files_count: int = 0          # файлов в каталоге на последний скан (обнаружено)
+    views_count: int = 0          # просмотров треда (из каталога)
     thread_timestamp: Optional[datetime] = None
     last_scanned_at: Optional[datetime] = None
     is_active: bool = True
@@ -193,6 +198,10 @@ class ThreadListOut(BaseModel):
     page: int
     per_page: int
     total: int
+    # Суммы по тредам доски из каталога (для описания страницы сканирования)
+    posts_total: int = 0
+    files_total: int = 0
+    views_total: int = 0
 
 
 class MediaDetailOut(MediaOut):

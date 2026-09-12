@@ -41,7 +41,7 @@ from src.api.schemas import (
     ToggleResult,
 )
 from src.api.stats_service import collect_board_stats
-from src.api.threads_service import build_thread_outs, list_threads
+from src.api.threads_service import build_thread_outs, list_threads, thread_catalog_totals
 from src.core.db import async_session_factory, get_session
 from src.core.models import Board, Media, ThreadState
 from src.core.redis_client import redis_client
@@ -81,6 +81,8 @@ def _admin_out(board: Board, m: Optional[dict] = None) -> AdminBoardOut:
         threads_active=int(m.get("threads_active", 0)),
         threads_parsing=int(m.get("threads_parsing", 0)),
         files_in_catalog=int(m.get("files_in_catalog", 0)),
+        threads_posts_total=int(m.get("threads_posts_total", 0)),
+        threads_views_total=int(m.get("threads_views_total", 0)),
         last_scan=m.get("last_scan"),
         views_total=int(m.get("views_total", 0)),
         downloads_total=int(m.get("downloads_total", 0)),
@@ -428,7 +430,8 @@ async def admin_board_threads(
     board = await _load_board(session, slug)
     threads, total = await list_threads(session, board.id, page, per_page)
     items = await build_thread_outs(session, board.id, threads, with_preview=False)
-    return ThreadListOut(items=items, page=page, per_page=per_page, total=total)
+    totals = await thread_catalog_totals(session, board.id)
+    return ThreadListOut(items=items, page=page, per_page=per_page, total=total, **totals)
 
 
 @router.post("/boards/{slug}/toggle", response_model=ToggleResult)

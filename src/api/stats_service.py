@@ -61,6 +61,14 @@ async def thread_stats_by_board(session: AsyncSession) -> Dict[int, dict]:
                 func.sum(ThreadState.files_count).filter(ThreadState.is_active.is_(True)),
                 0,
             ).label("files_in_catalog"),
+            func.coalesce(
+                func.sum(ThreadState.posts_count).filter(ThreadState.is_active.is_(True)),
+                0,
+            ).label("threads_posts_total"),
+            func.coalesce(
+                func.sum(ThreadState.views_count).filter(ThreadState.is_active.is_(True)),
+                0,
+            ).label("threads_views_total"),
             func.max(ThreadState.last_scanned_at).label("last_scan"),
         )
         .group_by(ThreadState.board_id)
@@ -71,6 +79,8 @@ async def thread_stats_by_board(session: AsyncSession) -> Dict[int, dict]:
             "threads_active": int(r.threads_active or 0),
             "threads_parsing": int(r.threads_parsing or 0),
             "files_in_catalog": int(r.files_in_catalog or 0),
+            "threads_posts_total": int(r.threads_posts_total or 0),
+            "threads_views_total": int(r.threads_views_total or 0),
             "last_scan": r.last_scan,
         }
     return stats
@@ -93,6 +103,8 @@ async def collect_board_stats(
         "threads_active": 0,
         "threads_parsing": 0,
         "files_in_catalog": 0,
+        "threads_posts_total": 0,
+        "threads_views_total": 0,
         "views_total": 0,
         "downloads_total": 0,
     }

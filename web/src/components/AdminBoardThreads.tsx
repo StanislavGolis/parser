@@ -34,6 +34,7 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [codes, setCodes] = useState<Record<number, string>>({});
   const [scan, setScan] = useState<ScanStatus | null>(null);
+  const [totals, setTotals] = useState({ posts_total: 0, files_total: 0, views_total: 0 });
   const pollRef = useRef<number | null>(null);
 
   const load = useCallback(
@@ -53,6 +54,11 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
         });
         setPage(data.page);
         setTotal(data.total);
+        setTotals({
+          posts_total: data.posts_total ?? 0,
+          files_total: data.files_total ?? 0,
+          views_total: data.views_total ?? 0,
+        });
       } catch (err) {
         setError(errText(err));
       } finally {
@@ -182,7 +188,9 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
       {/* Сканирование каталога доски (discovery) */}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs text-text-muted">
-          {threads ? `тредов: ${formatNumber(total)}` : "загрузка…"}
+          {threads
+            ? `тредов: ${formatNumber(total)} · постов: ${formatNumber(totals.posts_total)} · файлов: ${formatNumber(totals.files_total)} · просмотров: ${formatNumber(totals.views_total)}`
+            : "загрузка…"}
         </span>
         <button
           type="button"
@@ -300,6 +308,7 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
                   <span>в S3: {formatNumber(t.media_in_s3)}</span>
                   <span>видимых: {formatNumber(t.media_visible)}</span>
                   <span className="text-text-muted">постов: {formatNumber(t.posts_count)}</span>
+                  <span className="text-text-muted">просмотров: {formatNumber(t.views_count)}</span>
                 </div>
 
                 {t.is_private ? (

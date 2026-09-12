@@ -70,6 +70,9 @@ class ThreadDiscovery:
             comment = self._clean_comment(t.get("comment"))
             ts = t.get("timestamp")
             thread_ts = datetime.fromtimestamp(int(ts)) if ts else None
+            posts_count = int(t.get("posts_count") or 0)
+            files_count = int(t.get("files_count") or 0)
+            views_count = int(t.get("views") or 0)
 
             state = await self.repo.get_by_board_thread(board.id, thread_id)
             if state is None:
@@ -81,6 +84,9 @@ class ThreadDiscovery:
                     subject=subject,
                     comment=comment,
                     thread_timestamp=thread_ts,
+                    posts_count=posts_count,
+                    files_count=files_count,
+                    views_count=views_count,
                 )
                 self.session.add(state)
                 created += 1
@@ -92,6 +98,9 @@ class ThreadDiscovery:
                     state.comment = comment
                 if thread_ts:
                     state.thread_timestamp = thread_ts
+                state.posts_count = posts_count
+                state.files_count = files_count
+                state.views_count = views_count
                 updated += 1
 
             # Периодически коммитим и обновляем прогресс

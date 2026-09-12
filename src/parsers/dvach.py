@@ -266,12 +266,20 @@ class DvachParser:
             if meta["thread_timestamp"]:
                 state.thread_timestamp = meta["thread_timestamp"]
 
+            # Просмотры треда (из каталога) — обновляем каждый цикл, дёшево
+            state.views_count = int(t.get("views") or 0)
+
             if not state.parse_enabled:
                 # Тред отключён в админке: счётчики не трогаем, чтобы при включении
                 # он снова попал в сканирование.
                 print(f"   [skip]  Тред {thread_id} — парсинг отключён в админке")
             else:
-                need_scan = is_new or (state.posts_count != posts_count) or (state.files_count != files_count)
+                need_scan = (
+                    is_new
+                    or (state.posts_count != posts_count)
+                    or (state.files_count != files_count)
+                    or (state.last_scanned_at is None)  # ещё не скачивали (например, после discovery)
+                )
                 if is_new:
                     reason = "новый тред"
                 else:

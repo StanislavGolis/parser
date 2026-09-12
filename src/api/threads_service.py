@@ -63,6 +63,24 @@ async def list_threads(
     return list(result.scalars().all()), int(total)
 
 
+async def thread_catalog_totals(session: AsyncSession, board_id: int) -> dict:
+    """Суммы по тредам доски из каталога: посты / файлы / просмотры."""
+    row = (
+        await session.execute(
+            select(
+                func.coalesce(func.sum(ThreadState.posts_count), 0),
+                func.coalesce(func.sum(ThreadState.files_count), 0),
+                func.coalesce(func.sum(ThreadState.views_count), 0),
+            ).where(ThreadState.board_id == board_id, ThreadState.is_active.is_(True))
+        )
+    ).one()
+    return {
+        "posts_total": int(row[0] or 0),
+        "files_total": int(row[1] or 0),
+        "views_total": int(row[2] or 0),
+    }
+
+
 async def _media_stats(session: AsyncSession, board_id: int) -> Dict[int, dict]:
     """Статистика файлов по тредам доски: {thread_id: {поля}}."""
     rows = await session.execute(
@@ -157,6 +175,7 @@ async def build_thread_outs(
             comment=t.comment,
             posts_count=t.posts_count,
             files_count=t.files_count,
+            views_count=t.views_count,
             thread_timestamp=t.thread_timestamp,
             last_scanned_at=t.last_scanned_at,
             is_active=t.is_active,

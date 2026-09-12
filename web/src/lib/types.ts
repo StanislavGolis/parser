@@ -27,6 +27,8 @@ export interface AdminBoard extends Board {
   threads_active: number;
   threads_parsing: number;
   files_in_catalog: number;
+  threads_posts_total: number;
+  threads_views_total: number;
   last_scan: string | null;
   views_total: number;
   downloads_total: number;
@@ -43,6 +45,8 @@ export interface SystemTotals {
   threads_active: number;
   threads_parsing: number;
   files_in_catalog: number;
+  threads_posts_total: number;
+  threads_views_total: number;
   views_total: number;
   downloads_total: number;
 }
@@ -80,6 +84,7 @@ export interface BoardThread {
   comment: string | null;
   posts_count: number;
   files_count: number;
+  views_count: number;
   thread_timestamp: string | null;
   last_scanned_at: string | null;
   is_active: boolean;
@@ -101,6 +106,10 @@ export interface ThreadList {
   page: number;
   per_page: number;
   total: number;
+  /** Суммы по тредам доски из каталога (описание страницы сканирования). */
+  posts_total?: number;
+  files_total?: number;
+  views_total?: number;
 }
 
 export interface MediaItem {
