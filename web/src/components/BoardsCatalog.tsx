@@ -20,7 +20,7 @@ const FILTERS: Array<{ value: Filter; label: string }> = [
 const MOSAIC_TILES = 4;
 
 /** Плитка обложки: пульсирующий скелетон → плавное появление превью. */
-function CoverTile({ src }: { src?: string }) {
+function CoverTile({ src, eager = false }: { src?: string; eager?: boolean }) {
   const [loaded, setLoaded] = useState(false);
   // Пустая плитка (в разделе меньше 4 файлов) остаётся скелетоном.
   const showSkeleton = Boolean(src) && !loaded;
@@ -35,7 +35,7 @@ function CoverTile({ src }: { src?: string }) {
         <img
           src={src}
           alt=""
-          loading="lazy"
+          loading={eager ? "eager" : "lazy"}
           decoding="async"
           referrerPolicy="no-referrer"
           onLoad={() => setLoaded(true)}
@@ -51,7 +51,7 @@ function CoverTile({ src }: { src?: string }) {
 }
 
 /** Обложка раздела: мозаика 2×2 из свежих превью (до 4 плиток). */
-function CoverMosaic({ board }: { board: Board }) {
+function CoverMosaic({ board, eager = false }: { board: Board; eager?: boolean }) {
   const thumbs = (board.cover_thumbs ?? []).slice(0, MOSAIC_TILES);
   return (
     <span
@@ -60,7 +60,7 @@ function CoverMosaic({ board }: { board: Board }) {
       aria-hidden
     >
       {Array.from({ length: MOSAIC_TILES }, (_, i) => (
-        <CoverTile key={i} src={mediaUrl(thumbs[i])} />
+        <CoverTile key={i} src={mediaUrl(thumbs[i])} eager={eager} />
       ))}
     </span>
   );
@@ -114,13 +114,14 @@ export default function BoardsCatalog({ boards }: { boards: Board[] }) {
 
       {/* Сетка разделов: карточка с мозаикой свежих превью */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {visible.map((b) => (
+        {visible.map((b, idx) => (
           <Link
             key={b.id}
             href={`/board/${b.slug}`}
             className="group flex flex-col overflow-hidden rounded border border-line bg-ink-secondary transition-colors duration-150 hover:border-accent-primary"
           >
-            <CoverMosaic board={b} />
+            {/* Первые две карточки выше сгиба: их плитки грузим сразу (LCP) */}
+            <CoverMosaic board={b} eager={idx < 2} />
 
             <div className="flex flex-1 flex-col justify-between gap-3 p-4">
               <div className="flex items-start justify-between gap-2">

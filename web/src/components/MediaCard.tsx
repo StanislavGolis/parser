@@ -78,7 +78,7 @@ export default function MediaCard({ media, board, showTop = false, eager = false
                 src={blur}
                 alt=""
                 aria-hidden
-                loading="eager"
+                loading={eager ? "eager" : "lazy"}
                 decoding="async"
                 referrerPolicy="no-referrer"
                 className="absolute inset-0 h-full w-full scale-110 object-cover blur-lg"

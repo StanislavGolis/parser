@@ -366,6 +366,18 @@ S3 у провайдера отдаёт ~3 МБ/с (4 потока — ~8 МБ/�
   `noindex`, публичные — с `canonical` и `metadataBase` (адрес из `SITE_URL`);
   фильтры/периоды канонизируются на «чистые» адреса. Микроразметка: `WebSite` +
   `SearchAction` на главной, `ImageObject`/`VideoObject` на страницах файлов.
+- Каталог разделов: карточка — мозаика 2×2 свежих превью (`cover_thumbs` в
+  `/api/v1/boards`, один запрос с оконной функцией), плитки со скелетоном до загрузки.
+- «Новое с прошлого визита»: главная показывает `+N новых файлов с <дата> →`
+  (ссылка на `/new?since=<ISO>`); момент визита — cookie `dv_last` (ставит
+  `VisitStamp`, читает серверный рендер), фид фильтрует по `since`.
+- Загрузка превью — blur-up: под `thumb` лежит размытый вариант (`blur_url` =
+  `thumb_blur`), превью проявляется поверх; без размытого варианта — скелетон.
+  Первые 6 карточек главной грузятся сразу (`eager`, `fetchpriority=high`) — LCP.
+- Персональные флаги (метка `marked`, премиум `locked`) приходят с API во всех
+  списках — лента, поиск, топ, превью тредов, карточка файла. SSR-запросы с
+  пользовательскими cookie идут `cache: "no-store"`: Data Cache Next.js общий для
+  всех, иначе чужой «лайк»/чужой премиум-статус попали бы в чужую страницу.
 - Показатели: masonry-галерея + infinite scroll, карточки с бейджами
   (`ТОП`, `PREMIUM` 🔒/★, `НЕДОСТУПНО`), кнопка «метка» (🏷) поверх превью и в
   lightbox, маркер видео (значок ▶ + длительность) на карточках, превью тредов и
@@ -543,13 +555,14 @@ where s3_key is not null and (variants is null or variants->'thumb_blur' is null
 
 ```text
 # публичные (без авторизации):
-GET   /api/v1/boards                       доски (вкл. премиум, is_premium)
+GET   /api/v1/boards                       разделы (вкл. премиум, is_premium, cover_thumbs — до 4 превью для мозаики)
 GET   /api/v1/boards/{slug}/threads        треды доски (метаданные + статистика + превью)
 GET   /api/v1/boards/{slug}/media          файлы доски (?thread=&sort=new|popular&type=)
 GET   /api/v1/media/{id}                   карточка файла (locked=true — нужна подписка)
 GET   /api/v1/media/{id}/view              отметить просмотр (дедуп по IP)
 GET   /api/v1/media/{id}/asset/{kind}      kind: thumb | thumb_blur | web | video
-GET   /api/v1/feed?type=&page=             новинки (премиум — с размытым превью; `free=1` — без подписки)
+GET   /api/v1/feed?type=&page=             новинки (премиум — с размытым превью; `free=1` — без подписки,
+                                           `since=<ISO>` — только новее момента, для «новое с прошлого визита»)
 GET   /api/v1/top?type=&period=&limit=     топ: day | week | month
 GET   /api/v1/status                       сводка архива для главной: files_total, files_24h, threads_active, boards_visible, parser_board
 GET   /api/v1/search?q=                    имя файла / md5 / sha-256
