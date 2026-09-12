@@ -172,6 +172,7 @@ export default function Gallery({
           onClose={() => setOpenIndex(null)}
           onPrev={() => step(-1)}
           onNext={() => step(1)}
+          onSelect={(i) => setOpenIndex(i)}
         />
       ) : null}
     </div>

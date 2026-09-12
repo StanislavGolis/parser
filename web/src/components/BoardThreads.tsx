@@ -150,6 +150,7 @@ export default function BoardThreads({ slug, initial }: BoardThreadsProps) {
               lb && lb.items.length > 1 ? { ...lb, index: (lb.index + 1) % lb.items.length } : lb,
             )
           }
+          onSelect={(i) => setLightbox((lb) => (lb ? { ...lb, index: i } : lb))}
         />
       ) : null}
     </div>

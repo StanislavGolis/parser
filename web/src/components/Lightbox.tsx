@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import BoardBadge from "@/components/BoardBadge";
 import DownloadButton from "@/components/DownloadButton";
+import MediaFilmstrip from "@/components/MediaFilmstrip";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -25,9 +26,11 @@ interface LightboxProps {
   onClose: () => void;
   onPrev: () => void;
   onNext: () => void;
+  /** Перейти к произвольному файлу (клик по миниатюре карусели). */
+  onSelect?: (index: number) => void;
 }
 
-export default function Lightbox({ items, index, boardsById, onClose, onPrev, onNext }: LightboxProps) {
+export default function Lightbox({ items, index, boardsById, onClose, onPrev, onNext, onSelect }: LightboxProps) {
   const media = items[index];
   const board = media ? boardsById?.[media.board_id] : undefined;
   const [failed, setFailed] = useState(false);
@@ -125,7 +128,7 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
               autoPlay
               playsInline
               onError={() => setFailed(true)}
-              className="max-h-[76vh] w-auto max-w-full rounded"
+              className="max-h-full w-auto max-w-full rounded"
             >
               Ваш браузер не поддерживает HTML5-видео.
             </video>
@@ -136,7 +139,7 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
               alt={media.original_name}
               referrerPolicy="no-referrer"
               onError={() => setFailed(true)}
-              className="max-h-[76vh] w-auto max-w-full rounded object-contain"
+              className="max-h-full w-auto max-w-full rounded object-contain"
             />
           )
         ) : (
@@ -151,6 +154,9 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
           </div>
         )}
       </div>
+
+      {/* Карусель файлов треда (быстрая навигация) */}
+      {onSelect ? <MediaFilmstrip items={items} index={index} onSelect={onSelect} /> : null}
 
       {/* Нижняя панель */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-2.5 sm:px-6">
