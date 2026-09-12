@@ -20,6 +20,13 @@ const FILTERS: Array<{ value: Filter; label: string }> = [
 /** Сколько превью в мозаике обложки (2×2). */
 const MOSAIC_TILES = 4;
 
+/**
+ * Пропорции обложки (ширина / высота). Одна константа на все карточки:
+ * высота мозаики не зависит ни от размеров превью, ни от числа файлов
+ * в разделе — подписи у всех карточек начинаются на одной линии.
+ */
+const COVER_ASPECT = "2 / 1";
+
 /** Плитка обложки: пульсирующий скелетон → плавное появление превью. */
 function CoverTile({ src, eager = false }: { src?: string; eager?: boolean }) {
   // Тот же приём, что и в карточках медиа: `complete` + таймаут, иначе плитка
@@ -28,7 +35,9 @@ function CoverTile({ src, eager = false }: { src?: string; eager?: boolean }) {
   const showSkeleton = Boolean(src) && !img.loaded;
 
   return (
-    <span className="relative block overflow-hidden bg-ink-tertiary">
+    // Картинка лежит абсолютно: её натуральные размеры не участвуют в раскладке,
+    // поэтому все плитки (и вся мозаика) строго одной высоты.
+    <span className="relative block h-full w-full overflow-hidden bg-ink-tertiary">
       {showSkeleton ? (
         <span className="absolute inset-0 animate-pulse bg-ink-tertiary" aria-hidden />
       ) : null}
@@ -42,7 +51,7 @@ function CoverTile({ src, eager = false }: { src?: string; eager?: boolean }) {
           decoding="async"
           referrerPolicy="no-referrer"
           onLoad={img.onLoad}
-          className={`h-full w-full object-cover transition-all duration-300 group-hover:scale-[1.04] ${
+          className={`absolute inset-0 h-full w-full object-cover transition-all duration-300 group-hover:scale-[1.04] ${
             img.loaded ? "opacity-100" : "opacity-0"
           }`}
         />
@@ -58,8 +67,10 @@ function CoverMosaic({ board, eager = false }: { board: Board; eager?: boolean }
   const thumbs = (board.cover_thumbs ?? []).slice(0, MOSAIC_TILES);
   return (
     <span
-      className="grid grid-cols-2 gap-px border-b border-line bg-line"
-      style={{ aspectRatio: "2 / 1" }}
+      // grid-rows-2 с minmax(0,1fr): строки делят высоту контейнера поровну и
+      // не могут вырасти от содержимого — мозаика одинаковая у всех карточек.
+      className="grid w-full shrink-0 grid-cols-2 grid-rows-2 gap-px overflow-hidden border-b border-line bg-line"
+      style={{ aspectRatio: COVER_ASPECT }}
       aria-hidden
     >
       {Array.from({ length: MOSAIC_TILES }, (_, i) => (
