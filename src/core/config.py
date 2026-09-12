@@ -93,7 +93,8 @@ class Settings(BaseSettings):
 
     # API сайта
     ADMIN_TOKEN: str = ""                     # токен для админ-эндпоинтов
-    API_RATE_LIMIT: int = 30                  # запросов в минуту на IP (публичные API)
+    API_RATE_LIMIT: int = 300                 # JSON-запросов в минуту на IP (ленты, детали, статистика)
+    MEDIA_RATE_LIMIT: int = 1500              # запросов медиа-файлов в минуту на IP (превью/оригиналы)
     API_CORS_ORIGINS: str = "http://localhost:3000,http://localhost:8080"
     POPULARITY_RECALC_MINUTES: int = 5        # период пересчёта popularity_score, в минутах
 

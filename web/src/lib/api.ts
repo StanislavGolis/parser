@@ -45,6 +45,18 @@ export async function apiSend<T>(path: string, options: SendOptions = {}): Promi
       cache: "no-store",
       signal,
     });
+    // Однократный повтор при rate limit: лимит общий на IP, и в момент открытия
+    // ленты параллельные запросы превью легко упираются в него.
+    if (res.status === 429) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      res = await fetch(url, {
+        method,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        cache: "no-store",
+        signal,
+      });
+    }
   } catch (err) {
     throw new ApiError(0, `Сеть недоступна (${url}): ${err instanceof Error ? err.message : err}`);
   }

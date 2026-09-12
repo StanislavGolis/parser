@@ -40,7 +40,9 @@ x-backend: &backend
 
     # API (общие настройки нужны и парсеру тоже)
     ADMIN_TOKEN: ${ADMIN_TOKEN:-}
-    API_RATE_LIMIT: ${API_RATE_LIMIT:-60}
+    API_RATE_LIMIT: ${API_RATE_LIMIT:-300}
+    # Отдельный (более высокий) лимит на медиа-файлы: галерея запрашивает десятки превью
+    MEDIA_RATE_LIMIT: ${MEDIA_RATE_LIMIT:-1500}
     API_CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost}
     POPULARITY_RECALC_MINUTES: ${POPULARITY_RECALC_MINUTES:-5}
     # Диагностика/безопасность

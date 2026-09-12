@@ -609,7 +609,7 @@ async def media_raw(
     Аноним получает 401, зарегистрированный без подписки — 403.
     Поддерживает Range и Content-Disposition при `?download=1`.
     """
-    await check_rate_limit(client_ip(request))
+    await check_rate_limit(client_ip(request), limit=_settings.MEDIA_RATE_LIMIT, scope="media")
 
     media = await _get_visible_media(session, media_id)
     if not media.s3_key:
@@ -649,7 +649,7 @@ async def media_asset(
     if kind not in ASSET_KINDS:
         raise HTTPException(status_code=404, detail="Unknown asset kind")
 
-    await check_rate_limit(client_ip(request))
+    await check_rate_limit(client_ip(request), limit=_settings.MEDIA_RATE_LIMIT, scope="media")
 
     media = await _get_visible_media(session, media_id)
     await _check_media_access(session, media)

@@ -37,18 +37,25 @@ def ip_hash(ip: str) -> str:
     return hashlib.sha256(ip.encode()).hexdigest()
 
 
-async def check_rate_limit(ip: str) -> None:
-    """Rate limiting на Redis: не более API_RATE_LIMIT запросов/мин на IP."""
-    if settings.API_RATE_LIMIT <= 0:
+async def check_rate_limit(ip: str, limit: Optional[int] = None, scope: str = "api") -> None:
+    """Rate limiting на Redis: не более `limit` запросов/мин на IP.
+
+    По умолчанию лимит берётся из `API_RATE_LIMIT` (корзина `api`). Медиа-файлы
+    идут в отдельную корзину `media` со своим лимитом (`MEDIA_RATE_LIMIT`): одна
+    страница галереи запрашивает десятки превью, и общий лимит «съедался»
+    обычным просмотром ленты (в списках вместо картинок появлялись 429).
+    """
+    effective = settings.API_RATE_LIMIT if limit is None else int(limit)
+    if effective <= 0:
         return
 
-    rl_key = f"rl:{hashlib.sha256(ip.encode()).hexdigest()}"
+    rl_key = f"rl:{scope}:{hashlib.sha256(ip.encode()).hexdigest()}"
     pipe = redis_client.pipeline()
     pipe.incr(rl_key)
     pipe.expire(rl_key, 60)
     count, _ = await pipe.execute()
 
-    if int(count) > settings.API_RATE_LIMIT:
+    if int(count) > effective:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many requests. Slow down.",

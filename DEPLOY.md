@@ -539,7 +539,8 @@ git push --force --tags
 | `PUBLIC_BASE_URL` | — | домен для ссылок в письмах (`https://example.com`); пусто — берётся адрес запроса |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_TLS` | — / `465` / `ssl` | SMTP для писем восстановления (`ssl`, `starttls` или `none`) |
 | `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` | — | креды отправки: логин, «пароль приложения», адрес отправителя |
-| `API_RATE_LIMIT` | `60` | лимит публичных запросов в минуту на IP (0 — выключить) |
+| `API_RATE_LIMIT` | `300` | лимит JSON-запросов в минуту на IP (ленты, детали, статистика; 0 — выключить) |
+| `MEDIA_RATE_LIMIT` | `1500` | лимит запросов медиа-файлов в минуту на IP (превью/оригиналы). Отдельная корзина: иначе галерея «съедает» общий лимит и превью отдают 429 |
 | `API_CORS_ORIGINS` | `http://localhost` | CORS (фронт ходит через тот же origin, поэтому не критично) |
 | `POPULARITY_RECALC_MINUTES` | `5` | период пересчёта `popularity_score` |
 | `S3_URL` | `https://s3.twcstorage.ru` | endpoint S3 |

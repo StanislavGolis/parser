@@ -210,7 +210,8 @@ nginx (кэш на диске) → api (кэш на диске) → S3 (пото
 | `scan:board:{slug}` | JSON статуса «Сканировать треды» (можно ставить `deep`) |
 | `board:catalog_error:{slug}` | JSON `{text, at}` — каталог раздела не читается (2ch отдал 500/404: доска удалена); TTL 6 ч, снимается успешным чтением |
 | `media_cache:warm` | JSON прогресса прогрева дискового кэша: `status`, `done`, `total`, `failed`, `ts` |
-| `rl:*` | rate limiting по IP (окно 60 с) |
+| `rl:api:*` | rate limiting JSON-запросов по IP (окно 60 с, `API_RATE_LIMIT`) |
+| `rl:media:*` | отдельный лимит медиа-файлов по IP (окно 60 с, `MEDIA_RATE_LIMIT` — превью в галерее иначе «съедали» общий лимит и отдавали 429) |
 
 **Кэш nginx** (`proxy_cache_path … keys_zone=media_cache`, `max_size=20g`,
 `inactive=30d`): кэшируются только `/api/v1/media/{id}/asset/*`; видео — через
@@ -330,7 +331,8 @@ S3 у провайдера отдаёт ~3 МБ/с (4 потока — ~8 МБ/�
   `boards/{slug}/threads` (+`PATCH`, `bulk`), `scan` + `scan/status`,
   `backfill-variants` + `status`, `parser/start|stop`, `parser/status`,
   `cleanup-storage`, `reset`, `boards/{slug}/toggle`, `media/{id}/toggle`.
-- Rate limiting на Redis; потоковая отдача медиа из S3
+- Rate limiting на Redis: отдельные корзины для JSON-API (`API_RATE_LIMIT`, по умолчанию 300/мин)
+  и медиа-файлов (`MEDIA_RATE_LIMIT`, 1500/мин), потоковая отдача медиа из S3
   (`S3Storage.open_object_stream`, чанки 256 КБ).
 
 ### 3.4 Frontend (`web/`, Next.js 14 App Router)
