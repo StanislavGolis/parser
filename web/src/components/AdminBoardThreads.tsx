@@ -428,15 +428,14 @@ export default function AdminBoardThreads({
                     />
                     <Switch
                       checked={boardPremium || t.is_premium}
+                      disabled={boardPremium}
                       label={boardPremium || t.is_premium ? "PREMIUM" : "FREE"}
                       title={
                         boardPremium
                           ? "Премиум включён на уровне доски — действует для всех тредов"
                           : "Премиум-доступ к файлам этого треда"
                       }
-                      onChange={() =>
-                        boardPremium ? undefined : void patchThread(t.thread_id, { is_premium: !t.is_premium })
-                      }
+                      onChange={() => void patchThread(t.thread_id, { is_premium: !t.is_premium })}
                     />
                     {boardPremium ? (
                       <span className="font-mono text-[10px] text-accent-warning">
