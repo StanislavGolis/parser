@@ -12,7 +12,7 @@ import os
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import aiohttp
 from sqlalchemy import func, select
@@ -390,9 +390,38 @@ class DvachParser:
             await asyncio.sleep(settings.REQUEST_DELAY)
 
         queue = await self.thread_state_repo.get_scan_queue()
+        plan = self._interleave_by_board(queue)
         fresh = sum(1 for _, _, reason in queue if reason in FRESH_REASONS)
-        print(f"[plan] Очередь на докачку: {len(queue)} тредов (свежих: {fresh})")
-        return queue
+        print(f"[plan] Очередь на докачку: {len(plan)} тредов (свежих: {fresh})")
+        return plan
+
+    @staticmethod
+    def _interleave_by_board(
+        queue: List[Tuple[str, int, str]],
+    ) -> List[Tuple[str, int, str]]:
+        """Round-robin по доскам: длинная очередь одной доски не держит другие.
+
+        Внутри каждой доски порядок сохраняется (свежие изменения → LRU), но
+        между досками проход чередуется, поэтому ни одна доска не ждёт часами,
+        пока разберут очередь соседней.
+        """
+        by_board: Dict[str, List[Tuple[str, int, str]]] = {}
+        for item in queue:
+            by_board.setdefault(item[0], []).append(item)
+
+        plan: List[Tuple[str, int, str]] = []
+        index = 0
+        while True:
+            added = False
+            for slug in by_board:
+                bucket = by_board[slug]
+                if index < len(bucket):
+                    plan.append(bucket[index])
+                    added = True
+            if not added:
+                break
+            index += 1
+        return plan
 
     async def scan_thread(self, board_slug: str, thread_id: int, reason: str = "") -> bool:
         """Фаза B: докачивает новые файлы одного треда.

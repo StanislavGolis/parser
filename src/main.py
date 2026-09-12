@@ -98,13 +98,24 @@ async def main():
                         # Фаза A: каталоги всех парсируемых досок (дёшево,
                         # 1 запрос на доску) → очередь докачки в БД
                         plan = await parser.build_scan_plan()
+                        started = datetime.utcnow()
+                        budget = settings.PARSE_CYCLE_BUDGET_MINUTES
 
-                        # Фаза B: докачка по очереди — сначала свежие изменения,
-                        # затем давно не сканировавшиеся (LRU). Очередь живёт в БД,
-                        # поэтому перезапуск процесса её не теряет.
-                        for board_slug, thread_id, reason in plan:
+                        # Фаза B: докачка по очереди (чередование досок) — сначала
+                        # свежие изменения, затем давно не сканировавшиеся (LRU).
+                        # Очередь живёт в БД, поэтому перезапуск процесса её не
+                        # теряет, а бюджет цикла не даёт одному циклу «залипнуть».
+                        for done, (board_slug, thread_id, reason) in enumerate(plan, start=1):
                             if await _check_stop():
                                 print("[stop] Парсинг остановлен командой из админки")
+                                break
+                            if budget > 0 and (
+                                datetime.utcnow() - started
+                            ).total_seconds() >= budget * 60:
+                                print(
+                                    f"[budget] Цикл идёт больше {budget} мин — "
+                                    f"остаток очереди ({len(plan) - done + 1}) в следующем цикле"
+                                )
                                 break
 
                             global CURRENT_BOARD
