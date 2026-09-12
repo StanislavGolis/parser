@@ -336,6 +336,20 @@ class DvachParser:
                             files_total=files_total,
                             files_done=files_done,
                         )
+
+                        # Периодический коммит: файлы становятся видны сайту сразу,
+                        # а сбой теряет максимум DB_COMMIT_EVERY_FILES файлов.
+                        # last_scanned_at ставится только после полного прохода треда,
+                        # поэтому незавершённый тред докачается в следующий цикл,
+                        # а уже сохранённые файлы отсеются по md5 без скачивания.
+                        every = settings.DB_COMMIT_EVERY_FILES
+                        if every > 0 and files_done % every == 0:
+                            await self.session.commit()
+                            print(
+                                f"   [db]   Коммит: сохранено {files_done}/{files_total} "
+                                f"файлов треда {thread_id}"
+                            )
+
                         await asyncio.sleep(settings.REQUEST_DELAY * 0.5)
 
                     state.posts_count = posts_count
@@ -347,10 +361,10 @@ class DvachParser:
 
             await asyncio.sleep(settings.REQUEST_DELAY)
 
-            # Коммитим после каждого треда, а не в конце всей доски:
-            # доска может содержать сотни тредов, и первый полный проход
-            # занял бы слишком долго в одной транзакции — сайт не видел бы
-            # новые файлы часами, а сбой откатывал бы всё разом.
+            # Коммитим после каждого треда (плюс периодически внутри треда —
+            # см. DB_COMMIT_EVERY_FILES): доска может содержать сотни тредов,
+            # а большая транзакция держала бы файлы невидимыми для сайта и
+            # обнуляла бы прогресс при сбое.
             await self.session.commit()
 
             # Админ нажал «Остановить» — прерываем доску на границе треда.
