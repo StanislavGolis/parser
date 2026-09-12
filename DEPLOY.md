@@ -156,24 +156,33 @@ nano .env
 
 ### 5. Перенос базы с локальной машины
 
+Медиа (S3) переносить не нужно — копируем только дамп базы (~0.5 КБ на файл).
+
 ```bash
-# ЛОКАЛЬНО (дамп со сбросом объектов, чтобы лечь поверх накатанной схемы)
+# ЛОКАЛЬНО: дамп в custom-формате (сжатый) прямо внутри контейнера
 docker compose -f docker-compose.prod.yml exec -T postgres \
-  pg_dump -U parser -d parser --clean --if-exists | gzip > dredge-$(date +%F).sql.gz
-scp dredge-$(date +%F).sql.gz root@<VPS>:/root/
+  pg_dump -U parser -d parser -Fc -f /tmp/dredge.pgc
+docker compose -f docker-compose.prod.yml cp postgres:/tmp/dredge.pgc ./dredge-$(date +%F).pgc
+docker compose -f docker-compose.prod.yml exec -T postgres rm -f /tmp/dredge.pgc
+scp dredge-$(date +%F).pgc root@<VPS>:/root/
 ```
 
 ```bash
 # НА VPS: только БД → восстановление → весь стек
 cd /opt/dredge
 docker compose -f docker-compose.prod.yml up -d postgres
-zcat /root/dredge-*.sql.gz | docker compose -f docker-compose.prod.yml exec -T postgres psql -U parser -d parser
+docker compose -f docker-compose.prod.yml cp /root/dredge-$(date +%F).pgc postgres:/tmp/dredge.pgc
+docker compose -f docker-compose.prod.yml exec -T postgres \
+  pg_restore -U parser -d parser --clean --if-exists /tmp/dredge.pgc
+docker compose -f docker-compose.prod.yml exec -T postgres rm -f /tmp/dredge.pgc
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 Проверка: `select version_num from alembic_version;` (должна совпасть с локальной —
-`s4t5u6v7w8x9`) и `select count(*) from media;`. Медиа (S3) переносить не нужно:
-том `media` на VPS — это локальный кэш, он заполняется по мере надобности.
+`s4t5u6v7w8x9`), `select count(*) from media;`, `select count(*) from users;`.
+Схема уже накатана сервисом `migrate`, поэтому `--clean --if-exists` в
+`pg_restore` безопасен (объекты удаляются и создаются заново). Том `media` на VPS
+останется пустым — это локальный кэш, он заполняется сам при доставке файлов из S3.
 
 ### 6. Домен и SSL (хост-nginx, вариант A)
 
@@ -214,11 +223,16 @@ cat >/etc/cron.daily/dredge-backup <<'EOF'
 #!/bin/sh
 cd /opt/dredge || exit 1
 docker compose -f docker-compose.prod.yml exec -T postgres \
-  pg_dump -U parser -d parser --clean --if-exists | gzip > backups/db-$(date +%F).sql.gz
-find backups -name 'db-*.sql.gz' -mtime +14 -delete
+  pg_dump -U parser -d parser -Fc -f /tmp/dredge.pgc
+docker compose -f docker-compose.prod.yml cp postgres:/tmp/dredge.pgc "backups/db-$(date +%F).pgc"
+docker compose -f docker-compose.prod.yml exec -T postgres rm -f /tmp/dredge.pgc
+find backups -name 'db-*.pgc' -mtime +14 -delete
 EOF
 chmod +x /etc/cron.daily/dredge-backup
 ```
+
+Восстановление из бэкапа: `pg_restore -U parser -d parser --clean --if-exists`
+(как в шаге 5). Медиа в бэкап не входят — они в S3 (включите версионирование бакета).
 
 ### 8. Безопасность сразу после переезда
 
