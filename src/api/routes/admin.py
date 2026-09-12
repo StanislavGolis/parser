@@ -76,6 +76,7 @@ def _admin_out(board: Board, m: Optional[dict] = None) -> AdminBoardOut:
         media_in_s3=int(m.get("media_in_s3", 0)),
         media_missing=int(m.get("media_missing", 0)),
         threads_active=int(m.get("threads_active", 0)),
+        threads_parsing=int(m.get("threads_parsing", 0)),
         files_in_catalog=int(m.get("files_in_catalog", 0)),
         last_scan=m.get("last_scan"),
         views_total=int(m.get("views_total", 0)),

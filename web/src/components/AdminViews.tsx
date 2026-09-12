@@ -12,38 +12,12 @@ import {
   SpinnerIcon,
   TrashIcon,
 } from "@/components/icons";
+import AdminBoardThreads from "@/components/AdminBoardThreads";
+import { Switch } from "@/components/Switch";
 import { formatNumber } from "@/lib/format";
 import type { AdminBoard, ForumBoard } from "@/lib/types";
 
-export function Switch({
-  checked,
-  onChange,
-  label,
-  title,
-}: {
-  checked: boolean;
-  onChange: () => void;
-  label: string;
-  title?: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      title={title}
-      onClick={onChange}
-      className={`inline-flex shrink-0 items-center gap-2 rounded border px-2.5 py-1.5 text-xs font-medium transition-colors ${
-        checked
-          ? "border-accent-primary/50 bg-accent-primary/15 text-accent-primary"
-          : "border-line bg-ink-tertiary text-text-secondary hover:text-text-primary"
-      }`}
-    >
-      <span className={`h-2 w-2 rounded-full ${checked ? "bg-amber-400" : "bg-neutral-600"}`} />
-      {label}
-    </button>
-  );
-}
+// Переключатель Switch вынесен в @/components/Switch (кругового импорта нет).
 
 export function BoardsTable({
   boards,
@@ -131,6 +105,7 @@ function BoardRow({
 }) {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(board.title);
+  const [showThreads, setShowThreads] = useState(false);
 
   async function saveTitle() {
     const title = titleDraft.trim();
@@ -155,9 +130,9 @@ function BoardRow({
               #{position}
             </span>
             <Link
-              href={`/admin/boards/${board.slug}`}
+              href={`/board/${board.slug}`}
               className="text-base font-semibold text-text-primary transition-colors hover:text-accent-primary"
-              title="Открыть треды раздела"
+              title="Открыть раздел на сайте"
             >
               /{board.slug}
             </Link>
@@ -196,6 +171,7 @@ function BoardRow({
           </div>
           <div className="mt-1 text-xs text-text-secondary">
             {formatNumber(board.media_total)} файлов · {formatNumber(board.threads_active)} тредов ·{" "}
+            парсим: {formatNumber(board.threads_parsing)} ·{" "}
             {formatNumber(board.views_total)} просмотров · {formatNumber(board.downloads_total)}{" "}
             скачиваний
             {board.last_scan ? (
@@ -210,16 +186,17 @@ function BoardRow({
             title="Скачивать файлы с этой доски"
             onChange={() => void onPatch(board.slug, { parse_enabled: !board.parse_enabled })}
           />
-          <Switch
-            checked={board.parse_mode === "all"}
-            label={board.parse_mode === "all" ? "Все треды" : "Выбранные"}
-            title="Какие треды парсить: все или только включённые вручную (в разделе тредов)"
-            onChange={() =>
-              void onPatch(board.slug, {
-                parse_mode: board.parse_mode === "all" ? "selected" : "all",
-              })
-            }
-          />
+          <button
+            type="button"
+            onClick={() => setShowThreads((v) => !v)}
+            className="btn-ghost px-2.5 py-1.5 text-xs"
+            title="Показать/скрыть управление тредами"
+          >
+            Треды {showThreads ? "▴" : "▾"}
+            <span className="ml-1 text-text-muted">
+              {formatNumber(board.threads_parsing)}/{formatNumber(board.threads_active)}
+            </span>
+          </button>
           <Switch
             checked={board.is_visible}
             label="На сайте"
@@ -320,6 +297,25 @@ function BoardRow({
             </button>
           ) : null}
         </div>
+      {showThreads ? (
+        <div className="mt-3 border-t border-line pt-3">
+          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+            <span>Новые треды:</span>
+            <Switch
+              checked={board.parse_mode === "all"}
+              label={board.parse_mode === "all" ? "парсить" : "не парсить"}
+              title="По умолчанию для новых тредов при сканировании каталога"
+              onChange={() =>
+                void onPatch(board.slug, {
+                  parse_mode: board.parse_mode === "all" ? "selected" : "all",
+                })
+              }
+            />
+          </div>
+          <AdminBoardThreads slug={board.slug} />
+        </div>
+      ) : null}
+
       {rowError[board.slug] ? (
         <div className="mt-2 text-xs text-accent-danger">{rowError[board.slug]}</div>
       ) : null}
@@ -334,6 +330,7 @@ export function ForumTab({
   onQuery,
   onRefresh,
   onAdd,
+  onRemove,
 }: {
   forum: ForumBoard[] | null;
   loading: boolean;
@@ -341,6 +338,7 @@ export function ForumTab({
   onQuery: (v: string) => void;
   onRefresh: () => void;
   onAdd: (slug: string, name?: string | null) => Promise<void>;
+  onRemove: (slug: string) => Promise<void>;
 }) {
   const q = query.trim().toLowerCase();
   const filtered = (forum ?? []).filter(
@@ -418,9 +416,21 @@ export function ForumTab({
                 </div>
               </div>
               {f.in_db ? (
-                <Link href={`/admin/boards/${f.slug}`} className="text-xs text-accent-primary hover:text-amber-200">
-                  Управлять →
-                </Link>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        `Убрать раздел /${f.slug} из «Мои разделы»? Данные раздела (файлы и треды) будут удалены.`,
+                      )
+                    ) {
+                      void onRemove(f.slug);
+                    }
+                  }}
+                  className="rounded border border-accent-danger/30 px-2.5 py-1.5 text-xs text-text-secondary transition-colors hover:border-accent-danger/60 hover:text-accent-danger"
+                >
+                  Убрать
+                </button>
               ) : (
                 <button
                   type="button"

@@ -381,6 +381,10 @@ export default function AdminConsole() {
           onQuery={setForumQuery}
           onRefresh={() => void loadForum()}
           onAdd={addBoard}
+          onRemove={async (slug) => {
+            await removeBoard(slug);
+            setForum((prev) => (prev ? prev.map((f) => (f.slug === slug ? { ...f, in_db: false } : f)) : prev));
+          }}
         />
       )}
     </div>
@@ -391,7 +395,7 @@ export default function AdminConsole() {
 function TotalsBar({ totals }: { totals: SystemTotals }) {
   const items: Array<[string, string]> = [
     ["Доски", `${formatNumber(totals.boards_total)} (парсим ${formatNumber(totals.boards_parsed)})`],
-    ["Треды", formatNumber(totals.threads_active)],
+    ["Треды", `${formatNumber(totals.threads_active)} (парсим ${formatNumber(totals.threads_parsing)})`],
     ["Файлов в БД", formatNumber(totals.media_total)],
     ["В S3", formatNumber(totals.media_in_s3)],
     ["Скачано", formatNumber(totals.media_downloaded)],

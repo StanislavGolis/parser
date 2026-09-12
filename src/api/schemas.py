@@ -31,6 +31,7 @@ class AdminBoardOut(BoardOut):
     media_in_s3: int = 0
     media_missing: int = 0
     threads_active: int = 0
+    threads_parsing: int = 0
     files_in_catalog: int = 0
     last_scan: Optional[datetime] = None
     views_total: int = 0
@@ -45,6 +46,7 @@ class SystemTotals(BaseModel):
     media_downloaded: int = 0
     media_missing: int = 0
     threads_active: int = 0
+    threads_parsing: int = 0
     files_in_catalog: int = 0
     views_total: int = 0
     downloads_total: int = 0

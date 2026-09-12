@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { Switch } from "@/components/AdminViews";
+import { Switch } from "@/components/Switch";
 import { ApiError, apiPatch, apiPost, apiSend } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
 import type { BoardThread, ThreadList } from "@/lib/types";

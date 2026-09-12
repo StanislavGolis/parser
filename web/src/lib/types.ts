@@ -25,6 +25,7 @@ export interface AdminBoard extends Board {
   media_in_s3: number;
   media_missing: number;
   threads_active: number;
+  threads_parsing: number;
   files_in_catalog: number;
   last_scan: string | null;
   views_total: number;
@@ -40,6 +41,7 @@ export interface SystemTotals {
   media_downloaded: number;
   media_missing: number;
   threads_active: number;
+  threads_parsing: number;
   files_in_catalog: number;
   views_total: number;
   downloads_total: number;

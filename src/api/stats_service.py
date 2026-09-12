@@ -54,6 +54,9 @@ async def thread_stats_by_board(session: AsyncSession) -> Dict[int, dict]:
         select(
             ThreadState.board_id.label("board_id"),
             func.count().filter(ThreadState.is_active.is_(True)).label("threads_active"),
+            func.count()
+            .filter(ThreadState.is_active.is_(True), ThreadState.parse_enabled.is_(True))
+            .label("threads_parsing"),
             func.coalesce(
                 func.sum(ThreadState.files_count).filter(ThreadState.is_active.is_(True)),
                 0,
@@ -66,6 +69,7 @@ async def thread_stats_by_board(session: AsyncSession) -> Dict[int, dict]:
     for r in rows:
         stats[r.board_id] = {
             "threads_active": int(r.threads_active or 0),
+            "threads_parsing": int(r.threads_parsing or 0),
             "files_in_catalog": int(r.files_in_catalog or 0),
             "last_scan": r.last_scan,
         }
@@ -87,6 +91,7 @@ async def collect_board_stats(
         "media_missing": 0,
         "media_visible": 0,
         "threads_active": 0,
+        "threads_parsing": 0,
         "files_in_catalog": 0,
         "views_total": 0,
         "downloads_total": 0,
