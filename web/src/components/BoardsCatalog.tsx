@@ -34,7 +34,7 @@ export default function BoardsCatalog({ boards }: { boards: Board[] }) {
           архив пуст
         </p>
         <p className="mt-2 text-sm text-text-secondary">
-          Разделы появятся после первого прохода парсера или добавления в админке.
+          Разделы появятся здесь автоматически.
         </p>
       </div>
     );

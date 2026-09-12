@@ -131,7 +131,7 @@ export default async function HomePage({
         moreHref="/new"
         moreLabel="Смотреть дальше в полном потоке →"
         emptyTitle="Пока нет файлов"
-        emptyHint="Новые файлы появятся здесь после следующего прохода парсера."
+        emptyHint="Новые файлы появятся здесь автоматически."
       />
 
       {popular.length > 0 ? (

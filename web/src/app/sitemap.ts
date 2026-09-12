@@ -3,7 +3,9 @@ import type { MetadataRoute } from "next";
 import { getBoards, getFeedPage } from "@/lib/data";
 import { SITE_URL } from "@/lib/env";
 
-/** Сколько свежих файлов попадает в карту сайта (остальные доступны по ссылкам). */
+/** Лимит страницы ленты в API: `per_page <= 100`. */
+const FEED_PAGE_MAX = 100;
+/** Сколько свежих файлов попадает в карту сайта (2 запроса к API). */
 const MEDIA_IN_SITEMAP = 200;
 
 export const revalidate = 3600; // пересобираем раз в час
@@ -17,7 +19,6 @@ export const dynamic = "force-dynamic";
  * они закрыты и в robots.txt.
  */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const [boards, feed] = await Promise.all([getBoards(), getFeedPage(1, MEDIA_IN_SITEMAP)]);
   const now = new Date();
 
   const pages: MetadataRoute.Sitemap = [
@@ -27,19 +28,34 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${SITE_URL}/top`, lastModified: now, changeFrequency: "daily", priority: 0.7 },
   ];
 
-  const boardPages: MetadataRoute.Sitemap = boards.map((b) => ({
-    url: `${SITE_URL}/board/${b.slug}`,
-    lastModified: now,
-    changeFrequency: "daily",
-    priority: 0.7,
-  }));
+  // Данные могут быть недоступны (API лежит) — карта сайта обязана отвечать,
+  // поэтому при сбое отдаём хотя бы статические адреса.
+  try {
+    const pagesCount = Math.ceil(MEDIA_IN_SITEMAP / FEED_PAGE_MAX);
+    const [boards, ...feeds] = await Promise.all([
+      getBoards(),
+      ...Array.from({ length: pagesCount }, (_, i) => getFeedPage(i + 1, FEED_PAGE_MAX)),
+    ]);
 
-  const mediaPages: MetadataRoute.Sitemap = feed.items.map((m) => ({
-    url: `${SITE_URL}/media/${m.id}`,
-    lastModified: m.created_at ? new Date(m.created_at) : now,
-    changeFrequency: "weekly",
-    priority: 0.5,
-  }));
+    const boardPages: MetadataRoute.Sitemap = boards.map((b) => ({
+      url: `${SITE_URL}/board/${b.slug}`,
+      lastModified: now,
+      changeFrequency: "daily",
+      priority: 0.7,
+    }));
 
-  return [...pages, ...boardPages, ...mediaPages];
+    const mediaPages: MetadataRoute.Sitemap = feeds
+      .flatMap((feed) => feed.items)
+      .slice(0, MEDIA_IN_SITEMAP)
+      .map((m) => ({
+        url: `${SITE_URL}/media/${m.id}`,
+        lastModified: m.created_at ? new Date(m.created_at) : now,
+        changeFrequency: "weekly",
+        priority: 0.5,
+      }));
+
+    return [...pages, ...boardPages, ...mediaPages];
+  } catch {
+    return pages;
+  }
 }

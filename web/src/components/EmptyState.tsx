@@ -2,7 +2,7 @@ import { ImageIcon } from "@/components/icons";
 
 export default function EmptyState({
   title = "Пока пусто",
-  hint = "Новые файлы появятся здесь после следующего прохода парсера.",
+  hint = "Новые файлы появятся здесь автоматически.",
 }: {
   title?: string;
   hint?: string;

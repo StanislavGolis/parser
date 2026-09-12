@@ -61,7 +61,7 @@ export default async function NewPage({
         perPage={PER_PAGE}
         boardsById={boardsById}
         emptyTitle="Пока нет файлов"
-        emptyHint="Новые файлы появятся здесь после следующего прохода парсера."
+        emptyHint="Новые файлы появятся здесь автоматически."
       />
     </div>
   );

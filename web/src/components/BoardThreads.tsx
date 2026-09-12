@@ -82,7 +82,7 @@ export default function BoardThreads({ slug, initial }: BoardThreadsProps) {
         <ImageIcon className="h-10 w-10 text-neutral-700" />
         <p className="font-medium text-neutral-300">В этом разделе пока пусто</p>
         <p className="text-sm text-neutral-500">
-          Треды появятся после первого прохода парсера.
+          Треды появятся здесь автоматически.
         </p>
       </div>
     );
