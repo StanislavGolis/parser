@@ -50,9 +50,20 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
   const [failed, setFailed] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  // Локальные правки метки: при листании «вперёд-назад» данные приходят из
+  // исходной выборки, поэтому запоминаем изменения, сделанные в просмотре.
+  const [markOverrides, setMarkOverrides] = useState<
+    Record<number, { marked: boolean; marksCount: number }>
+  >({});
+
+  const override = media ? markOverrides[media.id] : undefined;
 
   // Метку ведём здесь: её переключают и кнопка в панели, и пробел
-  const mark = useMarkToggle(media?.id ?? 0, Boolean(media?.marked), media?.marks_count ?? 0);
+  const mark = useMarkToggle(
+    media?.id ?? 0,
+    override?.marked ?? Boolean(media?.marked),
+    override?.marksCount ?? media?.marks_count ?? 0,
+  );
 
   useEffect(() => {
     setFailed(false);
@@ -73,9 +84,15 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
 
   const toggleMark = mark.toggle;
 
-  // Плашка про метку (пробел/кнопка): «Метка поставлена · 42» / «Метка снята»
+  // Плашка про метку (пробел/кнопка) + запоминаем правку для этого файла
   useEffect(() => {
     if (!mark.lastAction) return;
+    if (media) {
+      setMarkOverrides((prev) => ({
+        ...prev,
+        [media.id]: { marked: mark.marked, marksCount: mark.marksCount },
+      }));
+    }
     setToast(
       mark.lastAction === "marked"
         ? `Метка поставлена · ${mark.marksCount}`
@@ -83,6 +100,7 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
     );
     const timer = window.setTimeout(() => setToast(null), TOAST_MS);
     return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mark.lastAction, mark.marksCount]);
 
   const onKeyDown = useCallback(
