@@ -34,7 +34,13 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [codes, setCodes] = useState<Record<number, string>>({});
   const [scan, setScan] = useState<ScanStatus | null>(null);
-  const [totals, setTotals] = useState({ posts_total: 0, files_total: 0, views_total: 0 });
+  const [deep, setDeep] = useState(false);
+  const [totals, setTotals] = useState({
+    posts_total: 0,
+    views_total: 0,
+    files_detected_total: 0,
+    files_downloaded_total: 0,
+  });
   const pollRef = useRef<number | null>(null);
 
   const load = useCallback(
@@ -56,8 +62,9 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
         setTotal(data.total);
         setTotals({
           posts_total: data.posts_total ?? 0,
-          files_total: data.files_total ?? 0,
           views_total: data.views_total ?? 0,
+          files_detected_total: data.files_detected_total ?? 0,
+          files_downloaded_total: data.files_downloaded_total ?? 0,
         });
       } catch (err) {
         setError(errText(err));
@@ -149,7 +156,7 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
     setError(null);
     try {
       const st = await apiPost<ScanStatus>(
-        `/api/v1/admin/boards/${encodeURIComponent(slug)}/scan`,
+        `/api/v1/admin/boards/${encodeURIComponent(slug)}/scan?deep=${deep ? "true" : "false"}`,
         undefined,
         token,
       );
@@ -160,7 +167,7 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
     } catch (err) {
       setError(errText(err));
     }
-  }, [slug, token, pollScan]);
+  }, [slug, token, pollScan, deep]);
 
   function toggleSelect(threadId: number) {
     setSelected((prev) => {
@@ -185,22 +192,31 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
     <div>
       {error ? <p className="mb-4 text-sm text-accent-danger">{error}</p> : null}
 
-      {/* Сканирование каталога доски (discovery) */}
+      {/* Сканирование каталога доски (discovery + опционально подсчёт файлов) */}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs text-text-muted">
           {threads
-            ? `тредов: ${formatNumber(total)} · постов: ${formatNumber(totals.posts_total)} · просмотров: ${formatNumber(totals.views_total)} · файлов: ${formatNumber(totals.files_total)}`
+            ? `тредов: ${formatNumber(total)} · постов: ${formatNumber(totals.posts_total)} · просмотров: ${formatNumber(totals.views_total)} · файлов на форуме: ${formatNumber(totals.files_detected_total)} · скачано: ${formatNumber(totals.files_downloaded_total)}`
             : "загрузка…"}
         </span>
-        <button
-          type="button"
-          disabled={scan?.status === "running" || busy}
-          onClick={() => void startScan()}
-          className="btn-ghost px-2.5 py-1.5 text-xs"
-          title="Сканировать каталог доски и загрузить список тредов"
-        >
-          {scan?.status === "running" ? "Сканируем…" : "Сканировать треды"}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <label
+            className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-text-secondary"
+            title="Прочитать res/{id}.json каждого треда и посчитать файлы (медленнее, но покажет «файлов на форуме» до парсинга)"
+          >
+            <input type="checkbox" checked={deep} onChange={(e) => setDeep(e.target.checked)} />
+            считать файлы
+          </label>
+          <button
+            type="button"
+            disabled={scan?.status === "running" || busy}
+            onClick={() => void startScan()}
+            className="btn-ghost px-2.5 py-1.5 text-xs"
+            title="Сканировать каталог доски и загрузить список тредов"
+          >
+            {scan?.status === "running" ? "Сканируем…" : "Сканировать треды"}
+          </button>
+        </div>
       </div>
 
       {scan && scan.status !== "idle" ? (
@@ -208,9 +224,15 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
           <div className="flex items-center justify-between text-xs text-text-secondary">
             <span>
               {scan.status === "running"
-                ? "Сканируем каталог доски…"
+                ? scan.phase === "files"
+                  ? "Считаем файлы в тредах…"
+                  : "Сканируем каталог доски…"
                 : scan.status === "done"
-                  ? `Готово: тредов ${formatNumber(scan.total)} (новых ${formatNumber(scan.created ?? 0)})`
+                  ? `Готово: тредов ${formatNumber(scan.total)}${
+                      scan.phase === "files"
+                        ? ` · файлов на форуме ${formatNumber(scan.files_total ?? 0)}`
+                        : ""
+                    }`
                   : `Ошибка: ${scan.error ?? "не удалось"}`}
             </span>
             <span className="tabular-nums">
@@ -304,8 +326,9 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
 
                 <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-secondary">
                   <span>
-                    файлов: <b className="text-text-primary">{formatNumber(t.media_total)}</b>
+                    файлов: <b className="text-text-primary">{formatNumber(t.files_detected)}</b>
                   </span>
+                  <span>скачано: {formatNumber(t.media_total)}</span>
                   <span>в хранилище: {formatNumber(t.media_in_s3)}</span>
                   <span>видимых: {formatNumber(t.media_visible)}</span>
                   <span className="text-text-muted">постов: {formatNumber(t.posts_count)}</span>

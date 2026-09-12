@@ -66,26 +66,28 @@ async def list_threads(
 async def thread_catalog_totals(session: AsyncSession, board_id: int) -> dict:
     """Суммы по доске для описания страницы сканирования.
 
-    посты/просмотры — из каталога 2ch; файлы — фактическое число медиа
-    (каталоговый `files_count` в 2ch считает посты с вложениями, а не файлы).
+    посты/просмотры/файлы-на-форуме — из данных 2ch (каталог и res/{id}.json,
+    т.е. доступны ещё до скачивания медиа); скачано — фактически в БД.
     """
     row = (
         await session.execute(
             select(
                 func.coalesce(func.sum(ThreadState.posts_count), 0),
                 func.coalesce(func.sum(ThreadState.views_count), 0),
+                func.coalesce(func.sum(ThreadState.files_detected), 0),
             ).where(ThreadState.board_id == board_id, ThreadState.is_active.is_(True))
         )
     ).one()
-    files_total = (
+    downloaded = (
         await session.execute(
             select(func.count(Media.id)).where(Media.board_id == board_id)
         )
     ).scalar() or 0
     return {
         "posts_total": int(row[0] or 0),
-        "files_total": int(files_total),
         "views_total": int(row[1] or 0),
+        "files_detected_total": int(row[2] or 0),
+        "files_downloaded_total": int(downloaded),
     }
 
 
@@ -183,6 +185,7 @@ async def build_thread_outs(
             comment=t.comment,
             posts_count=t.posts_count,
             files_count=t.files_count,
+            files_detected=t.files_detected,
             views_count=t.views_count,
             thread_timestamp=t.thread_timestamp,
             last_scanned_at=t.last_scanned_at,

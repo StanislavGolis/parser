@@ -4,6 +4,7 @@
 Нужно для кнопки «Загрузить треды» в админке: список тредов появляется до
 первого полного прохода парсера. Прогресс складывается в Redis.
 """
+import asyncio
 import re
 from datetime import datetime
 from typing import Awaitable, Callable, List, Optional
@@ -11,8 +12,10 @@ from typing import Awaitable, Callable, List, Optional
 import aiohttp
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.config import settings
 from src.core.models import Board, ThreadState
 from src.repositories.thread_state_repo import ThreadStateRepository
+from src.services.media_validator import MediaValidator
 
 BASE_URL = "https://2ch.hk"
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -47,23 +50,58 @@ class ThreadDiscovery:
                 data = await resp.json()
         return (data or {}).get("threads") or []
 
+    async def fetch_thread_files_count(self, slug: str, thread_id: int) -> int:
+        """Число файлов треда из res/{id}.json (без скачивания самих файлов).
+
+        Учитываются только «наши» типы (image/video) и записи с path+md5 —
+        та же логика фильтрации, что при парсинге.
+        """
+        url = f"{BASE_URL}/{slug}/res/{thread_id}.json"
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession() as http:
+            async with http.get(url, timeout=timeout, headers={"User-Agent": USER_AGENT}) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+
+        posts: List[dict] = []
+        if isinstance(data.get("threads"), list):
+            for th in data["threads"]:
+                posts.extend(th.get("posts") or [])
+        elif isinstance(data.get("posts"), list):
+            posts = data["posts"]
+
+        count = 0
+        for post in posts:
+            for f in post.get("files") or []:
+                name = f.get("name") or ""
+                if not MediaValidator.classify(name):
+                    continue
+                if not f.get("path"):
+                    continue
+                if not (f.get("md5") or "").strip():
+                    continue
+                count += 1
+        return count
+
     async def discover(
         self,
         board: Board,
-        on_progress: Optional[Callable[[int, int], Awaitable[None]]] = None,
+        on_progress: Optional[Callable[[str, int, int], Awaitable[None]]] = None,
+        deep: bool = False,
     ) -> dict:
         """Обходит каталог доски и заводит/обновляет threads_state.
 
-        Счётчики (posts_count/files_count) у новых тредов НЕ заполняются:
-        так парсер увидит «изменение» и скачает файлы при следующем проходе.
+        deep=True — дополнительно читает res/{id}.json каждого треда и считает
+        число файлов (файлы НЕ скачиваются), чтобы показать «файлов: N» до парсинга.
         """
         threads = [t for t in await self.fetch_catalog(board.slug) if t.get("num")]
         total = len(threads)
         created = updated = 0
 
         if on_progress:
-            await on_progress(0, total)
+            await on_progress("catalog", 0, total)
 
+        states = []
         for i, t in enumerate(threads, start=1):
             thread_id = int(t["num"])
             subject = (t.get("subject") or "").strip()[:500] or None
@@ -103,13 +141,37 @@ class ThreadDiscovery:
                 state.views_count = views_count
                 updated += 1
 
+            states.append((thread_id, state))
+
             # Периодически коммитим и обновляем прогресс
             if i % 25 == 0:
                 await self.session.commit()
                 if on_progress:
-                    await on_progress(i, total)
+                    await on_progress("catalog", i, total)
 
         await self.session.commit()
         if on_progress:
-            await on_progress(total, total)
-        return {"total": total, "created": created, "updated": updated}
+            await on_progress("catalog", total, total)
+
+        # Глубокий проход: считаем файлы по каждому треду (без скачивания медиа)
+        files_total = 0
+        if deep:
+            if on_progress:
+                await on_progress("files", 0, total)
+            for i, (thread_id, state) in enumerate(states, start=1):
+                try:
+                    count = await self.fetch_thread_files_count(board.slug, thread_id)
+                    state.files_detected = count
+                    files_total += count
+                except Exception as e:  # noqa: BLE001
+                    print(f"   [warn] не удалось посчитать файлы треда {thread_id}: {e}")
+                await asyncio.sleep(settings.REQUEST_DELAY * 0.5)
+                if i % 25 == 0:
+                    await self.session.commit()
+                    if on_progress:
+                        await on_progress("files", i, total)
+            await self.session.commit()
+            if on_progress:
+                await on_progress("files", total, total)
+
+        return {"total": total, "created": created, "updated": updated, "files_total": files_total}

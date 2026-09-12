@@ -170,7 +170,8 @@ class ThreadOut(BaseModel):
     subject: Optional[str] = None
     comment: Optional[str] = None
     posts_count: int = 0
-    files_count: int = 0          # файлов в каталоге на последний скан (обнаружено)
+    files_count: int = 0          # счётчик каталога 2ch (постов с вложениями, не файлов)
+    files_detected: int = 0       # файлов в треде по res/{id}.json (до загрузки)
     views_count: int = 0          # просмотров треда (из каталога)
     thread_timestamp: Optional[datetime] = None
     last_scanned_at: Optional[datetime] = None
@@ -199,10 +200,11 @@ class ThreadListOut(BaseModel):
     per_page: int
     total: int
     # Суммы по доске (описание страницы сканирования):
-    # посты/просмотры — из каталога, файлы — фактическое число медиа в БД
+    # посты/просмотры/файлы-на-форуме — из каталога и res/{id}.json; скачано — из БД
     posts_total: int = 0
-    files_total: int = 0
     views_total: int = 0
+    files_detected_total: int = 0
+    files_downloaded_total: int = 0
 
 
 class MediaDetailOut(MediaOut):

@@ -84,6 +84,7 @@ export interface BoardThread {
   comment: string | null;
   posts_count: number;
   files_count: number;
+  files_detected: number;
   views_count: number;
   thread_timestamp: string | null;
   last_scanned_at: string | null;
@@ -106,10 +107,11 @@ export interface ThreadList {
   page: number;
   per_page: number;
   total: number;
-  /** Суммы по тредам доски из каталога (описание страницы сканирования). */
+  /** Суммы по доске (описание страницы сканирования). */
   posts_total?: number;
-  files_total?: number;
   views_total?: number;
+  files_detected_total?: number;
+  files_downloaded_total?: number;
 }
 
 export interface MediaItem {
@@ -153,13 +155,15 @@ export interface AccessResult {
   granted: boolean;
 }
 
-/** Прогресс сканирования каталога доски (кнопка «Загрузить треды»). */
+/** Прогресс сканирования каталога доски (кнопка «Сканировать треды»). */
 export interface ScanStatus {
   status: "idle" | "running" | "done" | "error";
+  phase?: "catalog" | "files";
   total: number;
   done: number;
   created?: number;
   updated?: number;
+  files_total?: number;
   error?: string;
 }
 

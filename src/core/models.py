@@ -60,6 +60,7 @@ class ThreadState(Base):
 
     posts_count = Column(Integer, nullable=False, default=0)
     files_count = Column(Integer, nullable=False, default=0)
+    files_detected = Column(Integer, nullable=False, default=0)  # файлов в треде (res/{id}.json, до загрузки)
     views_count = Column(Integer, nullable=False, default=0)  # просмотры треда (catalog.views)
     last_scanned_at = Column(DateTime, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)

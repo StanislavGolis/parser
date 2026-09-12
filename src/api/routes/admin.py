@@ -544,7 +544,7 @@ async def bulk_update_threads(
 # ───────────── Сканирование каталога доски («Загрузить треды») ─────────────
 
 
-async def _run_board_scan(slug: str) -> None:
+async def _run_board_scan(slug: str, deep: bool = False) -> None:
     """Фоновое сканирование каталога доски с записью прогресса в Redis."""
     key = scan_key(slug)
     try:
@@ -558,24 +558,28 @@ async def _run_board_scan(slug: str) -> None:
                 )
                 return
 
-            async def on_progress(done: int, total: int) -> None:
+            async def on_progress(phase: str, done: int, total: int) -> None:
                 await redis_client.set(
                     key,
-                    json.dumps({"status": "running", "total": total, "done": done}),
+                    json.dumps({"status": "running", "phase": phase, "total": total, "done": done}),
                     ex=600,
                 )
 
-            result = await ThreadDiscovery(session).discover(board, on_progress=on_progress)
+            result = await ThreadDiscovery(session).discover(
+                board, on_progress=on_progress, deep=deep
+            )
 
         await redis_client.set(
             key,
             json.dumps(
                 {
                     "status": "done",
+                    "phase": "files" if deep else "catalog",
                     "total": result["total"],
                     "done": result["total"],
                     "created": result["created"],
                     "updated": result["updated"],
+                    "files_total": result.get("files_total", 0),
                 }
             ),
             ex=600,
@@ -586,8 +590,12 @@ async def _run_board_scan(slug: str) -> None:
 
 
 @router.post("/boards/{slug}/scan")
-async def scan_board(slug: str, _=Depends(verify_admin)):
-    """Запускает сканирование каталога доски (создание/обновление тредов)."""
+async def scan_board(slug: str, deep: bool = Query(False), _=Depends(verify_admin)):
+    """Запускает сканирование каталога доски (создание/обновление тредов).
+
+    `deep=true` — дополнительно читает res/{id}.json каждого треда и считает
+    число файлов (медиа НЕ скачивается): «файлов: N» видно до парсинга.
+    """
     current = await redis_client.get(scan_key(slug))
     if current:
         data = json.loads(current)
@@ -595,10 +603,12 @@ async def scan_board(slug: str, _=Depends(verify_admin)):
             return data
 
     await redis_client.set(
-        scan_key(slug), json.dumps({"status": "running", "total": 0, "done": 0}), ex=600
+        scan_key(slug),
+        json.dumps({"status": "running", "phase": "catalog", "total": 0, "done": 0}),
+        ex=600,
     )
-    asyncio.create_task(_run_board_scan(slug))
-    return {"status": "running", "total": 0, "done": 0}
+    asyncio.create_task(_run_board_scan(slug, deep))
+    return {"status": "running", "phase": "catalog", "total": 0, "done": 0}
 
 
 @router.get("/boards/{slug}/scan/status")
