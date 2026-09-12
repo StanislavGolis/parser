@@ -254,6 +254,7 @@ chmod +x /etc/cron.daily/dredge-backup
 | База | восстановлена из дампа: head `s4t5u6v7w8x9`, media 3557 (все в S3), users 1, boards 2, threads 223 |
 | Бэкапы | `/etc/cron.daily/dredge-backup` → `/opt/dredge/backups/db-<дата>.pgc`, хранение 14 дней (пробный прогон сделан) |
 | Парсер | **на паузе** (ключ `parser:enabled` не выставлен) — включается кнопкой «Запустить» в админке |
+| Админы | `ADMIN_EMAILS=shksns35@gmail.com,stanislav.golis@yandex.ru` — аккаунты заведены (`src.cli.admin ensure`), вход по email+паролю работает; SMTP пока не задан, поэтому восстановление — через CLI (см. §11) |
 | Проверено | `/healthz` 200, главная 200, `/admin` 200, `thumb_blur` 200 + `X-Cache: MISS→HIT`, `/raw` 401 анониму, `/marks` 401, запись в S3 (`put/delete`) ok |
 | Локальный стек | парсер остановлен, чтобы два процесса не работали с одним бакетом S3 |
 
