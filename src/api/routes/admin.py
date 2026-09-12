@@ -14,8 +14,10 @@ import asyncio
 import json
 import logging
 import re
+import tempfile
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import httpx
@@ -46,6 +48,7 @@ from src.core.db import async_session_factory, get_session
 from src.core.models import Board, Media, ThreadState
 from src.core.redis_client import redis_client
 from src.services.s3_storage import S3Storage
+from src.services.derivatives import generate_and_upload
 from src.services.thread_discovery import ThreadDiscovery, scan_key
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
@@ -617,6 +620,113 @@ async def scan_board_status(slug: str, _=Depends(verify_admin)):
     current = await redis_client.get(scan_key(slug))
     if not current:
         return {"status": "idle", "total": 0, "done": 0}
+    return json.loads(current)
+
+
+# ─────────── Бэкфилл деривативов (оптимизация уже скачанных файлов) ───────────
+
+BACKFILL_KEY = "backfill:variants"
+
+
+async def _run_variants_backfill(limit: int) -> None:
+    """Генерирует thumb/web (и длительность видео) для файлов, у которых их нет."""
+    s3 = S3Storage()
+    if not s3.is_configured:
+        await redis_client.set(
+            BACKFILL_KEY, json.dumps({"status": "error", "error": "Storage is not configured"}), ex=600
+        )
+        return
+
+    processed = errors = 0
+    total = 0
+    try:
+        async with async_session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(Media)
+                    .where(Media.s3_key.isnot(None), Media.variants.is_(None))
+                    .order_by(Media.id)
+                    .limit(limit)
+                )
+            ).scalars().all()
+            total = len(rows)
+            await redis_client.set(
+                BACKFILL_KEY,
+                json.dumps({"status": "running", "total": total, "done": 0, "processed": 0}),
+                ex=7200,
+            )
+
+            with tempfile.TemporaryDirectory() as tmp:
+                for i, media in enumerate(rows, start=1):
+                    try:
+                        orig = Path(tmp) / f"orig_{media.id}"
+                        if await s3.download_to_file(media.s3_key, orig):
+                            prefix = (media.file_hash or "")[:12] or str(media.id)
+                            base = f"board_{media.board_id}/thread_{media.thread_id}/{prefix}"
+                            variants, duration = await generate_and_upload(
+                                s3,
+                                base_key=base,
+                                media_type=media.media_type,
+                                local_path=orig,
+                            )
+                            if variants:
+                                media.variants = variants
+                                if duration:
+                                    media.duration_seconds = duration
+                                processed += 1
+                        orig.unlink(missing_ok=True)
+                    except Exception:  # noqa: BLE001
+                        errors += 1
+
+                    if i % 5 == 0:
+                        await session.commit()
+                        await redis_client.set(
+                            BACKFILL_KEY,
+                            json.dumps(
+                                {"status": "running", "total": total, "done": i, "processed": processed}
+                            ),
+                            ex=7200,
+                        )
+                await session.commit()
+
+        await redis_client.set(
+            BACKFILL_KEY,
+            json.dumps(
+                {
+                    "status": "done",
+                    "total": total,
+                    "done": total,
+                    "processed": processed,
+                    "errors": errors,
+                }
+            ),
+            ex=600,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.exception("variants backfill failed")
+        await redis_client.set(BACKFILL_KEY, json.dumps({"status": "error", "error": str(e)}), ex=600)
+
+
+@router.post("/backfill-variants")
+async def backfill_variants(limit: int = Query(200, ge=1, le=5000), _=Depends(verify_admin)):
+    """Генерирует деривативы (thumb/web, длительность) для уже скачанных файлов."""
+    current = await redis_client.get(BACKFILL_KEY)
+    if current and json.loads(current).get("status") == "running":
+        return json.loads(current)
+
+    await redis_client.set(
+        BACKFILL_KEY, json.dumps({"status": "running", "total": 0, "done": 0, "processed": 0}), ex=7200
+    )
+    asyncio.create_task(_run_variants_backfill(limit))
+    return {"status": "running", "total": 0, "done": 0, "processed": 0}
+
+
+@router.get("/backfill-variants/status")
+async def backfill_variants_status(_=Depends(verify_admin)):
+    """Прогресс бэкфилла деривативов."""
+    current = await redis_client.get(BACKFILL_KEY)
+    if not current:
+        return {"status": "idle", "total": 0, "done": 0, "processed": 0}
     return json.loads(current)
 
 

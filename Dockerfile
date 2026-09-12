@@ -13,9 +13,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # libmagic — обязателен для python-magic (валидация MIME),
+# ffmpeg/ffprobe — генерация превью и оптимизированных версий видео,
 # curl — для healthcheck в docker compose.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libmagic1 curl \
+    && apt-get install -y --no-install-recommends libmagic1 curl ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./

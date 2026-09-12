@@ -7,6 +7,7 @@ import { FilmIcon, ImageIcon, LockIcon, SpinnerIcon } from "@/components/icons";
 import When from "@/components/When";
 import { apiGet, apiPost } from "@/lib/api";
 import { mediaUrl } from "@/lib/env";
+import { thumbSrc } from "@/lib/media";
 import { formatNumber, plural } from "@/lib/format";
 import type { BoardThread, MediaItem, MediaList, ThreadList } from "@/lib/types";
 
@@ -229,7 +230,7 @@ function ThreadCard({
               {m.url && m.media_type === "image" ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={mediaUrl(m.url)}
+                  src={thumbSrc(m)}
                   alt={m.original_name}
                   loading="lazy"
                   decoding="async"

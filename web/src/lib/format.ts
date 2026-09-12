@@ -76,6 +76,18 @@ export function formatRelative(iso: string): string {
   return formatLocal(iso);
 }
 
+/** Длительность видео: «0:42» / «1:03:20» (пустая строка, если нет). */
+export function formatDuration(seconds?: number | null): string {
+  if (!seconds || !Number.isFinite(seconds) || seconds <= 0) return "";
+  const total = Math.round(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+    : `${m}:${String(s).padStart(2, "0")}`;
+}
+
 /** Группа медиа для вкладки «все / картинки / видео». */
 export function plural(n: number, forms: [string, string, string]): string {
   const abs = Math.abs(n) % 100;

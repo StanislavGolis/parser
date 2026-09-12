@@ -130,8 +130,13 @@ export interface MediaItem {
   created_at: string;
   source_md5?: string | null;
   file_hash?: string | null;
-  /** Подписанный URL на файл в S3 (может отсутствовать, если S3 не настроен). */
+  /** Оригинал файла (может отсутствовать, если S3 не настроен). */
   url: string | null;
+  /** Превью-дериватив (thumb) и оптимизированная версия (web). */
+  thumb_url?: string | null;
+  web_url?: string | null;
+  /** Длительность видео в секундах (для бейджа). */
+  duration_seconds?: number | null;
 }
 
 export interface MediaList {

@@ -115,7 +115,8 @@ GET   /api/v1/boards/{slug}/threads        треды доски (метадан
 GET   /api/v1/boards/{slug}/media          файлы доски (?thread=, ?sort=, ?type=)
 POST  /api/v1/boards/{slug}/access         код доступа (=> httpOnly-cookie ba_{slug}, 24 ч)
 POST  /api/v1/boards/{slug}/threads/{id}/access  код закрытого треда (=> cookie bt_{board}_{thread})
-GET   /api/v1/media/{id} | /view | /download | /raw   (raw — поток S3 без раскрытия бакета)
+GET   /api/v1/media/{id} | /view | /download | /raw | /asset/{thumb|web}
+      (raw — оригинал; asset/thumb — превью, asset/web — оптимизированная версия
 GET   /api/v1/feed?type=&page=             новинки (без приватных)
 GET   /api/v1/top?type=&period=&limit=     топ день/неделя/месяц (без приватных)
 GET   /api/v1/search?q=                    поиск: имя файла / md5 / sha-256
@@ -133,6 +134,8 @@ PATCH /api/v1/admin/boards/{slug}/threads/{id}  флаги треда + код �
 POST  /api/v1/admin/boards/{slug}/threads/bulk  массовые флаги выбранных тредов
 POST  /api/v1/admin/boards/{slug}/scan          сканировать каталог доски (discover тредов)
 GET   /api/v1/admin/boards/{slug}/scan/status   прогресс сканирования (для прогресс-бара)
+POST  /api/v1/admin/backfill-variants           деривативы (thumb/web, длительность) для старых файлов
+GET   /api/v1/admin/backfill-variants/status    прогресс бэкфилла деривативов
 POST  /api/v1/admin/parser/start|stop      управление парсером
 POST  /api/v1/admin/cleanup-storage             удалить объекты S3 без записей в БД
 DELETE /api/v1/admin/reset                 полный сброс (БД + S3), парсер ставится на паузу

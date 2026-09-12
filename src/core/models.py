@@ -5,6 +5,7 @@ from sqlalchemy import (
     ForeignKey, Enum, Float, UniqueConstraint, Index,
 )
 from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()
@@ -100,6 +101,9 @@ class Media(Base):
     s3_bucket = Column(String(255), nullable=True)
     s3_key = Column(String(500), nullable=True, index=True)
     local_path = Column(String(500), nullable=True)  # относительный путь в локальном кэше
+    # Деривативы для оптимизации трафика: {"thumb": key, "web": key}
+    variants = Column(JSONB, nullable=True)
+    duration_seconds = Column(Float, nullable=True)  # длительность видео (для бейджа)
 
     width = Column(Integer, nullable=True)
     height = Column(Integer, nullable=True)

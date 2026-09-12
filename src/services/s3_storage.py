@@ -124,6 +124,42 @@ class S3Storage:
             print(f"   [err] Ошибка листинга S3: {e}")
             return None
 
+    async def upload_bytes(
+        self,
+        data: bytes,
+        remote_key: str,
+        content_type: Optional[str] = None,
+    ) -> Optional[str]:
+        """Загружает объект из памяти (деривативы: превью / 720p)."""
+        if not self.is_configured or self.client is None:
+            return None
+        try:
+            await asyncio.to_thread(
+                self.client.put_object,
+                Bucket=self.bucket_name,
+                Key=remote_key,
+                Body=data,
+                ContentType=content_type or "application/octet-stream",
+            )
+            return remote_key
+        except Exception as e:
+            print(f"   [err] Ошибка загрузки объекта в S3: {e}")
+            return None
+
+    async def download_to_file(self, remote_key: str, dest: Path) -> bool:
+        """Скачивает объект из S3 в локальный файл (для бэкфилла деривативов)."""
+        if not self.is_configured or self.client is None:
+            return False
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            await asyncio.to_thread(
+                self.client.download_file, self.bucket_name, remote_key, str(dest)
+            )
+            return dest.exists() and dest.stat().st_size > 0
+        except Exception as e:
+            print(f"   [err] Ошибка скачивания из S3: {e}")
+            return False
+
     async def delete_object(self, remote_key: str) -> bool:
         """Удаляет объект из бакета."""
         if not self.is_configured or self.client is None:

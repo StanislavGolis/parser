@@ -10,6 +10,7 @@ import asyncio
 import os
 import re
 from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
 
 import aiohttp
@@ -23,6 +24,7 @@ from src.repositories.media_repo import MediaRepository
 from src.repositories.thread_state_repo import ThreadStateRepository
 from src.services.s3_storage import S3Storage
 from src.services.downloader import DownloaderService
+from src.services.derivatives import generate_and_upload
 from src.services.media_validator import MediaValidator
 from src.services.reconciliation import ReconciliationService
 from src.services.storage import StorageService
@@ -407,22 +409,26 @@ class DvachParser:
                 filename=meta["filename"],
             )
 
-            # 6. Загрузка в S3 (если настроен)
+            # 6. Загрузка оригинала в S3 + деривативы (превью/оптимизация трафика)
             s3_key = None
-            local_deleted = False
+            variants = None
+            duration_seconds = None
+            local_path = self.storage.get_file_path(storage_path)
             if self.s3_storage.is_configured:
                 remote_key = f"board_{board.id}/thread_{thread_state.thread_id}/{meta['filename']}"
                 s3_key = await self.s3_storage.upload_file(
-                    self.storage.get_file_path(storage_path),
+                    local_path,
                     remote_key,
                     content_type=meta["mime_type"],
                 )
-                if s3_key:
-                    local_path = self.storage.get_file_path(storage_path)
-                    if local_path.exists():
-                        os.remove(local_path)
-                        local_deleted = True
-                        print(f"   [del]  Локальный файл удалён: {meta['filename']}")
+
+            if s3_key:
+                variants, duration_seconds = await self._build_variants(
+                    board, thread_state, meta, file_data, file_sha256, local_path
+                )
+                if local_path.exists():
+                    os.remove(local_path)
+                    print(f"   [del]  Локальный файл удалён: {meta['filename']}")
 
             # 7. Запись в БД
             media = await self.media_repo.create(
@@ -438,6 +444,8 @@ class DvachParser:
                 media_type=meta["media_type"],
                 s3_bucket=settings.storage_bucket if s3_key else None,
                 s3_key=s3_key,
+                variants=variants,
+                duration_seconds=duration_seconds,
                 width=meta.get("width"),
                 height=meta.get("height"),
                 download_status="uploaded" if s3_key else "downloaded",
@@ -453,6 +461,36 @@ class DvachParser:
 
         except Exception as e:
             print(f"   [err] Ошибка при обработке {meta.get('original_name', '?')}: {e}")
+
+    async def _build_variants(
+        self,
+        board: Board,
+        thread_state: ThreadState,
+        meta: dict,
+        file_data: bytes,
+        file_sha256: str,
+        local_path: Path,
+    ):
+        """Строит и загружает деривативы: thumb/web (WebP) или poster/720p (видео).
+
+        Возвращает (variants: dict|None, duration_seconds: float|None).
+        """
+        prefix = file_sha256[:12]
+        base = f"board_{board.id}/thread_{thread_state.thread_id}/{prefix}"
+        try:
+            variants, duration = await generate_and_upload(
+                self.s3_storage,
+                base_key=base,
+                media_type=meta["media_type"],
+                local_path=local_path,
+                file_data=file_data,
+            )
+        except Exception as e:  # noqa: BLE001
+            print(f"   [warn] деривативы не построены ({meta.get('original_name', '?')}): {e}")
+            return None, None
+        if variants:
+            print(f"   [img]  Деривативы: {', '.join(variants.keys())}")
+        return variants, duration
 
     # ───────────────────── Reconciliation ─────────────────────
 

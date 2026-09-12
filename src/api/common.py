@@ -116,6 +116,11 @@ def visible_thread_clause(allowed_private_ids: Optional[set] = None):
     )
 
 
+def asset_url(media_id: int, kind: str) -> str:
+    """URL дериватива (thumb/web) через наш API."""
+    return f"/api/v1/media/{media_id}/asset/{kind}"
+
+
 def build_media_url(
     media_id: int,
     s3: S3Storage,
@@ -135,6 +140,18 @@ def build_media_url(
     return f"/api/v1/media/{media_id}/raw{suffix}"
 
 
+def apply_media_urls(item: MediaOut, source: Media, s3: S3Storage) -> MediaOut:
+    """Проставляет URL оригинала и деривативов (thumb/web) для одного файла."""
+    if source.s3_key:
+        item.url = build_media_url(source.id, s3, source.s3_key)
+    variants = source.variants or {}
+    if variants.get("thumb"):
+        item.thumb_url = asset_url(source.id, "thumb")
+    if variants.get("web"):
+        item.web_url = asset_url(source.id, "web")
+    return item
+
+
 def sign_media_urls(
     items: list[MediaOut],
     sources: Iterable[Media],
@@ -142,10 +159,10 @@ def sign_media_urls(
 ) -> list[MediaOut]:
     """Прикрепляет URL файлов к элементам списка (для галерей).
 
-    В режиме proxy клиент получает same-origin ссылку на /api/v1/media/{id}/raw,
-    поэтому бакет и его адрес не раскрываются.
+    В режиме proxy клиент получает same-origin ссылку на наш /raw-эндпоинт,
+    поэтому бакет и его адрес не раскрываются. Деривативы (thumb/web) —
+    через /asset/{kind} с длинным кэшем.
     """
     for item, source in zip(items, sources):
-        if source.s3_key:
-            item.url = build_media_url(source.id, s3, source.s3_key)
+        apply_media_urls(item, source, s3)
     return items

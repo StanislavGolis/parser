@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { FilmIcon, ImageIcon } from "@/components/icons";
 import { mediaUrl } from "@/lib/env";
+import { thumbSrc } from "@/lib/media";
 import type { MediaItem } from "@/lib/types";
 
 /**
@@ -65,23 +66,23 @@ function Thumb({
         active ? "border-accent-primary ring-1 ring-accent-primary" : "border-line hover:border-line-hover"
       }`}
     >
-      {near && media.url && isVideo && active ? (
-        // Для текущего видео показываем кадр (preload=metadata)
+      {near && media.thumb_url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={thumbSrc(media)}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          className="h-full w-full object-cover"
+        />
+      ) : near && media.url && isVideo && active ? (
+        // Для текущего видео без постера показываем кадр (preload=metadata)
         <video
           src={mediaUrl(media.url)}
           muted
           playsInline
           preload="metadata"
-          className="h-full w-full object-cover"
-        />
-      ) : near && media.url && !isVideo ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={mediaUrl(media.url)}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          referrerPolicy="no-referrer"
           className="h-full w-full object-cover"
         />
       ) : (

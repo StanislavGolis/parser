@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.common import (
     VISIBLE_FILTER,
     allowed_private_thread_ids,
+    apply_media_urls,
     board_access_granted,
     build_media_url,
     sign_media_urls,
@@ -147,7 +148,7 @@ async def media_detail(
     board = await _check_media_board_access(request, session, media)
     data = MediaDetailOut.model_validate(media)
     data.board_slug = board.slug if board else ""
-    data.url = build_media_url(media.id, s3, media.s3_key)
+    apply_media_urls(data, media, s3)
     return data
 
 
@@ -228,6 +229,9 @@ async def media_download(
 # Размер чанка потоковой отдачи (256 КБ)
 STREAM_CHUNK_SIZE = 256 * 1024
 
+# Публичные варианты деривативов (оригинал — /raw)
+ASSET_KINDS = ("thumb", "web")
+
 
 def _content_disposition(filename: str) -> str:
     """Content-Disposition с поддержкой не-ASCII имён (RFC 5987)."""
@@ -236,30 +240,33 @@ def _content_disposition(filename: str) -> str:
     return f'attachment; filename="{fallback}"; filename*=UTF-8\'\'{quoted}'
 
 
-@router.get("/media/{media_id}/raw")
-async def media_raw(
-    media_id: int,
+async def _iter_body(body):
+    """Потоковое чтение тела объекта из S3."""
+    try:
+        while True:
+            chunk = await asyncio.to_thread(body.read, STREAM_CHUNK_SIZE)
+            if not chunk:
+                break
+            yield chunk
+    finally:
+        await asyncio.to_thread(body.close)
+
+
+async def _stream_object(
+    *,
+    media: Media,
+    key: str,
     request: Request,
-    download: bool = Query(False),
-    session: AsyncSession = Depends(get_session),
-    s3: S3Storage = Depends(get_s3),
-):
-    """Отдаёт содержимое файла через наш API (S3-бакет клиенту не раскрывается).
-
-    Поддерживает Range (видео, докачка) и Content-Disposition при `?download=1`.
-    """
-    await check_rate_limit(client_ip(request))
-
-    media = await _get_visible_media(session, media_id)
-    if not media.s3_key:
-        raise HTTPException(status_code=404, detail="File not available")
-
-    board = await _check_media_board_access(request, session, media)
-
+    s3: S3Storage,
+    download: bool = False,
+    content_type: Optional[str] = None,
+    cache_control: str = "public, max-age=3600",
+) -> StreamingResponse:
+    """Стримит объект из S3 (с поддержкой Range) с нужными заголовками."""
     if not s3.is_configured:
         raise HTTPException(status_code=503, detail="Storage is not configured")
 
-    obj = await s3.open_object_stream(media.s3_key, range_header=request.headers.get("range"))
+    obj = await s3.open_object_stream(key, range_header=request.headers.get("range"))
     if obj is None or obj.get("body") is None:
         raise HTTPException(status_code=404, detail="File not found in storage")
 
@@ -272,26 +279,80 @@ async def media_raw(
         headers["ETag"] = obj["etag"]
     if download:
         headers["Content-Disposition"] = _content_disposition(media.original_name)
-    headers["Cache-Control"] = (
-        "private, max-age=3600" if board.is_private else "public, max-age=3600"
-    )
-
-    status_code = 206 if obj.get("content_range") else 200
-
-    async def _stream():
-        body = obj["body"]
-        try:
-            while True:
-                chunk = await asyncio.to_thread(body.read, STREAM_CHUNK_SIZE)
-                if not chunk:
-                    break
-                yield chunk
-        finally:
-            await asyncio.to_thread(body.close)
+    headers["Cache-Control"] = cache_control
 
     return StreamingResponse(
-        _stream(),
-        status_code=status_code,
-        media_type=obj.get("content_type") or media.mime_type,
+        _iter_body(obj["body"]),
+        status_code=206 if obj.get("content_range") else 200,
+        media_type=content_type or obj.get("content_type") or media.mime_type,
         headers=headers,
+    )
+
+
+@router.get("/media/{media_id}/raw")
+async def media_raw(
+    media_id: int,
+    request: Request,
+    download: bool = Query(False),
+    session: AsyncSession = Depends(get_session),
+    s3: S3Storage = Depends(get_s3),
+):
+    """Отдаёт ОРИГИНАЛ файла через наш API (S3-бакет клиенту не раскрывается).
+
+    Поддерживает Range (видео, докачка) и Content-Disposition при `?download=1`.
+    """
+    await check_rate_limit(client_ip(request))
+
+    media = await _get_visible_media(session, media_id)
+    if not media.s3_key:
+        raise HTTPException(status_code=404, detail="File not available")
+
+    board = await _check_media_board_access(request, session, media)
+    return await _stream_object(
+        media=media,
+        key=media.s3_key,
+        request=request,
+        s3=s3,
+        download=download,
+        cache_control="private, max-age=3600" if board.is_private else "public, max-age=3600",
+    )
+
+
+@router.get("/media/{media_id}/asset/{kind}")
+async def media_asset(
+    media_id: int,
+    kind: str,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    s3: S3Storage = Depends(get_s3),
+):
+    """Отдаёт дериватив: `thumb` (превью) или `web` (оптимизированная версия).
+
+    Деривативы неизменяемы → длинный публичный кэш (браузер/CDN).
+    """
+    if kind not in ASSET_KINDS:
+        raise HTTPException(status_code=404, detail="Unknown asset kind")
+
+    await check_rate_limit(client_ip(request))
+
+    media = await _get_visible_media(session, media_id)
+    board = await _check_media_board_access(request, session, media)
+
+    key = (media.variants or {}).get(kind)
+    if not key:
+        raise HTTPException(status_code=404, detail="Asset not available")
+
+    content_type = "video/mp4" if (kind == "web" and media.media_type == "video") else None
+    cache = (
+        "private, max-age=86400"
+        if board.is_private
+        else "public, max-age=31536000, immutable"
+    )
+    return await _stream_object(
+        media=media,
+        key=key,
+        request=request,
+        s3=s3,
+        content_type=content_type,
+        cache_control=cache,
     )

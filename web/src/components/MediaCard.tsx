@@ -9,7 +9,8 @@ import {
   PlayIcon,
 } from "@/components/icons";
 import { mediaUrl } from "@/lib/env";
-import { formatBytes, formatCompact } from "@/lib/format";
+import { formatBytes, formatCompact, formatDuration } from "@/lib/format";
+import { thumbSrc } from "@/lib/media";
 import type { Board, MediaItem } from "@/lib/types";
 
 interface MediaCardProps {
@@ -38,7 +39,7 @@ export default function MediaCard({ media, board, showTop = false, onOpen }: Med
     setFailed(false);
   }, [media.id, media.url]);
 
-  const canShow = Boolean(media.url) && !failed;
+  const canShow = Boolean(media.url || media.thumb_url) && !failed;
   const isVideo = media.media_type === "video";
 
   return (
@@ -56,7 +57,7 @@ export default function MediaCard({ media, board, showTop = false, onOpen }: Med
         {canShow && !isVideo ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={mediaUrl(media.url)}
+            src={thumbSrc(media)}
             alt={media.original_name}
             loading="lazy"
             decoding="async"
@@ -66,16 +67,29 @@ export default function MediaCard({ media, board, showTop = false, onOpen }: Med
           />
         ) : canShow && isVideo ? (
           <>
-            {/* Браузерный кадр видео (preload=metadata) */}
-            <video
-              src={mediaUrl(media.url)}
-              muted
-              playsInline
-              preload="metadata"
-              aria-label={media.original_name}
-              onError={() => setFailed(true)}
-              className="absolute inset-0 h-full w-full object-cover"
-            />
+            {/* Постер-дериватив, иначе браузерный кадр (preload=metadata) */}
+            {media.thumb_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={thumbSrc(media)}
+                alt={media.original_name}
+                loading="lazy"
+                decoding="async"
+                referrerPolicy="no-referrer"
+                onError={() => setFailed(true)}
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+            ) : (
+              <video
+                src={mediaUrl(media.url)}
+                muted
+                playsInline
+                preload="metadata"
+                aria-label={media.original_name}
+                onError={() => setFailed(true)}
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+            )}
             <span className="absolute inset-0 flex items-center justify-center bg-black/35 transition-opacity group-hover:bg-black/25">
               <span className="flex h-11 w-11 items-center justify-center rounded bg-accent-primary text-ink-primary">
                 <PlayIcon className="h-5 w-5 translate-x-0.5" />
@@ -97,7 +111,7 @@ export default function MediaCard({ media, board, showTop = false, onOpen }: Med
         {isVideo && canShow ? (
           <span className="absolute bottom-1.5 right-1.5 flex items-center gap-1 rounded-[3px] bg-black/60 px-1.5 py-0.5 font-mono text-[10px] text-text-primary">
             <PlayIcon className="h-2.5 w-2.5" />
-            видео
+            {formatDuration(media.duration_seconds) || "видео"}
           </span>
         ) : null}
       </span>

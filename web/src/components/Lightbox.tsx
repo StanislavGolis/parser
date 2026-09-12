@@ -16,7 +16,8 @@ import {
 } from "@/components/icons";
 import { apiGet } from "@/lib/api";
 import { mediaUrl } from "@/lib/env";
-import { formatBytes, formatCompact } from "@/lib/format";
+import { formatBytes, formatCompact, formatDuration } from "@/lib/format";
+import { webSrc } from "@/lib/media";
 import type { BoardsById, MediaItem, ViewResult } from "@/lib/types";
 
 interface LightboxProps {
@@ -69,7 +70,7 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
   if (!media) return null;
 
   const isVideo = media.media_type === "video";
-  const canShow = Boolean(media.url) && !failed;
+  const canShow = Boolean(media.url || media.web_url || media.thumb_url) && !failed;
   const position = `${index + 1} / ${items.length}`;
 
   return (
@@ -96,7 +97,7 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
             {isVideo ? (
               <span className="badge badge-hot">
                 <FilmIcon className="h-2.5 w-2.5" />
-                видео
+                {`видео${formatDuration(media.duration_seconds) ? ` ${formatDuration(media.duration_seconds)}` : ""}`}
               </span>
             ) : null}
           </div>
@@ -123,7 +124,7 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
         {canShow ? (
           isVideo ? (
             <video
-              src={mediaUrl(media.url)}
+              src={webSrc(media)}
               controls
               autoPlay
               playsInline
@@ -135,7 +136,7 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={mediaUrl(media.url)}
+              src={webSrc(media)}
               alt={media.original_name}
               referrerPolicy="no-referrer"
               onError={() => setFailed(true)}

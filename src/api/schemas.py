@@ -151,7 +151,10 @@ class MediaOut(BaseModel):
     # Технические данные (для техпанели lightbox)
     source_md5: Optional[str] = None
     file_hash: Optional[str] = None
-    url: Optional[str] = None  # подписанный URL (для media/{id} и download)
+    url: Optional[str] = None        # оригинал (/media/{id}/raw)
+    thumb_url: Optional[str] = None  # превью-дериватив (/media/{id}/asset/thumb)
+    web_url: Optional[str] = None    # оптимизированная версия (/media/{id}/asset/web)
+    duration_seconds: Optional[float] = None  # длительность видео
 
 
 class MediaListOut(BaseModel):
