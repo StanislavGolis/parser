@@ -6,10 +6,18 @@ import { PlusIcon, SpinnerIcon } from "@/components/icons";
 import { BoardsTable, ForumTab } from "@/components/AdminViews";
 import { ApiError, apiDelete, apiPatch, apiPost, apiSend } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
-import type { AdminBoard, AdminOverview, BackfillStatus, ForumBoard, SystemTotals } from "@/lib/types";
+import type {
+  AdminBoard,
+  AdminOverview,
+  BackfillStatus,
+  ForumBoard,
+  ParserStatus,
+  SystemTotals,
+} from "@/lib/types";
 
 const TOKEN_KEY = "admin_token";
-const POLL_MS = 7000;
+const POLL_MS = 2000; // сводка (агрегаты по доскам) — раз в 2 c
+const PARSER_POLL_MS = 1000; // статус парсера (лёгкий запрос) — раз в 1 c
 
 type Tab = "boards" | "forum";
 
@@ -39,6 +47,7 @@ export default function AdminConsole() {
   const [creating, setCreating] = useState(false);
   const [backfill, setBackfill] = useState<BackfillStatus | null>(null);
   const backfillPollRef = useRef<number | null>(null);
+  const [parserStatus, setParserStatus] = useState<ParserStatus | null>(null);
 
   const loadOverview = useCallback(
     async (t: string) => {
@@ -76,6 +85,22 @@ export default function AdminConsole() {
     }, POLL_MS);
     return () => window.clearInterval(id);
   }, [token, loadOverview]);
+
+  const loadParserStatus = useCallback(async (t: string) => {
+    try {
+      setParserStatus(await apiSend<ParserStatus>("/api/v1/admin/parser/status", { token: t }));
+    } catch {
+      /* тихо игнорируем — следующий тик повторит */
+    }
+  }, []);
+
+  // Лёгкий статус парсера — раз в секунду (живость + прогресс текущего треда)
+  useEffect(() => {
+    if (!token) return;
+    void loadParserStatus(token);
+    const id = window.setInterval(() => void loadParserStatus(token), PARSER_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [token, loadParserStatus]);
 
   const loadForum = useCallback(async () => {
     if (!token) return;
@@ -438,6 +463,7 @@ export default function AdminConsole() {
           <BoardsTable
             boards={overview?.boards ?? null}
             loading={loading}
+            parserStatus={parserStatus}
             busyKey={busyKey}
             codes={codes}
             rowError={rowError}

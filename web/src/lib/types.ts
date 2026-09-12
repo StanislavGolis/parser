@@ -190,6 +190,26 @@ export interface DownloadResult {
   url: string;
 }
 
+/** Прогресс парсера по текущему треду (для прогресс-бара). */
+export interface ParserProgress {
+  board_slug?: string;
+  phase?: "catalog" | "files";
+  thread_id?: number | null;
+  files_total?: number;
+  files_done?: number;
+  updated_at?: string | null;
+}
+
+/** Лёгкий статус парсера (частый опрос). */
+export interface ParserStatus {
+  up: boolean;
+  enabled: boolean;
+  alive: boolean;
+  current_board: string | null;
+  progress: ParserProgress | null;
+  stall_seconds: number | null;
+}
+
 /** Пользователь (доступ к оригиналам). */
 export interface UserOut {
   id: number;

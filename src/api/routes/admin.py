@@ -747,3 +747,42 @@ async def backfill_variants_status(_=Depends(verify_admin)):
     return json.loads(current)
 
 
+# ───────────── Статус парсера (частый опрос: живость + прогресс) ─────────────
+
+
+@router.get("/parser/status")
+async def parser_status(_=Depends(verify_admin)):
+    """Лёгкий статус парсера: живость и прогресс по текущему треду.
+
+    Рассчитан на частый опрос (раз в секунду) из админки.
+    """
+    up = (await redis_client.get("parser:up")) == "1"
+    enabled = (await redis_client.get("parser:enabled")) == "1"
+    alive = (await redis_client.get("parser:alive")) == "1"
+    current_board = await redis_client.get("parser:current_board")
+
+    progress = None
+    stall_seconds = None
+    raw = await redis_client.get("parser:progress")
+    if raw:
+        try:
+            progress = json.loads(raw)
+        except Exception:
+            progress = None
+    if progress and progress.get("updated_at"):
+        try:
+            updated = datetime.fromisoformat(progress["updated_at"])
+            stall_seconds = max(0, int((datetime.utcnow() - updated).total_seconds()))
+        except Exception:
+            stall_seconds = None
+
+    return {
+        "up": up,
+        "enabled": enabled,
+        "alive": alive,
+        "current_board": current_board,
+        "progress": progress,
+        "stall_seconds": stall_seconds,
+    }
+
+

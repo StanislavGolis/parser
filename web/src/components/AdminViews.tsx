@@ -15,13 +15,14 @@ import {
 import AdminBoardThreads from "@/components/AdminBoardThreads";
 import { Switch } from "@/components/Switch";
 import { formatNumber } from "@/lib/format";
-import type { AdminBoard, ForumBoard } from "@/lib/types";
+import type { AdminBoard, ForumBoard, ParserStatus } from "@/lib/types";
 
 // Переключатель Switch вынесен в @/components/Switch (кругового импорта нет).
 
 export function BoardsTable({
   boards,
   loading,
+  parserStatus,
   busyKey,
   codes,
   rowError,
@@ -34,6 +35,7 @@ export function BoardsTable({
 }: {
   boards: AdminBoard[] | null;
   loading: boolean;
+  parserStatus?: ParserStatus | null;
   busyKey: string | null;
   codes: Record<string, string>;
   rowError: Record<string, string>;
@@ -62,6 +64,7 @@ export function BoardsTable({
           board={b}
           position={idx + 1}
           total={boards.length}
+          parserStatus={parserStatus}
           busyKey={busyKey}
           codes={codes}
           rowError={rowError}
@@ -80,6 +83,7 @@ function BoardRow({
   board,
   position,
   total,
+  parserStatus,
   busyKey,
   codes,
   rowError,
@@ -93,6 +97,7 @@ function BoardRow({
   board: AdminBoard;
   position: number;
   total: number;
+  parserStatus?: ParserStatus | null;
   busyKey: string | null;
   codes: Record<string, string>;
   rowError: Record<string, string>;
@@ -106,6 +111,20 @@ function BoardRow({
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(board.title);
   const [showThreads, setShowThreads] = useState(false);
+
+  // Прогресс парсера по этой доске (если сейчас парсится именно она)
+  const parser = parserStatus ?? null;
+  const progress =
+    parser?.alive && parser.current_board === board.slug ? parser.progress : null;
+  const filesDone = progress?.files_done ?? 0;
+  const filesTotal = progress?.files_total ?? 0;
+  const stalled = (parser?.stall_seconds ?? 0) > 60;
+  const percent =
+    progress?.phase === "files" && filesTotal > 0
+      ? Math.min(100, Math.round((filesDone / filesTotal) * 100))
+      : progress?.phase === "catalog"
+        ? 10
+        : 0;
 
   async function saveTitle() {
     const title = titleDraft.trim();
@@ -297,6 +316,31 @@ function BoardRow({
             </button>
           ) : null}
         </div>
+      {progress ? (
+        <div className="mt-3 rounded border border-line bg-ink-tertiary/40 px-3 py-2">
+          <div className="flex items-center justify-between text-[11px] text-text-secondary">
+            <span>
+              {progress.phase === "files"
+                ? `парсим тред №${progress.thread_id}: ${formatNumber(filesDone)}/${formatNumber(filesTotal)} файлов`
+                : "сканируем каталог доски…"}
+            </span>
+            <span className={stalled ? "text-accent-danger" : "text-text-muted"}>
+              {parser?.stall_seconds != null
+                ? stalled
+                  ? `простой ${parser.stall_seconds} с — возможно завис`
+                  : `обновлено ${parser.stall_seconds} с назад`
+                : ""}
+            </span>
+          </div>
+          <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded bg-ink-tertiary">
+            <div
+              className={`h-full transition-all ${stalled ? "bg-accent-danger" : "bg-accent-primary"}`}
+              style={{ width: `${percent}%` }}
+            />
+          </div>
+        </div>
+      ) : null}
+
       {showThreads ? (
         <div className="mt-3 border-t border-line pt-3">
           <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
@@ -312,7 +356,7 @@ function BoardRow({
               }
             />
           </div>
-          <AdminBoardThreads slug={board.slug} />
+          <AdminBoardThreads slug={board.slug} parserStatus={parserStatus} />
         </div>
       ) : null}
 

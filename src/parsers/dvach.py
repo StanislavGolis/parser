@@ -7,6 +7,7 @@
 - состояние тредов в threads_state — при неизменных счётчиках тред пропускается.
 """
 import asyncio
+import json
 import os
 import re
 from datetime import datetime
@@ -19,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.models import Board, Media, ThreadState
+from src.core.redis_client import redis_client
 from src.repositories.board_repo import BoardRepository
 from src.repositories.media_repo import MediaRepository
 from src.repositories.thread_state_repo import ThreadStateRepository
@@ -205,12 +207,30 @@ class DvachParser:
             "thread_timestamp": datetime.fromtimestamp(int(ts)) if ts else None,
         }
 
+    PROGRESS_KEY = "parser:progress"
+
+    async def _progress(self, **fields) -> None:
+        """Публикует прогресс парсера в Redis (для админки, TTL 5 мин)."""
+        payload = {"updated_at": datetime.utcnow().isoformat(), **fields}
+        try:
+            await redis_client.set(self.PROGRESS_KEY, json.dumps(payload), ex=300)
+        except Exception:
+            pass
+
+    async def _clear_progress(self) -> None:
+        try:
+            await redis_client.delete(self.PROGRESS_KEY)
+        except Exception:
+            pass
+
     async def process_board(self, board_slug: str):
         """Полный цикл обработки одной доски."""
         print(f"[info] Начинаем парсинг доски /{board_slug}")
+        await self._progress(board_slug=board_slug, phase="catalog")
         catalog = await self._get_json(f"{self.BASE_URL}/{board_slug}/catalog.json")
         if not catalog:
             print(f"   [err] Не удалось получить каталог /{board_slug}")
+            await self._clear_progress()
             return
 
         board_info = catalog.get("board", {})
@@ -290,14 +310,32 @@ class DvachParser:
 
                 if need_scan:
                     files = await self.fetch_thread_files(board_slug, thread_id)
-                    print(f"   [thread] Тред {thread_id} — {reason}: {len(files)} файлов")
+                    files_total = len(files)
+                    print(f"   [thread] Тред {thread_id} — {reason}: {files_total} файлов")
+                    await self._progress(
+                        board_slug=board_slug,
+                        phase="files",
+                        thread_id=thread_id,
+                        files_total=files_total,
+                        files_done=0,
+                    )
+                    files_done = 0
                     for meta in files:
                         # Быстрая реакция на «Остановить» — проверяем между файлами
                         if self.stop_check is not None and await self.stop_check():
                             await self.session.commit()  # сохраняем уже скачанное
                             print("   [stop] Обработка доски прервана командой из админки")
+                            await self._clear_progress()
                             return
                         await self.process_file(board, state, meta)
+                        files_done += 1
+                        await self._progress(
+                            board_slug=board_slug,
+                            phase="files",
+                            thread_id=thread_id,
+                            files_total=files_total,
+                            files_done=files_done,
+                        )
                         await asyncio.sleep(settings.REQUEST_DELAY * 0.5)
 
                     state.posts_count = posts_count
@@ -331,6 +369,7 @@ class DvachParser:
             print(f"   [off] Деактивировано тредов: {deactivated}")
 
         await self.session.commit()
+        await self._clear_progress()
         print(f"[ok] Парсинг доски /{board_slug} завершён (просканировано тредов: {scanned})")
 
     # ───────────────────── Обработка файла ─────────────────────

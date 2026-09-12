@@ -5,7 +5,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { Switch } from "@/components/Switch";
 import { ApiError, apiPatch, apiPost, apiSend } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
-import type { BoardThread, ScanStatus, ThreadList } from "@/lib/types";
+import type { BoardThread, ParserStatus, ScanStatus, ThreadList } from "@/lib/types";
 
 const PER_PAGE = 50;
 
@@ -33,7 +33,13 @@ function errText(err: unknown): string {
  * Управление тредами доски: флаги «Парсить / На сайте / По коду», код доступа
  * и массовые операции над выбранными тредами.
  */
-export default function AdminBoardThreads({ slug }: { slug: string }) {
+export default function AdminBoardThreads({
+  slug,
+  parserStatus,
+}: {
+  slug: string;
+  parserStatus?: ParserStatus | null;
+}) {
   const [token] = useState<string>(readToken);
   const [threads, setThreads] = useState<BoardThread[] | null>(null);
   const [page, setPage] = useState(1);
@@ -425,6 +431,42 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
                   <span className="text-text-muted">постов: {formatNumber(t.posts_count)}</span>
                   <span className="text-text-muted">просмотров: {formatNumber(t.views_count)}</span>
                 </div>
+
+                {parserStatus?.current_board === slug &&
+                parserStatus.progress?.thread_id === t.thread_id ? (
+                  <div className="mt-2">
+                    <div className="h-1 w-full overflow-hidden rounded bg-ink-tertiary">
+                      <div
+                        className={`h-full transition-all ${
+                          (parserStatus.stall_seconds ?? 0) > 60
+                            ? "bg-accent-danger"
+                            : "bg-accent-primary"
+                        }`}
+                        style={{
+                          width: `${
+                            (parserStatus.progress?.files_total ?? 0) > 0
+                              ? Math.min(
+                                  100,
+                                  Math.round(
+                                    ((parserStatus.progress?.files_done ?? 0) /
+                                      (parserStatus.progress?.files_total ?? 1)) *
+                                      100,
+                                  ),
+                                )
+                              : 10
+                          }%`,
+                        }}
+                      />
+                    </div>
+                    <div className="mt-1 font-mono text-[10px] text-text-muted">
+                      парсим: {formatNumber(parserStatus.progress?.files_done ?? 0)}/
+                      {formatNumber(parserStatus.progress?.files_total ?? 0)} файлов
+                      {parserStatus.stall_seconds != null
+                        ? ` · ${parserStatus.stall_seconds} с назад`
+                        : ""}
+                    </div>
+                  </div>
+                ) : null}
 
                 {t.is_private ? (
                   <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-line pt-2">

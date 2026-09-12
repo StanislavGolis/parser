@@ -48,6 +48,7 @@ async def heartbeat_loop() -> None:
             else:
                 await redis_client.delete("parser:alive")
                 await redis_client.delete("parser:current_board")
+                await redis_client.delete("parser:progress")
             await asyncio.sleep(15)
     except asyncio.CancelledError:
         pass
