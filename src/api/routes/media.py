@@ -230,7 +230,7 @@ async def media_download(
 STREAM_CHUNK_SIZE = 256 * 1024
 
 # Публичные варианты деривативов (оригинал — /raw)
-ASSET_KINDS = ("thumb", "web")
+ASSET_KINDS = ("thumb", "web", "video")
 
 
 def _content_disposition(filename: str) -> str:
@@ -342,7 +342,7 @@ async def media_asset(
     if not key:
         raise HTTPException(status_code=404, detail="Asset not available")
 
-    content_type = "video/mp4" if (kind == "web" and media.media_type == "video") else None
+    content_type = "video/mp4" if (kind == "video") else None
     cache = (
         "private, max-age=86400"
         if board.is_private

@@ -135,7 +135,7 @@ async def generate_and_upload(
         if ok:
             key = f"{base_key}_v720.mp4"
             if await uploader.upload_file(web_path, key, content_type="video/mp4"):
-                variants["web"] = key
+                variants["video"] = key
             web_path.unlink(missing_ok=True)
 
     return (variants or None), duration

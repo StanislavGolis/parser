@@ -149,13 +149,16 @@ def build_media_url(
 
 
 def apply_media_urls(item: MediaOut, source: Media, s3: S3Storage) -> MediaOut:
-    """Проставляет URL оригинала и деривативов (thumb/web) для одного файла."""
+    """Проставляет URL оригинала и деривативов (thumb/web/video) для файла."""
     if source.s3_key:
         item.url = build_media_url(source.id, s3, source.s3_key)
     variants = source.variants or {}
     if variants.get("thumb"):
         item.thumb_url = asset_url(source.id, "thumb", variants["thumb"])
-    if variants.get("web"):
+    if source.media_type == "video":
+        if variants.get("video"):
+            item.web_url = asset_url(source.id, "video", variants["video"])
+    elif variants.get("web"):
         item.web_url = asset_url(source.id, "web", variants["web"])
     return item
 
