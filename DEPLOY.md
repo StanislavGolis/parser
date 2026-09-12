@@ -180,6 +180,33 @@ docker compose -f docker-compose.prod.yml exec redis redis-cli del backfill:vari
 до истечения TTL (2 ч); удаление ключа разблокирует её, прогон безопасно
 перезапустить — очередь считается по БД (файлы без `thumb_blur`).
 
+**Тред «не докачивается», число скачанных файлов стоит на месте.** В логе парсера
+ищите `duplicate key value violates unique constraint "media_file_hash_key"` —
+контент файла (SHA-256) уже есть в БД под другим `source_md5` (CDN пережимает
+картинки). Раньше такая ошибка «травила» транзакцию треда: следующие файлы падали
+с «transaction has been rolled back», а цикл перезапускался на том же месте — тред
+никогда не доходил до конца. Сейчас конфликт `file_hash` превращается в
+дубль-ссылку (`[dup] Дубль по sha256`), а запись файла идёт в SAFEPOINT, поэтому
+один файл не может уронить тред.
+
+```sql
+-- состояние треда: last_scan_attempt_at обновляется, last_scanned_at — нет
+select thread_id, pending_scan, pending_reason, files_detected, last_scanned_at,
+       last_scan_attempt_at
+from threads_state where thread_id = <ID>;
+
+select download_status, count(*), count(s3_key) from media
+where board_id = <BOARD_ID> and thread_id = <ID> group by 1;
+```
+
+Принудительно вернуть тред в очередь: кнопка «В очередь» в админке или
+
+```bash
+curl -X PATCH -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
+  -d '{"requeue": true}' \
+  "$BASE/api/v1/admin/boards/<slug>/threads/<ID>"
+```
+
 **Строки-дубли одного файла** (старые базы, `duplicate_of_id` указывает на тот же
 тред) удаляются разово; файлы в S3 и оригинальные записи не затрагиваются:
 

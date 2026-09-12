@@ -468,49 +468,71 @@ class DvachParser:
         )
 
         files_done = 0
-        for meta in files:
-            # Быстрая реакция на «Остановить» — проверяем между файлами
-            if self.stop_check is not None and await self.stop_check():
-                await self.session.commit()  # сохраняем уже скачанное
-                print("   [stop] Докачка прервана командой из админки")
-                await self._clear_progress()
-                return False
-            await self.process_file(board, state, meta)
-            files_done += 1
-            await self._progress(
-                board_slug=board_slug,
-                phase="files",
-                thread_id=thread_id,
-                files_total=files_total,
-                files_done=files_done,
-            )
-
-            # Периодический коммит: файлы становятся видны сайту сразу,
-            # а сбой теряет максимум DB_COMMIT_EVERY_FILES файлов.
-            # last_scanned_at ставится только после полного прохода треда,
-            # поэтому незавершённый тред докачается в следующий цикл,
-            # а уже сохранённые файлы отсеются по md5 без скачивания.
-            every = settings.DB_COMMIT_EVERY_FILES
-            if every > 0 and files_done % every == 0:
-                await self.session.commit()
-                print(
-                    f"   [db]   Коммит: сохранено {files_done}/{files_total} "
-                    f"файлов треда {thread_id}"
+        statuses: Dict[str, int] = {}
+        try:
+            for meta in files:
+                # Быстрая реакция на «Остановить» — проверяем между файлами
+                if self.stop_check is not None and await self.stop_check():
+                    await self.session.commit()  # сохраняем уже скачанное
+                    print("   [stop] Докачка прервана командой из админки")
+                    await self._clear_progress()
+                    return False
+                status = await self.process_file(board, state, meta)
+                statuses[status] = statuses.get(status, 0) + 1
+                files_done += 1
+                await self._progress(
+                    board_slug=board_slug,
+                    phase="files",
+                    thread_id=thread_id,
+                    files_total=files_total,
+                    files_done=files_done,
                 )
 
-            await asyncio.sleep(settings.REQUEST_DELAY * 0.5)
+                # Периодический коммит: файлы становятся видны сайту сразу,
+                # а сбой теряет максимум DB_COMMIT_EVERY_FILES файлов.
+                # last_scanned_at ставится только после полного прохода треда,
+                # поэтому незавершённый тред докачается в следующий цикл,
+                # а уже сохранённые файлы отсеются по md5 без скачивания.
+                every = settings.DB_COMMIT_EVERY_FILES
+                if every > 0 and files_done % every == 0:
+                    await self.session.commit()
+                    print(
+                        f"   [db]   Коммит: сохранено {files_done}/{files_total} "
+                        f"файлов треда {thread_id}"
+                    )
 
-        # Проход завершён — снимаем тред с очереди
-        state.pending_scan = False
-        state.pending_reason = None
-        state.last_scanned_at = datetime.utcnow()
-        await self.session.commit()
-        return True
+                await asyncio.sleep(settings.REQUEST_DELAY * 0.5)
+
+            # Проход завершён — снимаем тред с очереди
+            print(
+                f"   [done] Тред {thread_id}: новых {statuses.get('saved', 0)}, "
+                f"уже было {statuses.get('have', 0)}, дублей {statuses.get('dup', 0)}, "
+                f"битых {statuses.get('invalid', 0)}, отфильтровано {statuses.get('filtered', 0)}, "
+                f"ошибок {statuses.get('err', 0)}"
+            )
+            state.pending_scan = False
+            state.pending_reason = None
+            state.last_scanned_at = datetime.utcnow()
+            await self.session.commit()
+            return True
+        except Exception as e:  # noqa: BLE001
+            # Тред не должен ронять весь цикл: он остаётся в очереди и
+            # докачается в следующем цикле (сохранённое отсеется по md5/sha).
+            print(f"   [err] Тред {thread_id} прерван ({files_done}/{files_total}): {e}")
+            await self.session.rollback()
+            await self._clear_progress()
+            return False
 
     # ───────────────────── Обработка файла ─────────────────────
 
-    async def process_file(self, board: Board, thread_state: ThreadState, meta: dict):
-        """Скачивание, валидация, загрузка в S3 и запись в БД одного файла."""
+    async def process_file(self, board: Board, thread_state: ThreadState, meta: dict) -> str:
+        """Скачивание, валидация, загрузка в S3 и запись в БД одного файла.
+
+        Возвращает статус обработки для итоговой сводки по треду:
+        `saved` (новый файл сохранён), `have` (уже был в этом треде),
+        `dup` (ссылка-дубль), `invalid` (битый на форуме), `filtered`
+        (не прошёл правила размера/разрешения), `err` (наша ошибка).
+        """
         try:
             # 1. Фильтрация по метаданным (до скачивания)
             valid, error = MediaValidator.is_allowed(
@@ -522,7 +544,7 @@ class DvachParser:
             )
             if not valid:
                 print(f"   [skip] Отфильтрован: {meta['original_name']} — {error}")
-                return
+                return "filtered"
 
             # 2. Дедупликация по source_md5 (до скачивания)
             # 2.1. Файл уже есть в ЭТОМ треде — повторный проход не должен
@@ -536,7 +558,7 @@ class DvachParser:
                 and same_thread.download_status in UPLOADED_STATUSES
             ):
                 print(f"   [have] Файл уже сохранён в треде: {meta['original_name']}")
-                return
+                return "have"
 
             # 2.2. Такой же файл есть в другом треде/доске — пишем ссылку-дубль
             #      (объект в S3 переиспользуем, повторно не скачиваем).
@@ -565,13 +587,13 @@ class DvachParser:
                 )
                 await self.session.flush()
                 print(f"   [dup] Дубль по md5 {meta['md5'][:8]}: duplicate ID {dup.id} → {existing.id}")
-                return
+                return "dup"
 
             # 3. Скачивание
             print(f"   [down] Скачиваем: {meta['original_name']}")
             file_data = await self.downloader.download(meta["file_url"])
             if not file_data:
-                return
+                return "err"
 
             # 4. Целостность: md5 из API должен совпасть с фактическим
             #    (CDN может пережимать картинки, поэтому для image не фатально)
@@ -579,17 +601,67 @@ class DvachParser:
             integrity_ok = file_md5 == meta["md5"]
             if not integrity_ok and meta["media_type"] == "video":
                 print(f"   [del]  Битый файл (md5 не совпал): {meta['original_name']}")
-                return
+                return "invalid"
 
             if meta["media_type"] == "image":
                 ok_img, img_err = MediaValidator.verify_image(file_data)
                 if not ok_img:
                     print(f"   [del]  Битое изображение: {meta['original_name']} — {img_err}")
-                    return
+                    return "invalid"
                 if not integrity_ok:
                     print(f"   [warn] md5 из API не совпал (вероятно CDN-пережим), но изображение валидно: {meta['original_name']}")
 
             file_sha256 = MediaValidator.compute_sha256(file_data)
+
+            # 4.1. Тот же контент уже сохранён (SHA-256), но source_md5 другой:
+            # 2ch/CDN отдают разные md5 для одной и той же картинки. Раньше здесь
+            # INSERT падал на UNIQUE(media.file_hash), транзакция треда «травилась»
+            # и тред не мог дойти до конца (повторные прогоны не добавляли файлы).
+            twin = await self.media_repo.get_by_hash(file_sha256)
+            if twin is not None and (same_thread is None or twin.id != same_thread.id):
+                if same_thread is None:
+                    dup = await self.media_repo.create(
+                        board_id=board.id,
+                        thread_id=thread_state.thread_id,
+                        original_name=meta["original_name"],
+                        source_url=meta["file_url"],
+                        source_md5=meta["md5"],
+                        file_size=meta["size_bytes"],
+                        mime_type=meta["mime_type"],
+                        media_type=meta["media_type"],
+                        variants=twin.variants,
+                        duration_seconds=twin.duration_seconds,
+                        width=meta.get("width"),
+                        height=meta.get("height"),
+                        duplicate_of_id=twin.id,
+                        s3_key=twin.s3_key,
+                        s3_bucket=twin.s3_bucket,
+                        download_status=twin.download_status,
+                        is_visible=twin.is_visible,
+                        is_active=True,
+                        is_premium=bool(board.is_premium or thread_state.is_premium),
+                    )
+                    await self.session.flush()
+                    print(
+                        f"   [dup] Дубль по sha256 {file_sha256[:8]}: "
+                        f"ID {dup.id} → {twin.id}"
+                    )
+                else:
+                    # Строка в этом треде есть, но без объекта — берём объект у двойника
+                    same_thread.duplicate_of_id = twin.id
+                    same_thread.s3_key = twin.s3_key
+                    same_thread.s3_bucket = twin.s3_bucket
+                    same_thread.variants = twin.variants
+                    same_thread.duration_seconds = twin.duration_seconds
+                    same_thread.download_status = twin.download_status
+                    same_thread.is_active = True
+                    same_thread.is_premium = bool(board.is_premium or thread_state.is_premium)
+                    await self.session.flush()
+                    print(
+                        f"   [dup] Дубль по sha256 {file_sha256[:8]}: "
+                        f"ID {same_thread.id} → {twin.id}"
+                    )
+                return "dup"
 
             # 5. Сохранение в локальное хранилище (кэш)
             storage_path = await self.storage.save(
@@ -623,60 +695,65 @@ class DvachParser:
             # 7. Запись в БД: новую строку создаём только для новых файлов,
             #    а запись без объекта в S3 (например, прошлый раз не докачали)
             #    обновляем — так повторные проходы не размножают строки.
-            if same_thread is not None:
-                media = same_thread
-                media.original_name = meta["original_name"]
-                media.source_url = meta["file_url"]
-                media.local_path = storage_path
-                media.file_hash = file_sha256
-                media.file_size = meta["size_bytes"]
-                media.mime_type = meta["mime_type"]
-                media.media_type = meta["media_type"]
-                media.width = meta.get("width")
-                media.height = meta.get("height")
-                if s3_key:
-                    media.s3_bucket = settings.storage_bucket
-                    media.s3_key = s3_key
-                if variants:
-                    media.variants = variants
-                if duration_seconds:
-                    media.duration_seconds = duration_seconds
-                media.download_status = "uploaded" if s3_key else "downloaded"
-                media.is_active = True
-                media.is_premium = bool(board.is_premium or thread_state.is_premium)
-                await self.session.flush()
-            else:
-                media = await self.media_repo.create(
-                    board_id=board.id,
-                    thread_id=thread_state.thread_id,
-                    original_name=meta["original_name"],
-                    source_url=meta["file_url"],
-                    local_path=storage_path,
-                    file_hash=file_sha256,
-                    source_md5=meta["md5"],
-                    file_size=meta["size_bytes"],
-                    mime_type=meta["mime_type"],
-                    media_type=meta["media_type"],
-                    s3_bucket=settings.storage_bucket if s3_key else None,
-                    s3_key=s3_key,
-                    variants=variants,
-                    duration_seconds=duration_seconds,
-                    width=meta.get("width"),
-                    height=meta.get("height"),
-                    download_status="uploaded" if s3_key else "downloaded",
-                    is_visible=True,
-                    is_active=True,
-                    is_premium=bool(board.is_premium or thread_state.is_premium),
-                )
-                await self.session.flush()
+            #    В SAVEPOINT: ошибка одного файла (например, конфликт
+            #    UNIQUE(media.file_hash)) не «травит» транзакцию всего треда.
+            async with self.session.begin_nested():
+                if same_thread is not None:
+                    media = same_thread
+                    media.original_name = meta["original_name"]
+                    media.source_url = meta["file_url"]
+                    media.local_path = storage_path
+                    media.file_hash = file_sha256
+                    media.file_size = meta["size_bytes"]
+                    media.mime_type = meta["mime_type"]
+                    media.media_type = meta["media_type"]
+                    media.width = meta.get("width")
+                    media.height = meta.get("height")
+                    if s3_key:
+                        media.s3_bucket = settings.storage_bucket
+                        media.s3_key = s3_key
+                    if variants:
+                        media.variants = variants
+                    if duration_seconds:
+                        media.duration_seconds = duration_seconds
+                    media.download_status = "uploaded" if s3_key else "downloaded"
+                    media.is_active = True
+                    media.is_premium = bool(board.is_premium or thread_state.is_premium)
+                    await self.session.flush()
+                else:
+                    media = await self.media_repo.create(
+                        board_id=board.id,
+                        thread_id=thread_state.thread_id,
+                        original_name=meta["original_name"],
+                        source_url=meta["file_url"],
+                        local_path=storage_path,
+                        file_hash=file_sha256,
+                        source_md5=meta["md5"],
+                        file_size=meta["size_bytes"],
+                        mime_type=meta["mime_type"],
+                        media_type=meta["media_type"],
+                        s3_bucket=settings.storage_bucket if s3_key else None,
+                        s3_key=s3_key,
+                        variants=variants,
+                        duration_seconds=duration_seconds,
+                        width=meta.get("width"),
+                        height=meta.get("height"),
+                        download_status="uploaded" if s3_key else "downloaded",
+                        is_visible=True,
+                        is_active=True,
+                        is_premium=bool(board.is_premium or thread_state.is_premium),
+                    )
+                    await self.session.flush()
 
             if s3_key:
                 print(f"   [ok] Загружен в S3: {meta['original_name']} (ID: {media.id})")
             else:
                 print(f"   [warn] Сохранён локально: {meta['original_name']} (ID: {media.id}, статус: downloaded)")
+            return "saved"
 
         except Exception as e:
             print(f"   [err] Ошибка при обработке {meta.get('original_name', '?')}: {e}")
+            return "err"
 
     async def _build_variants(
         self,
