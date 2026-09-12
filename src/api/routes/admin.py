@@ -22,7 +22,7 @@ from typing import Dict, List, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_s3, verify_admin
@@ -630,114 +630,198 @@ async def scan_board_status(slug: str, _=Depends(verify_admin)):
 # ─────────── Бэкфилл деривативов (оптимизация уже скачанных файлов) ───────────
 
 BACKFILL_KEY = "backfill:variants"
+# Размер пачки по умолчанию: сколько файлов проходим между записями прогресса
+BACKFILL_BATCH_DEFAULT = 200
+# Предохранитель: максимум пачек за один прогон (антибесконечный цикл)
+BACKFILL_MAX_BATCHES = 500
 
 
-async def _run_variants_backfill(limit: int) -> None:
-    """Генерирует thumb/web (и длительность видео) для файлов, у которых их нет."""
+def _variant_candidates_clause():
+    """«Файл в S3, но нет размытого превью» — кто нужен бэкфиллу."""
+    return and_(
+        Media.s3_key.isnot(None),
+        or_(Media.variants.is_(None), Media.variants["thumb_blur"].is_(None)),
+    )
+
+
+async def _count_variant_candidates(session: AsyncSession) -> int:
+    """Сколько файлов ещё ждут оптимизации (очередь бэкфилла)."""
+    total = (
+        await session.execute(
+            select(func.count()).select_from(Media).where(_variant_candidates_clause())
+        )
+    ).scalar()
+    return int(total or 0)
+
+
+async def _backfill_progress(payload: dict, *, ex: int = 7200) -> None:
+    """Пишет статус бэкфилла в Redis (его читает админка при опросе)."""
+    await redis_client.set(BACKFILL_KEY, json.dumps(payload), ex=ex)
+
+
+async def _run_variants_backfill(batch_size: int) -> None:
+    """Проходит очередь оптимизации целиком, пачками по `batch_size` файлов.
+
+    Идёт курсором по возрастанию `id` (файл обрабатывается один раз за прогон),
+    поэтому «застрявшие» (битый файл, ошибка S3) не зацикливают процесс: они
+    остаются кандидатами и видны в `remaining`.
+    """
     s3 = S3Storage()
     if not s3.is_configured:
-        await redis_client.set(
-            BACKFILL_KEY, json.dumps({"status": "error", "error": "Storage is not configured"}), ex=600
-        )
+        await _backfill_progress({"status": "error", "error": "Storage is not configured"}, ex=600)
         return
 
-    processed = errors = 0
-    total = 0
+    processed = errors = done = 0
     try:
         async with async_session_factory() as session:
-            rows = (
-                await session.execute(
-                    select(Media)
-                    .where(
-                        Media.s3_key.isnot(None),
-                        # Нет деривативов вообще либо нет размытого превью (нужен премиуму)
-                        or_(
-                            Media.variants.is_(None),
-                            Media.variants["thumb_blur"].is_(None),
-                        ),
-                    )
-                    .order_by(Media.id)
-                    .limit(limit)
+            total = await _count_variant_candidates(session)
+            if total == 0:
+                await _backfill_progress(
+                    {
+                        "status": "done",
+                        "total": 0,
+                        "done": 0,
+                        "remaining": 0,
+                        "processed": 0,
+                        "errors": 0,
+                        "batch_size": batch_size,
+                    },
+                    ex=600,
                 )
-            ).scalars().all()
-            total = len(rows)
-            await redis_client.set(
-                BACKFILL_KEY,
-                json.dumps({"status": "running", "total": total, "done": 0, "processed": 0}),
-                ex=7200,
-            )
+                return
 
-            with tempfile.TemporaryDirectory() as tmp:
-                for i, media in enumerate(rows, start=1):
-                    try:
-                        orig = Path(tmp) / f"orig_{media.id}"
-                        if await s3.download_to_file(media.s3_key, orig):
-                            prefix = (media.file_hash or "")[:12] or str(media.id)
-                            base = f"board_{media.board_id}/thread_{media.thread_id}/{prefix}"
-                            variants, duration = await generate_and_upload(
-                                s3,
-                                base_key=base,
-                                media_type=media.media_type,
-                                local_path=orig,
-                            )
-                            if variants:
-                                media.variants = variants
-                                if duration:
-                                    media.duration_seconds = duration
-                                processed += 1
-                        orig.unlink(missing_ok=True)
-                    except Exception:  # noqa: BLE001
-                        errors += 1
-
-                    if i % 5 == 0:
-                        await session.commit()
-                        await redis_client.set(
-                            BACKFILL_KEY,
-                            json.dumps(
-                                {"status": "running", "total": total, "done": i, "processed": processed}
-                            ),
-                            ex=7200,
-                        )
-                await session.commit()
-
-        await redis_client.set(
-            BACKFILL_KEY,
-            json.dumps(
-                {
-                    "status": "done",
+            def progress(done_count: int, remaining: int, status: str = "running") -> dict:
+                return {
+                    "status": status,
                     "total": total,
-                    "done": total,
+                    "done": done_count,
+                    "remaining": remaining,
                     "processed": processed,
                     "errors": errors,
+                    "batch_size": batch_size,
                 }
-            ),
+
+            await _backfill_progress(progress(0, total))
+
+            cursor = 0
+            batches = 0
+            with tempfile.TemporaryDirectory() as tmp:
+                while batches < BACKFILL_MAX_BATCHES:
+                    rows = (
+                        await session.execute(
+                            select(Media)
+                            .where(_variant_candidates_clause(), Media.id > cursor)
+                            .order_by(Media.id)
+                            .limit(batch_size)
+                        )
+                    ).scalars().all()
+                    if not rows:
+                        break
+
+                    batches += 1
+                    cursor = rows[-1].id
+                    for media in rows:
+                        try:
+                            orig = Path(tmp) / f"orig_{media.id}"
+                            if await s3.download_to_file(media.s3_key, orig):
+                                prefix = (media.file_hash or "")[:12] or str(media.id)
+                                base = f"board_{media.board_id}/thread_{media.thread_id}/{prefix}"
+                                variants, duration = await generate_and_upload(
+                                    s3,
+                                    base_key=base,
+                                    media_type=media.media_type,
+                                    local_path=orig,
+                                )
+                                if variants:
+                                    media.variants = variants
+                                    if duration:
+                                        media.duration_seconds = duration
+                                    processed += 1
+                                else:
+                                    errors += 1
+                            else:
+                                errors += 1
+                            orig.unlink(missing_ok=True)
+                        except Exception:  # noqa: BLE001
+                            errors += 1
+
+                        done += 1
+                        if done % 5 == 0:
+                            await session.commit()
+                            # Внутри пачки остаток оцениваем линейно (точный пересчёт — раз в пачку)
+                            await _backfill_progress(progress(done, max(total - done, 0)))
+
+                    await session.commit()
+                    # Точный остаток после пачки: часть файлов могла не поддаться
+                    remaining = await _count_variant_candidates(session)
+                    await _backfill_progress(progress(done, remaining))
+                    if len(rows) < batch_size:
+                        break
+
+            remaining = await _count_variant_candidates(session)
+
+        await _backfill_progress(
+            {
+                "status": "done",
+                "total": max(total, done),
+                "done": done,
+                "remaining": remaining,
+                "processed": processed,
+                "errors": errors,
+                "batch_size": batch_size,
+            },
             ex=600,
         )
     except Exception as e:  # noqa: BLE001
         logger.exception("variants backfill failed")
-        await redis_client.set(BACKFILL_KEY, json.dumps({"status": "error", "error": str(e)}), ex=600)
+        await _backfill_progress({"status": "error", "error": str(e)}, ex=600)
 
 
 @router.post("/backfill-variants")
-async def backfill_variants(limit: int = Query(200, ge=1, le=5000), _=Depends(verify_admin)):
-    """Генерирует деривативы (thumb/web, длительность) для уже скачанных файлов."""
+async def backfill_variants(
+    limit: int = Query(BACKFILL_BATCH_DEFAULT, ge=1, le=5000), _=Depends(verify_admin)
+):
+    """Оптимизация уже скачанных файлов: один запуск проходит всю очередь.
+
+    `limit` — размер пачки (сколько файлов проходим между записями прогресса),
+    а не общий объём работы: бэкенд идёт по очереди пачками, пока не кончатся
+    кандидаты. Пока прогон идёт, повторный вызов возвращает текущий прогресс.
+    """
     current = await redis_client.get(BACKFILL_KEY)
     if current and json.loads(current).get("status") == "running":
         return json.loads(current)
 
-    await redis_client.set(
-        BACKFILL_KEY, json.dumps({"status": "running", "total": 0, "done": 0, "processed": 0}), ex=7200
-    )
+    async with async_session_factory() as session:
+        total = await _count_variant_candidates(session)
+
+    payload = {
+        "status": "running",
+        "total": total,
+        "done": 0,
+        "remaining": total,
+        "processed": 0,
+        "errors": 0,
+        "batch_size": limit,
+    }
+    await _backfill_progress(payload)
     asyncio.create_task(_run_variants_backfill(limit))
-    return {"status": "running", "total": 0, "done": 0, "processed": 0}
+    return payload
 
 
 @router.get("/backfill-variants/status")
 async def backfill_variants_status(_=Depends(verify_admin)):
-    """Прогресс бэкфилла деривативов."""
+    """Прогресс бэкфилла: сколько обработано из очереди и сколько осталось."""
     current = await redis_client.get(BACKFILL_KEY)
     if not current:
-        return {"status": "idle", "total": 0, "done": 0, "processed": 0}
+        return {
+            "status": "idle",
+            "total": 0,
+            "done": 0,
+            "remaining": 0,
+            "processed": 0,
+            "errors": 0,
+            "batch_size": 0,
+        }
     return json.loads(current)
 
 

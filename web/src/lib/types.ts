@@ -162,10 +162,16 @@ export interface ViewResult {
 /** Прогресс бэкфилла деривативов («Оптимизировать медиа»). */
 export interface BackfillStatus {
   status: "idle" | "running" | "done" | "error";
+  /** Всего файлов в очереди на момент запуска. */
   total: number;
+  /** Сколько уже прошли в этом прогоне. */
   done: number;
+  /** Сколько ещё осталось в очереди (не поддавшиеся файлы остаются тут). */
+  remaining?: number;
   processed?: number;
   errors?: number;
+  /** Размер пачки между записями прогресса. */
+  batch_size?: number;
   error?: string;
 }
 

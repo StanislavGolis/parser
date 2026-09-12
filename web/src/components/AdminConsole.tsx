@@ -391,16 +391,26 @@ export default function AdminConsole() {
 
       {backfill && backfill.status !== "idle" ? (
         <div className="mb-4 rounded border border-line bg-ink-secondary px-3 py-2">
-          <div className="flex items-center justify-between text-xs text-text-secondary">
+          <div className="flex items-center justify-between gap-3 text-xs text-text-secondary">
             <span>
               {backfill.status === "running"
-                ? "Оптимизируем медиа (превью/720p)…"
+                ? `Оптимизируем медиа (превью, размытые превью, 720p)… пачка ${formatNumber(
+                    backfill.batch_size ?? 0,
+                  )}`
                 : backfill.status === "done"
-                  ? `Готово: обработано ${formatNumber(backfill.processed ?? 0)} из ${formatNumber(backfill.total)}`
+                  ? `Готово: обработано ${formatNumber(backfill.processed ?? 0)} из ${formatNumber(
+                      backfill.total,
+                    )}${
+                      backfill.remaining
+                        ? ` · осталось ${formatNumber(backfill.remaining)} (не удалось обработать)`
+                        : ""
+                    }`
                   : `Ошибка: ${backfill.error ?? "не удалось"}`}
             </span>
-            <span className="tabular-nums">
-              {formatNumber(backfill.done)}/{formatNumber(backfill.total || 0)}
+            <span className="shrink-0 tabular-nums">
+              {backfill.status === "running"
+                ? `осталось ${formatNumber(backfill.remaining ?? 0)} из ${formatNumber(backfill.total)}`
+                : `${formatNumber(backfill.done)}/${formatNumber(backfill.total || 0)}`}
             </span>
           </div>
           <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded bg-ink-tertiary">
