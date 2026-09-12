@@ -262,6 +262,17 @@ python3-certbot-nginx`; конфиг из шага 6 (`server_name <домен>`
 в `.env` → `HTTP_PORT=8080`, `SESSION_COOKIE_SECURE=1`, `API_CORS_ORIGINS=https://<домен>`;
 `docker compose -f docker-compose.prod.yml up -d`; `certbot --nginx -d <домен> --redirect`.
 
+### 10. Обслуживание (настроено на VPS)
+
+| Что | Где | Детали |
+|---|---|---|
+| Бэкап БД | `/etc/cron.daily/dredge-backup` | `pg_dump -Fc` → `/opt/dredge/backups/db-<дата>.pgc`, хранение 14 дней |
+| Health-check | `/etc/cron.hourly/dredge-health` | проверяет `/healthz` и заполнение диска; лог `/var/log/dredge-health.log` (урезается до 500 строк). Если сайт не отвечает — поднимает стек (`docker compose up -d`); при диске >85% пишет ALERT |
+| Автообновления | `unattended-upgrades` (`/etc/apt/apt.conf.d/20auto-upgrades`) | патчи безопасности ставятся автоматически |
+| Логи docker | `docker-compose.prod.yml` + `/etc/docker/daemon.json` | `json-file`, `max-size=10m`, `max-file=3` — даже при отладке диск не забьётся |
+| Просмотр | `docker compose -f docker-compose.prod.yml logs -f api\|parser` | `tail -f /var/log/dredge-health.log` — журнал проверок |
+| Обновление кода | `cd /opt/dredge && git pull && docker compose -f docker-compose.prod.yml up -d --build` | не забыть про общий образ `parser-backend` (см. «Примечания») |
+
 ## Примечания
 
 - Наружу открыт только `nginx` (порт `HTTP_PORT`). PostgreSQL/Redis наружу
