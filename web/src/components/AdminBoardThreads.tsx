@@ -189,7 +189,7 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs text-text-muted">
           {threads
-            ? `тредов: ${formatNumber(total)} · постов: ${formatNumber(totals.posts_total)} · файлов: ${formatNumber(totals.files_total)} · просмотров: ${formatNumber(totals.views_total)}`
+            ? `тредов: ${formatNumber(total)} · постов: ${formatNumber(totals.posts_total)} · просмотров: ${formatNumber(totals.views_total)} · файлов: ${formatNumber(totals.files_total)}`
             : "загрузка…"}
         </span>
         <button
@@ -303,9 +303,10 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
                 </div>
 
                 <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-secondary">
-                  <span>каталог: {formatNumber(t.files_count)}</span>
-                  <span>в БД: {formatNumber(t.media_total)}</span>
-                  <span>в S3: {formatNumber(t.media_in_s3)}</span>
+                  <span>
+                    файлов: <b className="text-text-primary">{formatNumber(t.media_total)}</b>
+                  </span>
+                  <span>в хранилище: {formatNumber(t.media_in_s3)}</span>
                   <span>видимых: {formatNumber(t.media_visible)}</span>
                   <span className="text-text-muted">постов: {formatNumber(t.posts_count)}</span>
                   <span className="text-text-muted">просмотров: {formatNumber(t.views_count)}</span>

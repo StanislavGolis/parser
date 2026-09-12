@@ -198,7 +198,8 @@ class ThreadListOut(BaseModel):
     page: int
     per_page: int
     total: int
-    # Суммы по тредам доски из каталога (для описания страницы сканирования)
+    # Суммы по доске (описание страницы сканирования):
+    # посты/просмотры — из каталога, файлы — фактическое число медиа в БД
     posts_total: int = 0
     files_total: int = 0
     views_total: int = 0

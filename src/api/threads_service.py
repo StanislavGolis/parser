@@ -64,20 +64,28 @@ async def list_threads(
 
 
 async def thread_catalog_totals(session: AsyncSession, board_id: int) -> dict:
-    """Суммы по тредам доски из каталога: посты / файлы / просмотры."""
+    """Суммы по доске для описания страницы сканирования.
+
+    посты/просмотры — из каталога 2ch; файлы — фактическое число медиа
+    (каталоговый `files_count` в 2ch считает посты с вложениями, а не файлы).
+    """
     row = (
         await session.execute(
             select(
                 func.coalesce(func.sum(ThreadState.posts_count), 0),
-                func.coalesce(func.sum(ThreadState.files_count), 0),
                 func.coalesce(func.sum(ThreadState.views_count), 0),
             ).where(ThreadState.board_id == board_id, ThreadState.is_active.is_(True))
         )
     ).one()
+    files_total = (
+        await session.execute(
+            select(func.count(Media.id)).where(Media.board_id == board_id)
+        )
+    ).scalar() or 0
     return {
         "posts_total": int(row[0] or 0),
-        "files_total": int(row[1] or 0),
-        "views_total": int(row[2] or 0),
+        "files_total": int(files_total),
+        "views_total": int(row[1] or 0),
     }
 
 
