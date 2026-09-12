@@ -564,6 +564,12 @@ Next.js: `robots.txt` разрешает обход публичных стра�
 отдаёт `301` на него (блок в `/etc/nginx/sites-available/dredge`), HTTP → HTTPS —
 тоже `301`.
 
+**Регистрация в панелях вебмастера.** Google Search Console и Яндекс.Вебмастер —
+подтверждение домена делается DNS-записью TXT либо meta-тегом: задайте
+`GOOGLE_SITE_VERIFICATION` / `YANDEX_VERIFICATION` в `.env` (тогда тег попадёт в
+HTML автоматически) и пересоберите `web`. После подтверждения отправьте
+`sitemap.xml` на обход.
+
 **Что наружу не уходит.** `.env`, `.git`, `DEPLOY.md`, `docker-compose.prod.yml`,
 `package.json`, `requirements.txt`, `openapi.json`, `/docs`, `/redoc` — все `404`
 (nginx проксирует только `/` и `/api/`, docs API выключены). Медиа отдаёт свой API:

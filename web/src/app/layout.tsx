@@ -29,6 +29,12 @@ export const metadata: Metadata = {
   description:
     "DREDGE — автоматический медиа-архив: фото и видео с разделов, свежие поступления, топ за день и неделю, поиск по файлам.",
   applicationName: "DREDGE",
+  // Коды подтверждения для панелей вебмастера задаются через env — тогда в HTML
+  // появляется нужный meta-тег (альтернатива DNS-TXT при регистрации сайта).
+  verification: {
+    google: process.env.GOOGLE_SITE_VERIFICATION,
+    yandex: process.env.YANDEX_VERIFICATION,
+  },
   robots: { index: true, follow: true },
   openGraph: {
     siteName: "DREDGE",

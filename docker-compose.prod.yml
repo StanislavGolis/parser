@@ -184,6 +184,9 @@ services:
       API_BASE_SERVER: http://api:8000
       # Публичный адрес сайта: canonical, sitemap.xml, robots.txt, Open Graph.
       SITE_URL: ${SITE_URL:-https://dredg.ru}
+      # Коды подтверждения панелей вебмастера (meta-тег в HTML); можно оставить пустыми
+      GOOGLE_SITE_VERIFICATION: ${GOOGLE_SITE_VERIFICATION:-}
+      YANDEX_VERIFICATION: ${YANDEX_VERIFICATION:-}
       # NEXT_PUBLIC_API_BASE не задаём: браузер ходит на тот же origin
       # (/api проксируется nginx на сервис api).
     healthcheck:
