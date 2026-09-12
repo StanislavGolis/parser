@@ -53,8 +53,10 @@ class ThreadDiscovery:
     async def fetch_thread_files_count(self, slug: str, thread_id: int) -> int:
         """Число файлов треда из res/{id}.json (без скачивания самих файлов).
 
-        Учитываются только «наши» типы (image/video) и записи с path+md5 —
-        та же логика фильтрации, что при парсинге.
+        Учитываются только «наши» типы (image/video) и записи с path+md5,
+        которые проходят правила размера/разрешения — та же фильтрация, что при
+        парсинге. «Файлы-заглушки» 2ch (5–47 байт у удалённых вложений) в счёт не
+        попадают, иначе админка показывает ложную недокачку.
         """
         url = f"{BASE_URL}/{slug}/res/{thread_id}.json"
         timeout = aiohttp.ClientTimeout(total=30)
@@ -74,11 +76,21 @@ class ThreadDiscovery:
         for post in posts:
             for f in post.get("files") or []:
                 name = f.get("name") or ""
-                if not MediaValidator.classify(name):
+                media_type = MediaValidator.classify(name)
+                if not media_type:
                     continue
                 if not f.get("path"):
                     continue
                 if not (f.get("md5") or "").strip():
+                    continue
+                allowed, _ = MediaValidator.is_allowed(
+                    name,
+                    int(f.get("size") or 0),
+                    media_type,
+                    f.get("width"),
+                    f.get("height"),
+                )
+                if not allowed:
                     continue
                 count += 1
         return count

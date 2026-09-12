@@ -456,8 +456,6 @@ class DvachParser:
             return False
 
         files_total = len(files)
-        # Обновляем «файлов на форуме»: список уже получен, лишних запросов нет
-        state.files_detected = files_total
         print(f"   [thread] Тред {thread_id} ({reason or 'очередь'}): {files_total} файлов")
         await self._progress(
             board_slug=board_slug,
@@ -503,7 +501,13 @@ class DvachParser:
 
                 await asyncio.sleep(settings.REQUEST_DELAY * 0.5)
 
-            # Проход завершён — снимаем тред с очереди
+            # Проход завершён — снимаем тред с очереди.
+            # `files_detected` = сколько файлов мы должны были сохранить (без
+            # отброшенных правилами размера/разрешения), поэтому «Недокачано» в
+            # админке показывает только реальные пропуски (битые/ошибки).
+            fetchable = files_total - statuses.get("filtered", 0)
+            if fetchable > 0:
+                state.files_detected = fetchable
             print(
                 f"   [done] Тред {thread_id}: новых {statuses.get('saved', 0)}, "
                 f"уже было {statuses.get('have', 0)}, дублей {statuses.get('dup', 0)}, "
