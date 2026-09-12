@@ -116,9 +116,17 @@ def visible_thread_clause(allowed_private_ids: Optional[set] = None):
     )
 
 
-def asset_url(media_id: int, kind: str) -> str:
-    """URL дериватива (thumb/web) через наш API."""
-    return f"/api/v1/media/{media_id}/asset/{kind}"
+def asset_url(media_id: int, kind: str, key: Optional[str] = None) -> str:
+    """URL дериватива (thumb/web) через наш API.
+
+    `?v=<hash>` версионирует URL: кэш nginx/браузера не отдаст устаревший
+    вариант, если дериватив когда-нибудь перегенерируется.
+    """
+    version = ""
+    if key:
+        version = key.rsplit("/", 1)[-1].split("_", 1)[0][:16]
+    suffix = f"?v={version}" if version else ""
+    return f"/api/v1/media/{media_id}/asset/{kind}{suffix}"
 
 
 def build_media_url(
@@ -146,9 +154,9 @@ def apply_media_urls(item: MediaOut, source: Media, s3: S3Storage) -> MediaOut:
         item.url = build_media_url(source.id, s3, source.s3_key)
     variants = source.variants or {}
     if variants.get("thumb"):
-        item.thumb_url = asset_url(source.id, "thumb")
+        item.thumb_url = asset_url(source.id, "thumb", variants["thumb"])
     if variants.get("web"):
-        item.web_url = asset_url(source.id, "web")
+        item.web_url = asset_url(source.id, "web", variants["web"])
     return item
 
 

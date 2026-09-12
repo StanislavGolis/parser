@@ -164,6 +164,7 @@ services:
       - "${HTTP_PORT:-80}:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - nginx_cache:/var/cache/nginx/media
     depends_on:
       web:
         condition: service_healthy
@@ -176,6 +177,7 @@ services:
 volumes:
   pgdata:
   media:
+  nginx_cache:
 
 networks:
   site:
