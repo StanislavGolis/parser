@@ -131,6 +131,8 @@ POST  /api/v1/admin/boards/reorder         порядок очереди пар�
 GET   /api/v1/admin/boards/{slug}/threads  треды раздела (флаги + статистика)
 PATCH /api/v1/admin/boards/{slug}/threads/{id}  флаги треда + код доступа
 POST  /api/v1/admin/boards/{slug}/threads/bulk  массовые флаги выбранных тредов
+POST  /api/v1/admin/boards/{slug}/scan          сканировать каталог доски (discover тредов)
+GET   /api/v1/admin/boards/{slug}/scan/status   прогресс сканирования (для прогресс-бара)
 POST  /api/v1/admin/parser/start|stop      управление парсером
 POST  /api/v1/admin/cleanup-storage             удалить объекты S3 без записей в БД
 DELETE /api/v1/admin/reset                 полный сброс (БД + S3), парсер ставится на паузу

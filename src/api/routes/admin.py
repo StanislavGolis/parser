@@ -10,6 +10,8 @@
 - POST /admin/boards/{slug}/toggle  — скрыть/показать доску
 - POST /admin/media/{id}/toggle     — скрыть/показать файл
 """
+import asyncio
+import json
 import logging
 import re
 import time
@@ -40,10 +42,11 @@ from src.api.schemas import (
 )
 from src.api.stats_service import collect_board_stats
 from src.api.threads_service import build_thread_outs, list_threads
-from src.core.db import get_session
+from src.core.db import async_session_factory, get_session
 from src.core.models import Board, Media, ThreadState
 from src.core.redis_client import redis_client
 from src.services.s3_storage import S3Storage
+from src.services.thread_discovery import ThreadDiscovery, scan_key
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -533,5 +536,74 @@ async def bulk_update_threads(
             thread.is_private = payload.is_private
     await session.commit()
     return {"ok": True, "updated": len(threads)}
+
+
+# ───────────── Сканирование каталога доски («Загрузить треды») ─────────────
+
+
+async def _run_board_scan(slug: str) -> None:
+    """Фоновое сканирование каталога доски с записью прогресса в Redis."""
+    key = scan_key(slug)
+    try:
+        async with async_session_factory() as session:
+            board = (
+                await session.execute(select(Board).where(Board.slug == slug))
+            ).scalar_one_or_none()
+            if not board:
+                await redis_client.set(
+                    key, json.dumps({"status": "error", "error": "Board not found"}), ex=600
+                )
+                return
+
+            async def on_progress(done: int, total: int) -> None:
+                await redis_client.set(
+                    key,
+                    json.dumps({"status": "running", "total": total, "done": done}),
+                    ex=600,
+                )
+
+            result = await ThreadDiscovery(session).discover(board, on_progress=on_progress)
+
+        await redis_client.set(
+            key,
+            json.dumps(
+                {
+                    "status": "done",
+                    "total": result["total"],
+                    "done": result["total"],
+                    "created": result["created"],
+                    "updated": result["updated"],
+                }
+            ),
+            ex=600,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.exception("scan failed for /%s", slug)
+        await redis_client.set(key, json.dumps({"status": "error", "error": str(e)}), ex=600)
+
+
+@router.post("/boards/{slug}/scan")
+async def scan_board(slug: str, _=Depends(verify_admin)):
+    """Запускает сканирование каталога доски (создание/обновление тредов)."""
+    current = await redis_client.get(scan_key(slug))
+    if current:
+        data = json.loads(current)
+        if data.get("status") == "running":
+            return data
+
+    await redis_client.set(
+        scan_key(slug), json.dumps({"status": "running", "total": 0, "done": 0}), ex=600
+    )
+    asyncio.create_task(_run_board_scan(slug))
+    return {"status": "running", "total": 0, "done": 0}
+
+
+@router.get("/boards/{slug}/scan/status")
+async def scan_board_status(slug: str, _=Depends(verify_admin)):
+    """Текущий прогресс сканирования каталога доски."""
+    current = await redis_client.get(scan_key(slug))
+    if not current:
+        return {"status": "idle", "total": 0, "done": 0}
+    return json.loads(current)
 
 

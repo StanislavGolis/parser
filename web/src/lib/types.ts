@@ -144,6 +144,16 @@ export interface AccessResult {
   granted: boolean;
 }
 
+/** Прогресс сканирования каталога доски (кнопка «Загрузить треды»). */
+export interface ScanStatus {
+  status: "idle" | "running" | "done" | "error";
+  total: number;
+  done: number;
+  created?: number;
+  updated?: number;
+  error?: string;
+}
+
 export interface DownloadResult {
   media_id: number;
   counted: boolean;

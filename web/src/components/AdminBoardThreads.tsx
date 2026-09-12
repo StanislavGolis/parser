@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Switch } from "@/components/Switch";
 import { ApiError, apiPatch, apiPost, apiSend } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
-import type { BoardThread, ThreadList } from "@/lib/types";
+import type { BoardThread, ScanStatus, ThreadList } from "@/lib/types";
 
 const PER_PAGE = 50;
 
@@ -33,6 +33,8 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [codes, setCodes] = useState<Record<number, string>>({});
+  const [scan, setScan] = useState<ScanStatus | null>(null);
+  const pollRef = useRef<number | null>(null);
 
   const load = useCallback(
     async (p: number) => {
@@ -63,6 +65,11 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
   useEffect(() => {
     if (token) void load(1);
   }, [token, load]);
+
+  // Останавливаем поллинг прогресса при размонтировании
+  useEffect(() => () => {
+    if (pollRef.current) window.clearTimeout(pollRef.current);
+  }, []);
 
   const patchThread = useCallback(
     async (threadId: number, body: Record<string, unknown>) => {
@@ -111,6 +118,44 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
     [threads, selected],
   );
 
+  /** Поллинг прогресса сканирования каталога. */
+  const pollScan = useCallback(async () => {
+    try {
+      const st = await apiSend<ScanStatus>(
+        `/api/v1/admin/boards/${encodeURIComponent(slug)}/scan/status`,
+        { token },
+      );
+      setScan(st);
+      if (st.status === "running") {
+        pollRef.current = window.setTimeout(() => void pollScan(), 700);
+      } else if (st.status === "done") {
+        await load(1);
+        pollRef.current = window.setTimeout(() => setScan(null), 2500);
+      }
+    } catch (err) {
+      setError(errText(err));
+      setScan(null);
+    }
+  }, [slug, token, load]);
+
+  /** Сканирование каталога доски: запуск + поллинг прогресса. */
+  const startScan = useCallback(async () => {
+    setError(null);
+    try {
+      const st = await apiPost<ScanStatus>(
+        `/api/v1/admin/boards/${encodeURIComponent(slug)}/scan`,
+        undefined,
+        token,
+      );
+      setScan(st);
+      if (st.status === "running") {
+        pollRef.current = window.setTimeout(() => void pollScan(), 400);
+      }
+    } catch (err) {
+      setError(errText(err));
+    }
+  }, [slug, token, pollScan]);
+
   function toggleSelect(threadId: number) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -133,6 +178,57 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
   return (
     <div>
       {error ? <p className="mb-4 text-sm text-accent-danger">{error}</p> : null}
+
+      {/* Сканирование каталога доски (discovery) */}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs text-text-muted">
+          {threads ? `тредов: ${formatNumber(total)}` : "загрузка…"}
+        </span>
+        <button
+          type="button"
+          disabled={scan?.status === "running" || busy}
+          onClick={() => void startScan()}
+          className="btn-ghost px-2.5 py-1.5 text-xs"
+          title="Сканировать каталог доски и загрузить список тредов"
+        >
+          {scan?.status === "running" ? "Сканируем…" : "Загрузить треды"}
+        </button>
+      </div>
+
+      {scan && scan.status !== "idle" ? (
+        <div className="mb-3 rounded border border-line bg-ink-secondary px-3 py-2">
+          <div className="flex items-center justify-between text-xs text-text-secondary">
+            <span>
+              {scan.status === "running"
+                ? "Сканируем каталог доски…"
+                : scan.status === "done"
+                  ? `Готово: тредов ${formatNumber(scan.total)} (новых ${formatNumber(scan.created ?? 0)})`
+                  : `Ошибка: ${scan.error ?? "не удалось"}`}
+            </span>
+            <span className="tabular-nums">
+              {formatNumber(scan.done)}/{formatNumber(scan.total || 0)}
+            </span>
+          </div>
+          <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded bg-ink-tertiary">
+            <div
+              className={`h-full transition-all ${
+                scan.status === "error" ? "bg-accent-danger" : "bg-accent-primary"
+              }`}
+              style={{
+                width: `${
+                  scan.total > 0
+                    ? Math.min(100, Math.round((scan.done / scan.total) * 100))
+                    : scan.status === "running"
+                      ? 15
+                      : scan.status === "done"
+                        ? 100
+                        : 0
+                }%`,
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
       {threads && threads.length > 0 ? (
         <div className="mb-3 flex flex-wrap items-center gap-2 rounded border border-line bg-ink-secondary px-3 py-2 text-xs">
           <label className="inline-flex cursor-pointer items-center gap-2 text-text-secondary">
