@@ -8,11 +8,16 @@ import { ImageIcon, LayersIcon, SearchIcon, StarIcon, TagIcon } from "@/componen
 const ITEMS = [
   {
     href: "/",
+    label: "Новое",
+    Icon: ImageIcon,
+    match: (p: string) => p === "/",
+  },
+  {
+    href: "/boards",
     label: "Доски",
     Icon: LayersIcon,
-    match: (p: string) => p === "/" || p.startsWith("/board"),
+    match: (p: string) => p === "/boards" || p.startsWith("/board"),
   },
-  { href: "/new", label: "Новинки", Icon: ImageIcon, match: (p: string) => p === "/new" },
   { href: "/top", label: "Топ", Icon: StarIcon, match: (p: string) => p === "/top" },
   {
     href: "/marks",

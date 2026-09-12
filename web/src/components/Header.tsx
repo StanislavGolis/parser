@@ -8,10 +8,14 @@ import AuthMenu from "@/components/AuthMenu";
 const NAV = [
   {
     href: "/",
-    label: "Доски",
-    match: (p: string) => p === "/" || p.startsWith("/board"),
+    label: "Новое",
+    match: (p: string) => p === "/",
   },
-  { href: "/new", label: "Новинки", match: (p: string) => p === "/new" },
+  {
+    href: "/boards",
+    label: "Доски",
+    match: (p: string) => p === "/boards" || p.startsWith("/board"),
+  },
   { href: "/top", label: "Популярное", match: (p: string) => p === "/top" },
   { href: "/marks", label: "Метки", match: (p: string) => p.startsWith("/marks") },
   { href: "/search", label: "Поиск", match: (p: string) => p.startsWith("/search") },

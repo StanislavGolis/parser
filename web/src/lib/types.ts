@@ -263,6 +263,16 @@ export interface MarkResult {
 /** Индекс доски по id — чтобы показывать slug/title на плитках лент. */
 export type BoardsById = Record<number, Board>;
 
+/** Публичная сводка архива для главной (см. `GET /api/v1/status`). */
+export interface SiteStatus {
+  files_total: number;
+  files_24h: number;
+  threads_active: number;
+  boards_visible: number;
+  /** Раздел, который обрабатывает парсер; null — парсер на паузе. */
+  parser_board: string | null;
+}
+
 /** Прогресс прогрева дискового кэша медиа. */
 export interface MediaCacheWarm {
   status: "idle" | "running" | "done" | "interrupted" | string;

@@ -19,11 +19,13 @@ import type {
   MediaType,
   PeriodKey,
   SortKey,
+  SiteStatus,
   ThreadList,
 } from "./types";
 
 const REVALIDATE = {
   boards: 30, // 30 сек: главная быстро отражает приватность/скрытие досок
+  status: 30, // 30 сек: цифры сводки на главной
   feed: 60, // 1 мин
   board: 60, // 1 мин
   top: 120, // 2 мин
@@ -61,10 +63,29 @@ export async function getBoards(): Promise<Board[]> {
   return Array.isArray(data) ? data : [];
 }
 
-export async function getFeedPage(page: number, perPage: number, type?: MediaType | null): Promise<MediaList> {
+export async function getFeedPage(
+  page: number,
+  perPage: number,
+  type?: MediaType | null,
+  freeOnly = false,
+): Promise<MediaList> {
   const q = new URLSearchParams({ page: String(page), per_page: String(perPage) });
   if (type) q.set("type", type);
+  if (freeOnly) q.set("free", "1");
   return serverFetch<MediaList>(`/api/v1/feed?${q}`, REVALIDATE.feed, EMPTY_LIST);
+}
+
+const EMPTY_STATUS: SiteStatus = {
+  files_total: 0,
+  files_24h: 0,
+  threads_active: 0,
+  boards_visible: 0,
+  parser_board: null,
+};
+
+/** Публичная сводка архива (файлы, суточный прирост, треды, разделы, парсер). */
+export async function getStatus(): Promise<SiteStatus> {
+  return serverFetch<SiteStatus>("/api/v1/status", REVALIDATE.status, EMPTY_STATUS);
 }
 
 export async function getBoardMediaPage(

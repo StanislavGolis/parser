@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import EmptyState from "@/components/EmptyState";
@@ -20,6 +21,14 @@ interface GalleryProps {
   boardsById?: BoardsById;
   /** Показывать бейдж [ТОП] на карточках. */
   showTop?: boolean;
+  /**
+   * Автодогрузка страниц при скролле. `false` — «витрина»: показываем ровно
+   * полученную с сервера страницу и ссылку на полный список (главная страница).
+   */
+  infinite?: boolean;
+  /** Куда ведёт ссылка «показать больше» в режиме витрины. */
+  moreHref?: string;
+  moreLabel?: string;
   emptyTitle?: string;
   emptyHint?: string;
 }
@@ -35,6 +44,9 @@ export default function Gallery({
   perPage,
   boardsById,
   showTop = false,
+  infinite = true,
+  moreHref,
+  moreLabel,
   emptyTitle,
   emptyHint,
 }: GalleryProps) {
@@ -89,7 +101,10 @@ export default function Gallery({
   }, [loadMore]);
 
   // Infinite scroll: догружаем, когда sentinel появляется в зоне видимости.
+  // В режиме витрины (infinite=false) автодогрузки нет — пользователь уходит
+  // в полный список по ссылке.
   useEffect(() => {
+    if (!infinite) return;
     const node = sentinelRef.current;
     if (!node || !hasMore || loading || autoPaused || error) return;
     const observer = new IntersectionObserver(
@@ -150,8 +165,8 @@ export default function Gallery({
         </div>
       ) : null}
 
-      {/* Sentinel для infinite scroll */}
-      {hasMore && !error ? (
+      {/* Sentinel для infinite scroll (только в режиме полного списка) */}
+      {infinite && hasMore && !error ? (
         <div ref={sentinelRef} className="flex min-h-16 items-center justify-center py-6">
           {loading ? (
             <span className="inline-flex items-center gap-2 font-mono text-[11px] text-text-secondary">
@@ -161,6 +176,15 @@ export default function Gallery({
           ) : (
             <span className="font-mono text-[11px] text-text-muted">••• прокрутите ниже</span>
           )}
+        </div>
+      ) : null}
+
+      {/* Режим витрины: без автодогрузки, но с явной ссылкой в полный список */}
+      {!infinite && moreHref && items.length > 0 ? (
+        <div className="mt-6 text-center">
+          <Link href={moreHref} className="btn-ghost">
+            {moreLabel ?? "Показать больше"}
+          </Link>
         </div>
       ) : null}
 

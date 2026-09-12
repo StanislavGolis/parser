@@ -12,7 +12,7 @@ from typing import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import admin, admin_auth, auth, boards, feed, marks, media, search, top
+from src.api.routes import admin, admin_auth, auth, boards, feed, marks, media, search, status, top
 from src.api.services import recalc_popularity
 from src.core.config import settings
 from src.core.db import async_session_factory
@@ -76,6 +76,7 @@ app.include_router(auth.router)
 app.include_router(marks.router)
 app.include_router(top.router)
 app.include_router(feed.router)
+app.include_router(status.router)
 app.include_router(search.router)
 app.include_router(admin.router)
 app.include_router(admin_auth.router)

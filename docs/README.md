@@ -350,10 +350,17 @@ S3 у провайдера отдаёт ~3 МБ/с (4 потока — ~8 МБ/�
   (`S3Storage.open_object_stream`, чанки 256 КБ).
 
 ### 3.4 Frontend (`web/`, Next.js 14 App Router)
-- Страницы: `/` (каталог досок с фильтрами Все/Без подписки/Премиум), `/new`,
-  `/top`, `/board/{slug}` (треды → файлы треда), `/search`, `/media/{id}`,
-  `/marks` («мои метки»; `/favorites` редиректит сюда), `/login`, `/profile`,
-  `/admin`; `web/` standalone-сборка.
+- Страницы: `/` (**главная — «витрина новинок»**: сводка архива, чипы Всё / Картинки /
+  Видео / без подписки, фиксированные **24 карточки без автоподгрузки**, полка
+  «Популярное сейчас» и чипы разделов), `/boards` (каталог разделов с фильтрами
+  Все/Без подписки/Премиум — переехал с главной), `/new` (полный поток новинок:
+  infinite scroll + фильтры), `/top`, `/board/{slug}` (треды → файлы треда),
+  `/search`, `/media/{id}`, `/marks` («мои метки»; `/favorites` редиректит сюда),
+  `/login`, `/profile`, `/admin`; `web/` standalone-сборка.
+- Первый экран главной — медийный: над сеткой только две строки (название и цифры:
+  файлов, тредов, +за сутки, состояние парсера) и чипы фильтра, дальше сразу
+  masonry. Полный поток — по ссылке «Смотреть дальше в полном потоке» (`/new`),
+  правила компоновки — `docs/DESIGN.md` §4.0.
 - Показатели: masonry-галерея + infinite scroll, карточки с бейджами
   (`ТОП`, `PREMIUM` 🔒/★, `НЕДОСТУПНО`), кнопка «метка» (🏷) поверх превью и в
   lightbox, маркер видео (значок ▶ + длительность) на карточках, превью тредов и
@@ -537,8 +544,9 @@ GET   /api/v1/boards/{slug}/media          файлы доски (?thread=&sort=
 GET   /api/v1/media/{id}                   карточка файла (locked=true — нужна подписка)
 GET   /api/v1/media/{id}/view              отметить просмотр (дедуп по IP)
 GET   /api/v1/media/{id}/asset/{kind}      kind: thumb | thumb_blur | web | video
-GET   /api/v1/feed?type=&page=             новинки (премиум — с размытым превью)
+GET   /api/v1/feed?type=&page=             новинки (премиум — с размытым превью; `free=1` — без подписки)
 GET   /api/v1/top?type=&period=&limit=     топ: day | week | month
+GET   /api/v1/status                       сводка архива для главной: files_total, files_24h, threads_active, boards_visible, parser_board
 GET   /api/v1/search?q=                    имя файла / md5 / sha-256
 GET   /healthz                             healthcheck
 

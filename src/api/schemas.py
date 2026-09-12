@@ -123,6 +123,16 @@ class AdminResetOut(BaseModel):
     ok: bool = True
 
 
+class StatusOut(BaseModel):
+    """Публичная сводка архива для главной страницы (без служебных деталей)."""
+    files_total: int
+    files_24h: int
+    threads_active: int
+    boards_visible: int
+    # Какой раздел обрабатывает парсер прямо сейчас; None — парсер на паузе
+    parser_board: Optional[str] = None
+
+
 class BoardCreate(BaseModel):
     slug: str
     name: Optional[str] = None  # настоящее название (из index.json), если известно

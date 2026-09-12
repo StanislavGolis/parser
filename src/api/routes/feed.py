@@ -26,6 +26,9 @@ async def media_feed(
     page: int = Query(1, ge=1),
     per_page: int = Query(30, ge=1, le=100),
     media_type: Optional[str] = Query(None, alias="type", pattern="^(image|video)$"),
+    free_only: bool = Query(
+        False, alias="free", description="Только файлы без премиум-подписки"
+    ),
     session: AsyncSession = Depends(get_session),
     s3: S3Storage = Depends(get_s3),
     user: Optional[User] = Depends(get_current_user),
@@ -33,6 +36,7 @@ async def media_feed(
     """Свежие файлы со всех видимых досок (новинки), с пагинацией.
 
     Премиум-файлы тоже попадают в ленту, но с размытым превью (locked).
+    `free=1` оставляет только файлы без подписки (чип «без подписки» на главной).
     """
     await check_rate_limit(client_ip(request))
 
@@ -42,6 +46,8 @@ async def media_feed(
     ]
     if media_type:
         filters.append(Media.media_type == media_type)
+    if free_only:
+        filters.append(Media.is_premium.is_(False))
 
     # Подсчёт только видимых записей видимых досок
     count_q = (
