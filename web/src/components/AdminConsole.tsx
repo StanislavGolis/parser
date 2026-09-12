@@ -5,12 +5,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PlusIcon, SpinnerIcon } from "@/components/icons";
 import { BoardsTable, ForumTab } from "@/components/AdminViews";
 import { ApiError, apiDelete, apiPatch, apiPost, apiSend } from "@/lib/api";
-import { formatNumber } from "@/lib/format";
+import { formatBytes, formatNumber } from "@/lib/format";
 import type {
   AdminBoard,
   AdminOverview,
   BackfillStatus,
   ForumBoard,
+  MediaCacheStats,
   ParserStatus,
   SystemTotals,
 } from "@/lib/types";
@@ -18,6 +19,7 @@ import type {
 const TOKEN_KEY = "admin_token";
 const POLL_MS = 2000; // сводка (агрегаты по доскам) — раз в 2 c
 const PARSER_POLL_MS = 1000; // статус парсера (лёгкий запрос) — раз в 1 c
+const CACHE_POLL_MS = 10000; // состояние кэша медиа (обход каталога) — раз в 10 c
 
 type Tab = "boards" | "forum";
 
@@ -52,6 +54,8 @@ export default function AdminConsole() {
   const [backfill, setBackfill] = useState<BackfillStatus | null>(null);
   const backfillPollRef = useRef<number | null>(null);
   const [parserStatus, setParserStatus] = useState<ParserStatus | null>(null);
+  const [cacheStats, setCacheStats] = useState<MediaCacheStats | null>(null);
+  const [cacheBusy, setCacheBusy] = useState(false);
 
   const loadOverview = useCallback(
     async (t: string) => {
@@ -303,6 +307,29 @@ export default function AdminConsole() {
     }
   }
 
+  /** Состояние дискового кэша медиа (файлы, объём, попадания, прогрев). */
+  const loadCache = useCallback(async (t: string) => {
+    try {
+      setCacheStats(await apiSend<MediaCacheStats>("/api/v1/admin/media-cache", { token: t }));
+    } catch {
+      /* статистика кэша не критична для работы панели */
+    }
+  }, []);
+
+  async function cacheAction(path: string) {
+    if (!token) return;
+    setCacheBusy(true);
+    setGlobalError(null);
+    try {
+      await apiPost(path, undefined, token);
+      await loadCache(token);
+    } catch (err) {
+      setGlobalError(errText(err));
+    } finally {
+      setCacheBusy(false);
+    }
+  }
+
   async function cleanupStorage() {
     if (!token) return;
     setGlobalError(null);
@@ -340,6 +367,14 @@ export default function AdminConsole() {
       setCreating(false);
     }
   }
+
+  // Статистика кэша: загружаем сразу и опрашиваем, пока идёт прогрев
+  useEffect(() => {
+    if (!token) return;
+    void loadCache(token);
+    const id = window.setInterval(() => void loadCache(token), CACHE_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [token, loadCache]);
 
   const ready = useMemo(() => Boolean(token), [token]);
   const totals: SystemTotals | null = overview?.totals ?? null;
@@ -527,6 +562,66 @@ export default function AdminConsole() {
           ) : null}
         </div>
       </div>
+
+      {tab === "boards" && cacheStats ? (
+        <div className="mb-4 rounded border border-line bg-ink-secondary/40 px-3 py-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold">Кэш медиа на диске</h3>
+              <p className="mt-0.5 text-xs text-text-secondary">
+                {formatBytes(cacheStats.bytes)} из {formatBytes(cacheStats.max_bytes)} (
+                {cacheStats.used_percent}%) · файлов {formatNumber(cacheStats.files)} · попаданий{" "}
+                {formatNumber(cacheStats.hits)} / промахов {formatNumber(cacheStats.misses)} ·
+                свободно на диске {formatBytes(cacheStats.disk_free)}
+              </p>
+              {cacheStats.warm.status === "running" ? (
+                <p className="mt-0.5 text-xs text-accent-secondary">
+                  Прогрев: {formatNumber(cacheStats.warm.done)} из{" "}
+                  {formatNumber(cacheStats.warm.total)}
+                  {cacheStats.warm.failed
+                    ? `, ошибок ${formatNumber(cacheStats.warm.failed)}`
+                    : ""}
+                </p>
+              ) : null}
+              {cacheStats.evicted_files ? (
+                <p className="mt-0.5 text-xs text-text-muted">
+                  Вытеснено по LRU: {formatNumber(cacheStats.evicted_files)} файлов (
+                  {formatBytes(cacheStats.evicted_bytes)})
+                </p>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void cacheAction("/api/v1/admin/media-cache/warm")}
+                disabled={cacheBusy || cacheStats.warm.status === "running"}
+                className="btn-ghost px-3 py-1.5 text-xs"
+                title="Скачать в кэш всё, что есть в S3 (~16 минут на текущую библиотеку) — дальше сайт отдаёт файлы с диска"
+              >
+                {cacheStats.warm.status === "running" ? "Прогреваем…" : "Прогреть кэш"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void cacheAction("/api/v1/admin/media-cache/sweep")}
+                disabled={cacheBusy}
+                className="btn-ghost px-3 py-1.5 text-xs"
+                title="Удалить самые старые файлы кэша, если превышен лимит"
+              >
+                LRU-чистка
+              </button>
+              <button
+                type="button"
+                onClick={() => void cacheAction("/api/v1/admin/media-cache/clear")}
+                disabled={cacheBusy}
+                className="btn-ghost px-3 py-1.5 text-xs"
+                title="Очистить кэш целиком (файлы останутся в S3 и скачаются заново)"
+              >
+                Очистить
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {globalError ? (
         <p className="mb-4 rounded border border-accent-danger/30 bg-red-500/10 px-3 py-2 text-sm text-accent-danger">

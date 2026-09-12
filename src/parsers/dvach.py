@@ -29,6 +29,7 @@ from src.services.catalog_health import mark_catalog_error, mark_catalog_ok
 from src.services.s3_storage import S3Storage
 from src.services.downloader import DownloaderService
 from src.services.derivatives import generate_and_upload
+from src.services.media_cache import CachingUploader, get_media_cache
 from src.services.media_validator import MediaValidator
 from src.services.reconciliation import ReconciliationService
 from src.services.storage import StorageService
@@ -958,10 +959,8 @@ class DvachParser:
         s3_key = None
         variants = None
         duration_seconds = None
+        remote_key = f"board_{board.id}/thread_{thread_state.thread_id}/{meta['filename']}"
         if self.s3_storage.is_configured:
-            remote_key = (
-                f"board_{board.id}/thread_{thread_state.thread_id}/{meta['filename']}"
-            )
             s3_key = await self.s3_storage.upload_file(
                 prepared.local_path,
                 remote_key,
@@ -978,8 +977,18 @@ class DvachParser:
                 prepared.local_path,
             )
             if prepared.local_path.exists():
-                os.remove(prepared.local_path)
-                print(f"   [del]  Локальный файл удалён: {meta['filename']}")
+                # Раньше скачанный оригинал просто удалялся. Теперь оставляем его
+                # в локальном кэше: сайт отдаёт файл с диска (500+ МБ/с против
+                # ~3 МБ/с у S3) без повторного скачивания — «бесплатный» прогрев.
+                cache = get_media_cache()
+                cached = await asyncio.to_thread(
+                    cache.store_path, remote_key, prepared.local_path, True
+                )
+                if cached is None:
+                    os.remove(prepared.local_path)
+                    print(f"   [del]  Локальный файл удалён: {meta['filename']}")
+                else:
+                    print(f"   [cache] Оригинал оставлен в кэше: {meta['filename']}")
 
         return {
             "s3_key": s3_key,
@@ -1119,8 +1128,10 @@ class DvachParser:
         prefix = file_sha256[:12]
         base = f"board_{board.id}/thread_{thread_state.thread_id}/{prefix}"
         try:
+            # Обёртка кладёт готовые деривативы в локальный кэш: они уже в памяти
+            # или на диске, поэтому сайт отдаёт их без обращения к S3.
             variants, duration = await generate_and_upload(
-                self.s3_storage,
+                CachingUploader(self.s3_storage, get_media_cache()),
                 base_key=base,
                 media_type=meta["media_type"],
                 local_path=local_path,

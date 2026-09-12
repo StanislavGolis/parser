@@ -56,6 +56,12 @@ x-backend: &backend
     SMTP_PASSWORD: ${SMTP_PASSWORD:-}
     SMTP_FROM: ${SMTP_FROM:-}
     SMTP_TLS: ${SMTP_TLS:-ssl}
+    # Локальный кэш медиа (диск): S3 ~3 МБ/с против 500+ МБ/с у диска
+    MEDIA_CACHE_ENABLED: ${MEDIA_CACHE_ENABLED:-1}
+    MEDIA_CACHE_DIR: /data/cache
+    MEDIA_CACHE_MAX_BYTES: ${MEDIA_CACHE_MAX_BYTES:-42949672960}
+    MEDIA_CACHE_MIN_FREE_BYTES: ${MEDIA_CACHE_MIN_FREE_BYTES:-10737418240}
+    MEDIA_CACHE_WARM_WORKERS: ${MEDIA_CACHE_WARM_WORKERS:-4}
     STORAGE_PATH: /data/media
   restart: unless-stopped
   # Ограничение логов docker: иначе json-file растёт без предела (парсер болтлив)
@@ -119,6 +125,9 @@ services:
       context: .
       dockerfile: Dockerfile
     command: ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    volumes:
+      # Локальный кэш медиа: отдаём файлы с диска вместо повторных запросов в S3
+      - mediacache:/data/cache
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -156,6 +165,8 @@ services:
       RECONCILE_MINUTES: ${RECONCILE_MINUTES:-60}
     volumes:
       - media:/data/media
+      # Тот же кэш, что у API: парсер кладёт оригиналы и деривативы без доп. трафика
+      - mediacache:/data/cache
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -211,6 +222,7 @@ services:
 volumes:
   pgdata:
   media:
+  mediacache:
   nginx_cache:
 
 networks:

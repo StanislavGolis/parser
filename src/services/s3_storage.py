@@ -147,7 +147,7 @@ class S3Storage:
             return None
 
     async def download_to_file(self, remote_key: str, dest: Path) -> bool:
-        """Скачивает объект из S3 в локальный файл (для бэкфилла деривативов)."""
+        """Скачивает объект из S3 в локальный файл (бэкфилл деривативов, прогрев кэша)."""
         if not self.is_configured or self.client is None:
             return False
         try:
@@ -158,6 +158,11 @@ class S3Storage:
             return dest.exists() and dest.stat().st_size > 0
         except Exception as e:
             print(f"   [err] Ошибка скачивания из S3: {e}")
+            # Недокачанный файл не оставляем (иначе мусор в кэше/бэкфилле)
+            try:
+                dest.unlink(missing_ok=True)
+            except OSError:
+                pass
             return False
 
     async def delete_object(self, remote_key: str) -> bool:

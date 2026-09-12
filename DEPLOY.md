@@ -271,6 +271,7 @@ python3-certbot-nginx`; конфиг из шага 6 (`server_name <домен>`
 | Health-check | `/etc/cron.hourly/dredge-health` | проверяет `/healthz` и заполнение диска; лог `/var/log/dredge-health.log` (урезается до 500 строк). Если сайт не отвечает — поднимает стек (`docker compose up -d`); при диске >85% пишет ALERT |
 | Автообновления | `unattended-upgrades` (`/etc/apt/apt.conf.d/20auto-upgrades`) | патчи безопасности ставятся автоматически |
 | Логи docker | `docker-compose.prod.yml` + `/etc/docker/daemon.json` | `json-file`, `max-size=10m`, `max-file=3` — даже при отладке диск не забьётся |
+| Кэш медиа | том `mediacache`, `/data/cache` | лимит 40 ГБ, LRU; прогревается из админки («Прогреть кэш») и автоматически (парсер отдаёт туда скачанные файлы). Мониторится в карточке «Кэш медиа на диске»; при росте библиотеки лимит поднять в `MEDIA_CACHE_MAX_BYTES` |
 | Просмотр | `docker compose -f docker-compose.prod.yml logs -f api\|parser` | `tail -f /var/log/dredge-health.log` — журнал проверок |
 | Обновление кода | `cd /opt/dredge && git pull && docker compose -f docker-compose.prod.yml up -d --build` | не забыть про общий образ `parser-backend` (см. «Примечания») |
 
@@ -557,5 +558,10 @@ git push --force --tags
 | `MAX_PARALLEL_DOWNLOADS` | `2` | сколько файлов качать одновременно внутри треда (`1` — последовательно) |
 | `PREFETCH_MAX_BYTES` | `67108864` | ограничение памяти под предзагрузку пачки файлов (64 МБ) |
 | `MAX_PARALLEL_UPLOADS` | `1` | параллельные выгрузки в S3 внутри треда; `>1` проверять замером — Timeweb-эндпоинт троттлит одновременные загрузки (10.9 → 3.0 МБ/с) |
+| `MEDIA_CACHE_ENABLED` | `1` | дисковый кэш медиа (отдача повторных запросов с диска вместо S3) |
+| `MEDIA_CACHE_DIR` | `/data/cache` | каталог кэша (том `mediacache`) |
+| `MEDIA_CACHE_MAX_BYTES` | `42949672960` (40 ГБ) | лимит кэша: при превышении удаляются самые старые файлы (LRU); вся библиотека ~8 ГБ |
+| `MEDIA_CACHE_MIN_FREE_BYTES` | `10737418240` (10 ГБ) | не забивать диск ниже этого объёма свободного места |
+| `MEDIA_CACHE_WARM_WORKERS` | `4` | параллельных загрузок при прогреве кэша (замер: 4 потока дают ~8 МБ/с из S3) |
 | `NEXT_PUBLIC_API_BASE` (web) | пусто | URL API для браузера; пусто = same-origin (в compose не задаётся) |
 | `API_BASE_SERVER` (web) | `http://api:8000` | URL API для SSR внутри docker-сети (задан в compose) |

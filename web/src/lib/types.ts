@@ -262,3 +262,30 @@ export interface MarkResult {
 
 /** Индекс доски по id — чтобы показывать slug/title на плитках лент. */
 export type BoardsById = Record<number, Board>;
+
+/** Прогресс прогрева дискового кэша медиа. */
+export interface MediaCacheWarm {
+  status: "idle" | "running" | "done" | "interrupted" | string;
+  done: number;
+  total: number;
+  failed: number;
+}
+
+/** Состояние локального кэша медиа (диск сервера) вместе с прогрессом прогрева. */
+export interface MediaCacheStats {
+  enabled: boolean;
+  dir: string;
+  files: number;
+  bytes: number;
+  max_bytes: number;
+  min_free_bytes: number;
+  used_percent: number;
+  disk_total: number;
+  disk_free: number;
+  hits: number;
+  misses: number;
+  stored: number;
+  evicted_files: number;
+  evicted_bytes: number;
+  warm: MediaCacheWarm;
+}

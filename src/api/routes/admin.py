@@ -50,9 +50,11 @@ from src.api.threads_service import (
     thread_state_counts,
 )
 from src.core.db import async_session_factory, get_session
+from src.core.config import settings
 from src.core.models import Board, Media, ThreadState
 from src.core.redis_client import redis_client
 from src.services.catalog_health import catalog_errors, mark_catalog_error, mark_catalog_ok
+from src.services.media_cache import get_media_cache
 from src.services.s3_storage import S3Storage
 from src.services.derivatives import generate_and_upload
 from src.services.premium import (
@@ -465,6 +467,147 @@ async def cleanup_storage_orphans(
     if orphans:
         await s3.delete_keys(orphans)
     return {"total": len(keys), "orphans": len(orphans), "deleted": len(orphans)}
+
+
+# ── Локальный кэш медиа (диск сервера) ────────────────────────────
+# S3 у провайдера отдаёт ~3 МБ/с, локальный SSD — 500+ МБ/с. Всё, что уже
+# прочитано или скачано парсером, лежит в кэше: повторные запросы (включая
+# премиум-оригиналы, которым закрыт общий кэш nginx) идут с диска.
+
+WARM_STATUS_KEY = "media_cache:warm"
+# Если прогрева нет дольше этого времени — считаем его прерванным (рестарт API)
+WARM_STALE_SECONDS = 120
+_warm_task: Optional[asyncio.Task] = None
+
+
+async def _warm_status() -> Dict[str, object]:
+    """Прогресс прогрева кэша (хранится в Redis, переживает рестарт API).
+
+    Если процесс упал во время прогрева, статус остался бы «running» навсегда —
+    поэтому по «протухшему» отметке времени считаем прогрев прерванным.
+    """
+    raw = await redis_client.get(WARM_STATUS_KEY)
+    if raw:
+        try:
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8")
+            state = json.loads(raw)
+            if state.get("status") == "running":
+                heartbeat = float(state.get("ts") or 0)
+                if time.time() - heartbeat > WARM_STALE_SECONDS:
+                    state["status"] = "interrupted"
+            return state
+        except (TypeError, ValueError):
+            pass
+    return {"status": "idle", "done": 0, "total": 0, "failed": 0}
+
+
+async def _cache_keys(session: AsyncSession) -> List[str]:
+    """Все ключи объектов S3 из БД: оригиналы + деривативы."""
+    result = await session.execute(
+        select(Media.s3_key, Media.variants).where(Media.s3_key.isnot(None))
+    )
+    keys: List[str] = []
+    for s3_key, variants in result.all():
+        if s3_key:
+            keys.append(s3_key)
+        for value in (variants or {}).values():
+            if value:
+                keys.append(value)
+    return keys
+
+
+async def _warm_cache(keys: List[str]) -> None:
+    """Фоновый прогрев: тянет объекты из S3 в локальный кэш (пачками, с лимитом)."""
+    s3 = get_s3()
+    cache = get_media_cache()
+    total = len(keys)
+    state: Dict[str, object] = {
+        "status": "running",
+        "done": 0,
+        "total": total,
+        "failed": 0,
+        "ts": time.time(),
+    }
+    await redis_client.set(WARM_STATUS_KEY, json.dumps(state), ex=86400)
+    semaphore = asyncio.Semaphore(max(1, settings.MEDIA_CACHE_WARM_WORKERS))
+    lock = asyncio.Lock()
+
+    async def fetch(key: str) -> None:
+        ok = True
+        if not cache.has(key):
+            async with semaphore:
+                temp = cache.path_for_part(key)
+                ok = await s3.download_to_file(key, temp)
+                if ok:
+                    cache.commit_part(key, temp)
+                else:
+                    cache.drop_part(temp)
+        async with lock:
+            state["done"] = int(state["done"]) + 1
+            if not ok:
+                state["failed"] = int(state["failed"]) + 1
+            if int(state["done"]) % 5 == 0 or int(state["done"]) == total:
+                state["ts"] = time.time()
+                await redis_client.set(WARM_STATUS_KEY, json.dumps(state), ex=86400)
+                await asyncio.to_thread(cache.sweep)
+
+    # Пачками, чтобы не плодить десятки тысяч задач сразу
+    for start in range(0, total, 200):
+        await asyncio.gather(*(fetch(key) for key in keys[start:start + 200]))
+
+    state["status"] = "done"
+    await redis_client.set(WARM_STATUS_KEY, json.dumps(state), ex=86400)
+    await asyncio.to_thread(cache.sweep)
+    print(f"[cache] прогрев завершён: {state['done']} объектов, ошибок {state['failed']}")
+
+
+@router.get("/media-cache")
+async def media_cache_state(_=Depends(verify_admin)):
+    """Состояние локального кэша: файлы, объём, лимит, место на диске, прогрев."""
+    cache = get_media_cache()
+    stats = await asyncio.to_thread(cache.stats)
+    stats["warm"] = await _warm_status()
+    return stats
+
+
+@router.post("/media-cache/sweep")
+async def media_cache_sweep(_=Depends(verify_admin)):
+    """Принудительная LRU-чистка кэша (удаляются самые старые файлы)."""
+    cache = get_media_cache()
+    freed = await asyncio.to_thread(cache.sweep, True)
+    stats = await asyncio.to_thread(cache.stats)
+    return {"freed_bytes": freed, **stats}
+
+
+@router.post("/media-cache/clear")
+async def media_cache_clear(_=Depends(verify_admin)):
+    """Полная очистка кэша: файлы остаются в S3, скачаются заново при запросе."""
+    cache = get_media_cache()
+    removed = await asyncio.to_thread(cache.clear)
+    stats = await asyncio.to_thread(cache.stats)
+    return {"removed_files": removed, **stats}
+
+
+@router.post("/media-cache/warm")
+async def media_cache_warm(
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Запускает фоновый прогрев кэша: все объекты из БД тянутся из S3 на диск."""
+    global _warm_task
+    current = await _warm_status()
+    if current.get("status") == "running":
+        return current
+    keys = await _cache_keys(session)
+    _warm_task = asyncio.create_task(_warm_cache(keys))
+    return {"status": "running", "done": 0, "total": len(keys), "failed": 0}
+
+
+@router.get("/media-cache/warm")
+async def media_cache_warm_status(_=Depends(verify_admin)):
+    """Прогресс прогрева кэша (опрашивается админкой)."""
+    return await _warm_status()
 
 
 @router.delete("/reset", response_model=ResetResult)

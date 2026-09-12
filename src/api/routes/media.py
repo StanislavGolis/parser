@@ -3,6 +3,7 @@ import asyncio
 import re
 import urllib.parse
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -46,6 +47,7 @@ from src.core.models import (
     User,
     ViewStat,
 )
+from src.services.media_cache import MediaCache, get_media_cache
 from src.services.s3_storage import S3Storage
 
 router = APIRouter(prefix="/api/v1", tags=["media"])
@@ -341,25 +343,205 @@ async def _iter_body(body):
         await asyncio.to_thread(body.close)
 
 
+def _parse_range(header: Optional[str], size: int) -> Optional[tuple]:
+    """Разбирает `Range: bytes=start-end` → (start, end) включительно.
+
+    Поддерживает обычные (`bytes=100-200`) и суффиксные (`bytes=-500`) диапазоны.
+    None — заголовка нет, он множественный или некорректный (тогда отдаём всё).
+    """
+    if not header or not header.startswith("bytes=") or size <= 0:
+        return None
+    spec = header[len("bytes="):].strip()
+    if "," in spec:
+        return None
+    start_part, _, end_part = spec.partition("-")
+    try:
+        if start_part:
+            start = int(start_part)
+            end = int(end_part) if end_part else size - 1
+        elif end_part:
+            length = int(end_part)
+            if length <= 0:
+                return None
+            start = max(0, size - length)
+            end = size - 1
+        else:
+            return None
+    except ValueError:
+        return None
+    if start >= size or start > end:
+        return None
+    return start, min(end, size - 1)
+
+
+def _iter_file(path: Path, start: int = 0, end: Optional[int] = None):
+    """Читает локальный файл (Starlette выполняет такой генератор в пуле потоков)."""
+    remaining = None if end is None else end - start + 1
+    with path.open("rb") as handle:
+        if start:
+            handle.seek(start)
+        while True:
+            chunk_size = (
+                STREAM_CHUNK_SIZE if remaining is None else min(STREAM_CHUNK_SIZE, remaining)
+            )
+            if chunk_size <= 0:
+                break
+            chunk = handle.read(chunk_size)
+            if not chunk:
+                break
+            if remaining is not None:
+                remaining -= len(chunk)
+            yield chunk
+
+
+def _local_file_response(
+    *,
+    media: Media,
+    path: Path,
+    request: Request,
+    media_type: str,
+    cache_control: str,
+    download: bool,
+):
+    """Отдаёт файл из локального кэша (с поддержкой Range-запросов)."""
+    stat = path.stat()
+    size = stat.st_size
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Cache-Control": cache_control,
+        "X-Cache": "HIT",
+        "ETag": f'"{int(stat.st_mtime)}-{size}"',
+    }
+    if download:
+        headers["Content-Disposition"] = _content_disposition(media.original_name)
+
+    span = _parse_range(request.headers.get("range"), size)
+    if span is None:
+        headers["Content-Length"] = str(size)
+        return StreamingResponse(
+            _iter_file(path),
+            status_code=200,
+            media_type=media_type,
+            headers=headers,
+        )
+
+    start, end = span
+    headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+    headers["Content-Length"] = str(end - start + 1)
+    return StreamingResponse(
+        _iter_file(path, start, end),
+        status_code=206,
+        media_type=media_type,
+        headers=headers,
+    )
+
+
+async def _iter_body_tee(body, temp: Path, cache: MediaCache, key: str):
+    """Читает объект из S3 и попутно складывает его в локальный кэш.
+
+    Первый запрос не ждёт отдельной загрузки: клиент получает данные сразу, а файл
+    остаётся на диске для следующих запросов (трафик S3 не удваивается).
+    """
+    completed = False
+    handle = None
+    try:
+        handle = await asyncio.to_thread(temp.open, "wb")
+        while True:
+            chunk = await asyncio.to_thread(body.read, STREAM_CHUNK_SIZE)
+            if not chunk:
+                break
+            await asyncio.to_thread(handle.write, chunk)
+            yield chunk
+        completed = True
+    finally:
+        if handle is not None:
+            try:
+                await asyncio.to_thread(handle.close)
+            except Exception:  # noqa: BLE001
+                pass
+        if completed:
+            await asyncio.to_thread(cache.commit_part, key, temp)
+            await asyncio.to_thread(cache.sweep)
+        else:
+            await asyncio.to_thread(cache.drop_part, temp)
+
+
+# Ключи, которые прямо сейчас догружаются в кэш (чтобы не дублировать работу)
+_WARMING: set = set()
+_WARM_SEMAPHORE: Optional[asyncio.Semaphore] = None
+
+
+async def _warm_object(key: str, s3: S3Storage, cache: MediaCache) -> None:
+    """Фоновая загрузка объекта целиком (нужна после Range-запросов к видео)."""
+    global _WARM_SEMAPHORE
+    if _WARM_SEMAPHORE is None:
+        from src.core.config import settings as _settings
+
+        _WARM_SEMAPHORE = asyncio.Semaphore(max(1, _settings.MEDIA_CACHE_WARM_WORKERS))
+    try:
+        async with _WARM_SEMAPHORE:
+            if cache.has(key):
+                return
+            temp = cache.path_for_part(key)
+            if await s3.download_to_file(key, temp):
+                cache.commit_part(key, temp)
+                await asyncio.to_thread(cache.sweep)
+            else:
+                cache.drop_part(temp)
+    except Exception as exc:  # noqa: BLE001
+        print(f"   [cache] прогрев {key} не удался: {exc}")
+    finally:
+        _WARMING.discard(key)
+
+
+def _schedule_warm(key: str, s3: S3Storage, cache: MediaCache) -> None:
+    """Ставит объект в фоновый прогрев, не задерживая ответ клиенту."""
+    if not cache.enabled or key in _WARMING:
+        return
+    _WARMING.add(key)
+    asyncio.create_task(_warm_object(key, s3, cache))
+
+
 async def _stream_object(
     *,
     media: Media,
     key: str,
     request: Request,
     s3: S3Storage,
+    cache: Optional[MediaCache] = None,
     download: bool = False,
     content_type: Optional[str] = None,
     cache_control: str = "public, max-age=3600",
-) -> StreamingResponse:
-    """Стримит объект из S3 (с поддержкой Range) с нужными заголовками."""
+):
+    """Отдаёт объект: сначала локальный кэш, при промахе — S3 (с записью в кэш).
+
+    Локальный диск (замер: 500+ МБ/с) на порядки быстрее S3 у провайдера
+    (~3 МБ/с), поэтому повторные запросы — включая премиум-оригиналы, которые
+    нельзя класть в общий кэш nginx, — обслуживаются прямо с диска.
+    """
+    media_type = content_type or media.mime_type
+
+    if cache is not None and cache.enabled:
+        cached = cache.get(key)
+        if cached is not None:
+            return _local_file_response(
+                media=media,
+                path=cached,
+                request=request,
+                media_type=media_type,
+                cache_control=cache_control,
+                download=download,
+            )
+
     if not s3.is_configured:
         raise HTTPException(status_code=503, detail="Storage is not configured")
 
-    obj = await s3.open_object_stream(key, range_header=request.headers.get("range"))
+    range_header = request.headers.get("range")
+    obj = await s3.open_object_stream(key, range_header=range_header)
     if obj is None or obj.get("body") is None:
         raise HTTPException(status_code=404, detail="File not found in storage")
 
-    headers = {"Accept-Ranges": obj.get("accept_ranges") or "bytes"}
+    headers = {"Accept-Ranges": obj.get("accept_ranges") or "bytes", "X-Cache": "MISS"}
     if obj.get("content_length") is not None:
         headers["Content-Length"] = str(obj["content_length"])
     if obj.get("content_range"):
@@ -370,10 +552,25 @@ async def _stream_object(
         headers["Content-Disposition"] = _content_disposition(media.original_name)
     headers["Cache-Control"] = cache_control
 
+    body_iter = _iter_body(obj["body"])
+    if cache is not None and cache.enabled:
+        if not range_header:
+            # Объект целиком: пишем в кэш «по пути», клиент ничего не ждёт
+            try:
+                body_iter = _iter_body_tee(
+                    obj["body"], cache.path_for_part(key), cache, key
+                )
+            except OSError as exc:
+                print(f"   [cache] не удалось начать запись {key}: {exc}")
+                body_iter = _iter_body(obj["body"])
+        else:
+            # Диапазон (перемотка видео): объект нужен целиком → греем в фоне
+            _schedule_warm(key, s3, cache)
+
     return StreamingResponse(
-        _iter_body(obj["body"]),
+        body_iter,
         status_code=206 if obj.get("content_range") else 200,
-        media_type=content_type or obj.get("content_type") or media.mime_type,
+        media_type=media_type,
         headers=headers,
     )
 
@@ -385,6 +582,7 @@ async def media_raw(
     download: bool = Query(False),
     session: AsyncSession = Depends(get_session),
     s3: S3Storage = Depends(get_s3),
+    cache: MediaCache = Depends(get_media_cache),
     user: User = Depends(require_premium),
 ):
     """Отдаёт ОРИГИНАЛ файла через наш API (только премиум-подписка).
@@ -407,6 +605,7 @@ async def media_raw(
         key=media.s3_key,
         request=request,
         s3=s3,
+        cache=cache,
         download=download,
         cache_control=(
             "private, no-store" if media.is_premium else "public, max-age=3600"
@@ -421,6 +620,7 @@ async def media_asset(
     request: Request,
     session: AsyncSession = Depends(get_session),
     s3: S3Storage = Depends(get_s3),
+    cache: MediaCache = Depends(get_media_cache),
     user: Optional[User] = Depends(get_current_user),
 ):
     """Отдаёт дериватив: `thumb` (превью), `thumb_blur` (размытое превью), `web`, `video`.
@@ -451,6 +651,7 @@ async def media_asset(
             key=key,
             request=request,
             s3=s3,
+            cache=cache,
             cache_control="public, max-age=31536000, immutable",
         )
 
@@ -470,6 +671,7 @@ async def media_asset(
         key=key,
         request=request,
         s3=s3,
+        cache=cache,
         content_type=content_type,
         cache_control=cache,
     )
