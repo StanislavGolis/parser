@@ -1,8 +1,9 @@
 # src/api/routes/auth.py
-"""Аутентификация: регистрация/вход/выход и текущий пользователь.
+"""Аутентификация: регистрация/вход/выход, профиль и премиум-доступ.
 
-Оригиналы файлов (`/media/{id}/raw`, `/download`) доступны только вошедшим;
-превью и оптимизированные версии (`/asset/*`) — публичны.
+Оригиналы и полные версии премиум-файлов (`/media/{id}/raw|download|asset/web`)
+доступны только вошедшим; премиум-контент дополнительно требует подписки.
+Размытые превью (`/asset/thumb_blur`) и деривативы обычных файлов публичны.
 """
 from datetime import datetime
 
@@ -15,10 +16,21 @@ from src.api.schemas import AuthCredentials, UserOut
 from src.core.db import get_session
 from src.core.models import User, UserSession
 from src.services import auth as auth_service
+from src.services.premium import PROMO_PREMIUM_DAYS, grant_premium, premium_active
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 SESSION_COOKIE_MAX_AGE = int(auth_service.SESSION_TTL.total_seconds())
+
+
+def user_out(user: User) -> UserOut:
+    """Схема пользователя с актуальным премиум-статусом."""
+    return UserOut(
+        id=user.id,
+        email=user.email,
+        premium_until=user.premium_until,
+        is_premium=premium_active(user),
+    )
 
 
 async def _issue_session(session: AsyncSession, response: Response, user: User) -> None:
@@ -68,7 +80,7 @@ async def register(
     await session.refresh(user)
 
     await _issue_session(session, response, user)
-    return UserOut(id=user.id, email=user.email)
+    return user_out(user)
 
 
 @router.post("/login", response_model=UserOut)
@@ -91,7 +103,7 @@ async def login(
         raise HTTPException(status_code=401, detail="Неверный email или пароль")
 
     await _issue_session(session, response, user)
-    return UserOut(id=user.id, email=user.email)
+    return user_out(user)
 
 
 @router.post("/logout")
@@ -114,4 +126,23 @@ async def logout(
 @router.get("/me", response_model=UserOut)
 async def me(user: User = Depends(require_user)):
     """Текущий пользователь (401, если не вошёл)."""
-    return UserOut(id=user.id, email=user.email)
+    return user_out(user)
+
+
+@router.post("/premium/activate", response_model=UserOut)
+async def activate_premium(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(require_user),
+):
+    """Промо-активация премиума на PROMO_PREMIUM_DAYS дней.
+
+    Пока платёжной системы нет — кнопка в профиле выдаёт премиум бесплатно;
+    повторная активация продлевает срок от текущего (накопление).
+    """
+    await check_rate_limit(client_ip(request))
+
+    grant_premium(user, PROMO_PREMIUM_DAYS)
+    await session.commit()
+    await session.refresh(user)
+    return user_out(user)

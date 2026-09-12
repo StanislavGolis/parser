@@ -12,15 +12,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.common import (
     VISIBLE_FILTER,
-    allowed_private_thread_ids,
     apply_media_urls,
-    board_access_granted,
     build_media_url,
+    media_locked,
     sign_media_urls,
-    thread_access_granted,
     visible_thread_clause,
 )
-from src.api.deps import check_rate_limit, client_ip, get_s3, ip_hash, require_user
+from src.api.deps import (
+    check_rate_limit,
+    client_ip,
+    get_current_user,
+    get_s3,
+    ip_hash,
+    require_user,
+)
 from src.api.schemas import DownloadResult, MediaDetailOut, MediaListOut, MediaOut, ViewResult
 from src.core.db import get_session
 from src.core.models import Board, DownloadStat, Media, ThreadState, User, ViewStat
@@ -42,23 +47,21 @@ async def _get_visible_media(session: AsyncSession, media_id: int) -> Media:
     return media
 
 
-async def _check_media_board_access(
-    request: Request,
+async def _check_media_access(
     session: AsyncSession,
     media: Media,
 ) -> Board:
-    """Проверяет видимость доски и доступ к приватной доске.
+    """Проверяет видимость доски и треда для файла.
 
-    Скрытая доска = контент «не существует» (404).
-    Приватная доска без валидного cookie доступа — 403.
+    Скрытая доска/тред = контент «не существует» (404). Премиум-доступ
+    проверяется отдельно (`_require_premium`) — он не скрывает файл, а
+    ограничивает полный контент и размывает превью.
     """
     board = await session.get(Board, media.board_id)
     if not board or not board.is_visible:
         raise HTTPException(status_code=404, detail="Media not found")
-    if board.is_private and not board_access_granted(request, board):
-        raise HTTPException(status_code=403, detail="Access denied")
 
-    # Видимость и приватность треда — сквозная проверка для файлов
+    # Видимость треда — сквозная проверка для файлов
     thread_result = await session.execute(
         select(ThreadState).where(
             ThreadState.board_id == media.board_id,
@@ -68,9 +71,13 @@ async def _check_media_board_access(
     thread = thread_result.scalar_one_or_none()
     if not thread or not thread.is_active or not thread.is_visible:
         raise HTTPException(status_code=404, detail="Media not found")
-    if not thread_access_granted(request, board, thread):
-        raise HTTPException(status_code=403, detail="Access denied")
     return board
+
+
+def _require_premium(media: Media, user: Optional[User]) -> None:
+    """Полный доступ к премиум-файлу требует активной подписки."""
+    if media_locked(media, user):
+        raise HTTPException(status_code=403, detail="Требуется премиум-доступ")
 
 
 @router.get("/boards/{slug}/media", response_model=MediaListOut)
@@ -84,8 +91,12 @@ async def board_media(
     thread: Optional[int] = Query(None, description="Показать файлы только этого треда"),
     session: AsyncSession = Depends(get_session),
     s3: S3Storage = Depends(get_s3),
+    user: Optional[User] = Depends(get_current_user),
 ):
-    """Список файлов доски с пагинацией и сортировкой (можно фильтровать по треду)."""
+    """Список файлов доски с пагинацией и сортировкой (можно фильтровать по треду).
+
+    Премиум-файлы остаются в списке: превью приходит размытым, полный — по подписке.
+    """
     await check_rate_limit(client_ip(request))
 
     board_result = await session.execute(
@@ -95,12 +106,7 @@ async def board_media(
     if not board:
         raise HTTPException(status_code=404, detail="Board not found")
 
-    # Приватная доска: контент только по коду доступа (cookie).
-    if board.is_private and not board_access_granted(request, board):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    allowed = await allowed_private_thread_ids(session, request, board)
-    filters = list(VISIBLE_FILTER) + [Media.board_id == board.id, visible_thread_clause(allowed)]
+    filters = list(VISIBLE_FILTER) + [Media.board_id == board.id, visible_thread_clause()]
     if media_type:
         filters.append(Media.media_type == media_type)
     if thread is not None:
@@ -124,7 +130,7 @@ async def board_media(
     items = result.scalars().all()
 
     out = [MediaOut.model_validate(m) for m in items]
-    sign_media_urls(out, items, s3)
+    sign_media_urls(out, items, s3, user)
     return MediaListOut(
         items=out,
         page=page,
@@ -139,16 +145,17 @@ async def media_detail(
     request: Request,
     session: AsyncSession = Depends(get_session),
     s3: S3Storage = Depends(get_s3),
+    user: Optional[User] = Depends(get_current_user),
 ):
-    """Информация о файле + URL для просмотра."""
+    """Информация о файле + URL для просмотра (премиум-файлы помечаются locked)."""
     await check_rate_limit(client_ip(request))
 
     media = await _get_visible_media(session, media_id)
 
-    board = await _check_media_board_access(request, session, media)
+    board = await _check_media_access(session, media)
     data = MediaDetailOut.model_validate(media)
     data.board_slug = board.slug if board else ""
-    apply_media_urls(data, media, s3)
+    apply_media_urls(data, media, s3, user)
     return data
 
 
@@ -162,7 +169,7 @@ async def media_view(
     await check_rate_limit(client_ip(request))
 
     media = await _get_visible_media(session, media_id)
-    await _check_media_board_access(request, session, media)
+    await _check_media_access(session, media)
     iph = ip_hash(client_ip(request))
     cutoff = datetime.utcnow() - timedelta(hours=DEDUP_PERIOD_HOURS)
 
@@ -199,7 +206,8 @@ async def media_download(
     if not media.s3_key:
         raise HTTPException(status_code=409, detail="File not available")
 
-    await _check_media_board_access(request, session, media)
+    await _check_media_access(session, media)
+    _require_premium(media, user)
     url = build_media_url(media.id, s3, media.s3_key, download=True)
     if not url:
         raise HTTPException(status_code=503, detail="Storage is not configured")
@@ -231,7 +239,7 @@ async def media_download(
 STREAM_CHUNK_SIZE = 256 * 1024
 
 # Публичные варианты деривативов (оригинал — /raw)
-ASSET_KINDS = ("thumb", "web", "video")
+ASSET_KINDS = ("thumb", "thumb_blur", "web", "video")
 
 
 def _content_disposition(filename: str) -> str:
@@ -301,8 +309,9 @@ async def media_raw(
 ):
     """Отдаёт ОРИГИНАЛ файла через наш API (только авторизованным).
 
-    Публично доступны только деривативы (`/asset/thumb|web|video`).
-    Поддерживает Range и Content-Disposition при `?download=1`.
+    Публично доступны только деривативы (`/asset/thumb|thumb_blur|web|video`).
+    Премиум-файлы требуют активной подписки. Поддерживает Range и
+    Content-Disposition при `?download=1`.
     """
     await check_rate_limit(client_ip(request))
 
@@ -310,14 +319,17 @@ async def media_raw(
     if not media.s3_key:
         raise HTTPException(status_code=404, detail="File not available")
 
-    board = await _check_media_board_access(request, session, media)
+    await _check_media_access(session, media)
+    _require_premium(media, user)
     return await _stream_object(
         media=media,
         key=media.s3_key,
         request=request,
         s3=s3,
         download=download,
-        cache_control="private, max-age=3600" if board.is_private else "public, max-age=3600",
+        cache_control=(
+            "private, no-store" if media.is_premium else "public, max-age=3600"
+        ),
     )
 
 
@@ -328,10 +340,13 @@ async def media_asset(
     request: Request,
     session: AsyncSession = Depends(get_session),
     s3: S3Storage = Depends(get_s3),
+    user: Optional[User] = Depends(get_current_user),
 ):
-    """Отдаёт дериватив: `thumb` (превью) или `web` (оптимизированная версия).
+    """Отдаёт дериватив: `thumb` (превью), `thumb_blur` (размытое превью), `web`, `video`.
 
-    Деривативы неизменяемы → длинный публичный кэш (браузер/CDN).
+    - `thumb_blur` публичен и кэшируется надолго: используется для премиум-контента.
+    - `thumb`/`web`/`video` для премиум-файлов требуют подписку и не кэшируются
+      (Cache-Control: private, no-store), чтобы вариант не «утёк» из кэша nginx.
     """
     if kind not in ASSET_KINDS:
         raise HTTPException(status_code=404, detail="Unknown asset kind")
@@ -339,16 +354,34 @@ async def media_asset(
     await check_rate_limit(client_ip(request))
 
     media = await _get_visible_media(session, media_id)
-    board = await _check_media_board_access(request, session, media)
+    await _check_media_access(session, media)
 
-    key = (media.variants or {}).get(kind)
+    variants = media.variants or {}
+
+    if kind == "thumb_blur":
+        # Публичный размытый превью премиум-контента. Пока блюр не сгенерирован
+        # (бэкфилл не проходил), отдаём обычное превью — карточка не «ломается»,
+        # визуально его прячет клиентский блюр.
+        key = variants.get("thumb_blur") or variants.get("thumb")
+        if not key:
+            raise HTTPException(status_code=404, detail="Asset not available")
+        return await _stream_object(
+            media=media,
+            key=key,
+            request=request,
+            s3=s3,
+            cache_control="public, max-age=31536000, immutable",
+        )
+
+    _require_premium(media, user)
+    key = variants.get(kind)
     if not key:
         raise HTTPException(status_code=404, detail="Asset not available")
 
     content_type = "video/mp4" if (kind == "video") else None
     cache = (
-        "private, max-age=86400"
-        if board.is_private
+        "private, no-store"
+        if media.is_premium
         else "public, max-age=31536000, immutable"
     )
     return await _stream_object(

@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.common import sign_media_urls
 from src.api.schemas import MediaOut, ThreadOut
-from src.core.models import Media, ThreadState
+from src.core.models import Media, ThreadState, User
 from src.services.s3_storage import S3Storage
 
 UPLOADED_STATUSES = ("uploaded", "verified")
@@ -21,11 +21,11 @@ PREVIEW_SIZE = 8
 
 
 def thread_work_rank():
-    """SQL-выражение «в работе»: парсить важнее, затем «на сайте», затем «по коду»."""
+    """SQL-выражение «в работе»: парсить важнее, затем «на сайте», затем «премиум»."""
     return (
         cast(ThreadState.parse_enabled, Integer) * 4
         + cast(ThreadState.is_visible, Integer) * 2
-        + cast(ThreadState.is_private, Integer)
+        + cast(ThreadState.is_premium, Integer)
     )
 
 
@@ -34,7 +34,7 @@ def _state_filters(state: str):
     work = or_(
         ThreadState.parse_enabled.is_(True),
         ThreadState.is_visible.is_(True),
-        ThreadState.is_private.is_(True),
+        ThreadState.is_premium.is_(True),
     )
     if state == "active":
         return [work]
@@ -42,8 +42,8 @@ def _state_filters(state: str):
         return [ThreadState.parse_enabled.is_(True)]
     if state == "visible":
         return [ThreadState.is_visible.is_(True)]
-    if state == "private":
-        return [ThreadState.is_private.is_(True)]
+    if state == "premium":
+        return [ThreadState.is_premium.is_(True)]
     if state == "off":
         return [~work]
     return []
@@ -54,7 +54,7 @@ async def thread_state_counts(session: AsyncSession, board_id: int) -> Dict[str,
     work = or_(
         ThreadState.parse_enabled.is_(True),
         ThreadState.is_visible.is_(True),
-        ThreadState.is_private.is_(True),
+        ThreadState.is_premium.is_(True),
     )
     row = (
         await session.execute(
@@ -63,7 +63,7 @@ async def thread_state_counts(session: AsyncSession, board_id: int) -> Dict[str,
                 func.count().filter(work),
                 func.count().filter(ThreadState.parse_enabled.is_(True)),
                 func.count().filter(ThreadState.is_visible.is_(True)),
-                func.count().filter(ThreadState.is_private.is_(True)),
+                func.count().filter(ThreadState.is_premium.is_(True)),
                 func.count().filter(~work),
             ).where(ThreadState.board_id == board_id, ThreadState.is_active.is_(True))
         )
@@ -73,7 +73,7 @@ async def thread_state_counts(session: AsyncSession, board_id: int) -> Dict[str,
         "active": int(row[1] or 0),
         "parsing": int(row[2] or 0),
         "visible": int(row[3] or 0),
-        "private": int(row[4] or 0),
+        "premium": int(row[4] or 0),
         "off": int(row[5] or 0),
     }
 
@@ -242,13 +242,16 @@ async def build_thread_outs(
     *,
     s3: Optional[S3Storage] = None,
     with_preview: bool = True,
-    allowed_private_ids: Optional[set] = None,
+    user: Optional[User] = None,
 ) -> List[ThreadOut]:
-    """Собирает ThreadOut для списка тредов (+ статистика и превью)."""
+    """Собирает ThreadOut для списка тредов (+ статистика и превью).
+
+    Превью премиум-файлов отдаются размытыми (thumb_blur) для пользователей
+    без активной подписки.
+    """
     if not threads:
         return []
 
-    allowed = allowed_private_ids or set()
     stats = await _media_stats(session, board_id)
     thread_ids = [t.thread_id for t in threads]
     previews = await _previews(session, board_id, thread_ids) if with_preview else {}
@@ -270,8 +273,7 @@ async def build_thread_outs(
             is_active=t.is_active,
             parse_enabled=t.parse_enabled,
             is_visible=t.is_visible,
-            is_private=t.is_private,
-            has_access_code=bool(t.access_code_hash),
+            is_premium=t.is_premium,
             media_total=s.get("media_total", 0),
             media_downloaded=s.get("media_downloaded", 0),
             media_in_s3=s.get("media_in_s3", 0),
@@ -280,14 +282,12 @@ async def build_thread_outs(
             preview=[],
         )
 
-        # Превью приватного треда отдаём только при подтверждённом доступе
-        can_preview = (not t.is_private) or (t.thread_id in allowed)
-        if with_preview and can_preview:
+        if with_preview:
             media_items = previews.get(t.thread_id, [])
             if media_items:
                 preview_out = [MediaOut.model_validate(m) for m in media_items]
                 if s3 is not None:
-                    sign_media_urls(preview_out, media_items, s3)
+                    sign_media_urls(preview_out, media_items, s3, user)
                 item.preview = preview_out
         out.append(item)
 

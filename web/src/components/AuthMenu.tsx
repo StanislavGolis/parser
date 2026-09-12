@@ -46,9 +46,21 @@ export default function AuthMenu() {
 
   return (
     <div className="flex items-center gap-2">
-      <span className="hidden max-w-[160px] truncate font-mono text-[11px] text-text-muted sm:inline" title={user.email}>
-        {user.email}
-      </span>
+      <Link
+        href="/profile"
+        className={`hidden max-w-[160px] items-center gap-1 truncate rounded px-1 py-1 font-mono text-[11px] transition-colors sm:inline-flex ${
+          user.is_premium
+            ? "text-accent-warning hover:text-accent-warning/80"
+            : "text-text-muted hover:text-text-primary"
+        }`}
+        title={user.is_premium ? "Премиум активен — открыть профиль" : "Открыть профиль"}
+      >
+        {user.is_premium ? "★" : null}
+        <span className="truncate">{user.email}</span>
+      </Link>
+      <Link href="/profile" className="btn-ghost px-3 py-1.5 text-xs">
+        Профиль
+      </Link>
       <button type="button" onClick={() => void logout()} className="btn-ghost px-3 py-1.5 text-xs">
         Выйти
       </button>

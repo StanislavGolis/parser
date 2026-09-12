@@ -22,10 +22,9 @@ from typing import Dict, List, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.common import hash_access_code
 from src.api.deps import get_s3, verify_admin
 from src.api.schemas import (
     AdminBoardOut,
@@ -54,6 +53,11 @@ from src.core.models import Board, Media, ThreadState
 from src.core.redis_client import redis_client
 from src.services.s3_storage import S3Storage
 from src.services.derivatives import generate_and_upload
+from src.services.premium import (
+    sync_board_media_premium,
+    sync_thread_media_premium,
+    sync_threads_media_premium,
+)
 from src.services.thread_discovery import ThreadDiscovery, scan_key
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
@@ -77,10 +81,9 @@ def _admin_out(board: Board, m: Optional[dict] = None) -> AdminBoardOut:
         description=board.description,
         media_count=int(m.get("media_visible", 0)),
         is_visible=board.is_visible,
-        is_private=board.is_private,
+        is_premium=board.is_premium,
         parse_enabled=board.parse_enabled,
         parse_mode=board.parse_mode,
-        has_access_code=bool(board.access_code_hash),
         sort_order=board.sort_order,
         media_total=int(m.get("media_total", 0)),
         media_downloaded=int(m.get("media_downloaded", 0)),
@@ -222,7 +225,7 @@ async def admin_forum_boards(
             in_db=board is not None,
             parse_enabled=board.parse_enabled if board else False,
             is_visible=board.is_visible if board else False,
-            is_private=board.is_private if board else False,
+            is_premium=board.is_premium if board else False,
             media_total=int(s.get("media_total", 0)),
             media_in_s3=int(s.get("media_in_s3", 0)),
             threads_active=int(s.get("threads_active", 0)),
@@ -276,10 +279,10 @@ async def update_board(
     _=Depends(verify_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Обновляет флаги доски и/или код доступа.
+    """Обновляет флаги доски (в т.ч. премиум-доступ) и название.
 
-    access_code: непустая строка — установить/сменить код;
-    пустая строка — сбросить код (закроет приватный доступ).
+    Включение is_premium закрывает весь контент доски: всем её файлам
+    проставляется премиум-признак (media.is_premium).
     """
     board = await _load_board(session, slug)
 
@@ -287,8 +290,6 @@ async def update_board(
         board.parse_enabled = payload.parse_enabled
     if payload.is_visible is not None:
         board.is_visible = payload.is_visible
-    if payload.is_private is not None:
-        board.is_private = payload.is_private
     if payload.parse_mode is not None:
         mode = payload.parse_mode.strip().lower()
         if mode not in ("all", "selected"):
@@ -298,18 +299,9 @@ async def update_board(
         title = payload.title.strip()
         board.title = title[:100] if title else board.slug
 
-    if payload.access_code is not None:
-        code = payload.access_code.strip()
-        if code:
-            board.access_code_hash = hash_access_code(code)
-        else:
-            board.access_code_hash = None  # явный сброс кода
-
-    if board.is_private and not board.access_code_hash:
-        raise HTTPException(
-            status_code=400,
-            detail="Для приватной доски нужно задать код доступа",
-        )
+    if payload.is_premium is not None and payload.is_premium != board.is_premium:
+        board.is_premium = payload.is_premium
+        await sync_board_media_premium(session, board)
 
     await session.commit()
 
@@ -503,9 +495,10 @@ async def update_thread(
     _=Depends(verify_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Обновляет флаги треда и/или код доступа к приватному треду.
+    """Обновляет флаги треда: парсинг, публикация, премиум-доступ.
 
-    access_code: непустая строка — установить/сменить код; пустая строка — сбросить.
+    Премиум треда синхронизируется с файлами (media.is_premium); если
+    премиум включён на доске, тред остаётся премиальным при любом значении.
     """
     board = await _load_board(session, slug)
     thread = await _load_thread(session, board, thread_id)
@@ -514,17 +507,9 @@ async def update_thread(
         thread.parse_enabled = payload.parse_enabled
     if payload.is_visible is not None:
         thread.is_visible = payload.is_visible
-    if payload.is_private is not None:
-        thread.is_private = payload.is_private
-    if payload.access_code is not None:
-        code = payload.access_code.strip()
-        thread.access_code_hash = hash_access_code(code) if code else None
-
-    if thread.is_private and not thread.access_code_hash:
-        raise HTTPException(
-            status_code=400,
-            detail="Для приватного треда нужно задать код доступа",
-        )
+    if payload.is_premium is not None and payload.is_premium != thread.is_premium:
+        thread.is_premium = payload.is_premium
+        await sync_thread_media_premium(session, board, thread)
 
     await session.commit()
     items = await build_thread_outs(session, board.id, [thread], with_preview=False)
@@ -538,7 +523,7 @@ async def bulk_update_threads(
     _=Depends(verify_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Массово меняет флаги выбранных тредов доски (Парсить/Показывать/По коду)."""
+    """Массово меняет флаги выбранных тредов доски (Парсить/На сайте/Премиум)."""
     board = await _load_board(session, slug)
     if not payload.thread_ids:
         return {"ok": True, "updated": 0}
@@ -555,8 +540,10 @@ async def bulk_update_threads(
             thread.parse_enabled = payload.parse_enabled
         if payload.is_visible is not None:
             thread.is_visible = payload.is_visible
-        if payload.is_private is not None:
-            thread.is_private = payload.is_private
+        if payload.is_premium is not None:
+            thread.is_premium = payload.is_premium
+    if payload.is_premium is not None:
+        await sync_threads_media_premium(session, board, payload.thread_ids)
     await session.commit()
     return {"ok": True, "updated": len(threads)}
 
@@ -661,7 +648,14 @@ async def _run_variants_backfill(limit: int) -> None:
             rows = (
                 await session.execute(
                     select(Media)
-                    .where(Media.s3_key.isnot(None), Media.variants.is_(None))
+                    .where(
+                        Media.s3_key.isnot(None),
+                        # Нет деривативов вообще либо нет размытого превью (нужен премиуму)
+                        or_(
+                            Media.variants.is_(None),
+                            Media.variants["thumb_blur"].is_(None),
+                        ),
+                    )
                     .order_by(Media.id)
                     .limit(limit)
                 )

@@ -411,6 +411,7 @@ class DvachParser:
                     ),
                     is_visible=existing.is_visible,
                     is_active=True,
+                    is_premium=bool(board.is_premium or thread_state.is_premium),
                 )
                 await self.session.flush()
                 print(f"   [dup] Дубль по md5 {meta['md5'][:8]}: duplicate ID {dup.id} → {existing.id}")
@@ -490,6 +491,7 @@ class DvachParser:
                 download_status="uploaded" if s3_key else "downloaded",
                 is_visible=True,
                 is_active=True,
+                is_premium=bool(board.is_premium or thread_state.is_premium),
             )
             await self.session.flush()
 

@@ -14,8 +14,8 @@ const FILTERS: Array<{ key: string; label: string }> = [
   { key: "all", label: "Все" },
   { key: "active", label: "В работе" },
   { key: "parsing", label: "Парсить" },
-  { key: "visible", label: "На сайте" },
-  { key: "private", label: "По коду" },
+  { key: "visible", label: "published" },
+  { key: "premium", label: "PREMIUM" },
   { key: "off", label: "Без настроек" },
 ];
 
@@ -30,15 +30,20 @@ function errText(err: unknown): string {
 }
 
 /**
- * Управление тредами доски: флаги «Парсить / На сайте / По коду», код доступа
+ * Управление тредами доски: флаги «Парсить / published / PREMIUM»
  * и массовые операции над выбранными тредами.
+ *
+ * Премиум доски закрывает все её треды: переключатели PREMIUM тогда
+ * показывают унаследованное значение (сам тред менять не нужно).
  */
 export default function AdminBoardThreads({
   slug,
   parserStatus,
+  boardPremium = false,
 }: {
   slug: string;
   parserStatus?: ParserStatus | null;
+  boardPremium?: boolean;
 }) {
   const [token] = useState<string>(readToken);
   const [threads, setThreads] = useState<BoardThread[] | null>(null);
@@ -48,7 +53,6 @@ export default function AdminBoardThreads({
   const [busy, setBusy] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [codes, setCodes] = useState<Record<number, string>>({});
   const [scan, setScan] = useState<ScanStatus | null>(null);
   const [deep, setDeep] = useState(false);
   const [totals, setTotals] = useState({
@@ -363,6 +367,13 @@ export default function AdminBoardThreads({
           <button type="button" disabled={disabled} onClick={() => void bulk({ is_visible: false })} className="btn-ghost px-2.5 py-1 text-xs">
             Скрыть
           </button>
+          <span className="mx-1 h-4 w-px bg-line" />
+          <button type="button" disabled={disabled} onClick={() => void bulk({ is_premium: true })} className="btn-ghost px-2.5 py-1 text-xs">
+            PREMIUM: вкл
+          </button>
+          <button type="button" disabled={disabled} onClick={() => void bulk({ is_premium: false })} className="btn-ghost px-2.5 py-1 text-xs">
+            PREMIUM: выкл
+          </button>
         </div>
       ) : null}
       {threads === null ? (
@@ -373,9 +384,9 @@ export default function AdminBoardThreads({
         <>
           <div className="flex flex-col gap-2">
             {threads.map((t, idx) => {
-              const isWork = t.parse_enabled || t.is_visible || t.is_private;
+              const isWork = t.parse_enabled || t.is_visible || t.is_premium;
               const prev = idx > 0 ? threads[idx - 1] : null;
-              const prevWork = prev ? prev.parse_enabled || prev.is_visible || prev.is_private : null;
+              const prevWork = prev ? prev.parse_enabled || prev.is_visible || prev.is_premium : null;
               const showHeader = filter === "all" && (idx === 0 || isWork !== prevWork);
               return (
                 <Fragment key={t.thread_id}>
@@ -397,6 +408,9 @@ export default function AdminBoardThreads({
                     <span className="min-w-0 flex-1 truncate text-sm font-medium text-text-primary">
                       {t.subject?.trim() || `Тред №${t.thread_id}`}
                     </span>
+                    {t.is_premium || boardPremium ? (
+                      <span className="badge badge-warn">premium</span>
+                    ) : null}
                     <span className="font-mono text-xs text-text-muted">№{t.thread_id}</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -408,16 +422,27 @@ export default function AdminBoardThreads({
                     />
                     <Switch
                       checked={t.is_visible}
-                      label="На сайте"
-                      title="Показывать тред публично"
+                      label={t.is_visible ? "published" : "unpublished"}
+                      title="Показывать тред на сайте (published/unpublished)"
                       onChange={() => void patchThread(t.thread_id, { is_visible: !t.is_visible })}
                     />
                     <Switch
-                      checked={t.is_private}
-                      label="По коду"
-                      title="Контент треда доступен только по коду"
-                      onChange={() => void patchThread(t.thread_id, { is_private: !t.is_private })}
+                      checked={boardPremium || t.is_premium}
+                      label={boardPremium || t.is_premium ? "PREMIUM" : "FREE"}
+                      title={
+                        boardPremium
+                          ? "Премиум включён на уровне доски — действует для всех тредов"
+                          : "Премиум-доступ к файлам этого треда"
+                      }
+                      onChange={() =>
+                        boardPremium ? undefined : void patchThread(t.thread_id, { is_premium: !t.is_premium })
+                      }
                     />
+                    {boardPremium ? (
+                      <span className="font-mono text-[10px] text-accent-warning">
+                        унаследовано от доски
+                      </span>
+                    ) : null}
                   </div>
                 </div>
 
@@ -468,26 +493,9 @@ export default function AdminBoardThreads({
                   </div>
                 ) : null}
 
-                {t.is_private ? (
-                  <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-line pt-2">
-                    <span className={`text-xs ${t.has_access_code ? "text-accent-secondary" : "text-text-muted"}`}>
-                      {t.has_access_code ? "код задан" : "код не задан"}
-                    </span>
-                    <input
-                      type="text"
-                      value={codes[t.thread_id] ?? ""}
-                      onChange={(e) => setCodes((prev) => ({ ...prev, [t.thread_id]: e.target.value }))}
-                      placeholder="Код доступа треда"
-                      className="w-48 rounded border border-line bg-ink-secondary px-2.5 py-1.5 text-xs text-text-primary outline-none placeholder:text-text-muted focus:border-accent-primary"
-                    />
-                    <button
-                      type="button"
-                      disabled={busyKey === `t${t.thread_id}` || !(codes[t.thread_id] ?? "").trim()}
-                      onClick={() => void patchThread(t.thread_id, { access_code: codes[t.thread_id] })}
-                      className="btn-ghost px-2.5 py-1.5 text-xs"
-                    >
-                      Задать код
-                    </button>
+                {t.is_premium ? (
+                  <div className="mt-2 border-t border-line pt-2 text-[11px] text-accent-warning">
+                    Премиум-тред: превью размыты, полные файлы — по подписке.
                   </div>
                 ) : null}
                   </div>

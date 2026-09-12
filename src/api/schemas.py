@@ -14,14 +14,13 @@ class BoardOut(BaseModel):
     title: str
     description: Optional[str] = None
     media_count: int = 0
-    is_private: bool = False
+    is_premium: bool = False
 
 
 class AdminBoardOut(BoardOut):
     """Доска в админке: флаги управления и живая статистика контента."""
     parse_enabled: bool = True
     is_visible: bool = True
-    has_access_code: bool = False
     sort_order: int = 0
     parse_mode: str = "all"  # all | selected
 
@@ -76,7 +75,7 @@ class ForumBoardOut(BaseModel):
     in_db: bool = False
     parse_enabled: bool = False
     is_visible: bool = False
-    is_private: bool = False
+    is_premium: bool = False
     media_total: int = 0
     media_in_s3: int = 0
     threads_active: int = 0
@@ -90,20 +89,16 @@ class BoardCreate(BaseModel):
 class BoardUpdate(BaseModel):
     parse_enabled: Optional[bool] = None
     is_visible: Optional[bool] = None
-    is_private: Optional[bool] = None
+    is_premium: Optional[bool] = None
     parse_mode: Optional[str] = None  # all | selected
     title: Optional[str] = None
-    # Новый код доступа. Пустая строка/null = сбросить код (доступ закрывается).
-    access_code: Optional[str] = None
 
 
 class ThreadUpdate(BaseModel):
-    """Флаги треда и/или код доступа к приватному треду."""
+    """Флаги треда: парсинг, публикация и премиум-доступ."""
     parse_enabled: Optional[bool] = None
     is_visible: Optional[bool] = None
-    is_private: Optional[bool] = None
-    # Непустая строка — установить/сменить код; пустая строка — сбросить код.
-    access_code: Optional[str] = None
+    is_premium: Optional[bool] = None
 
 
 class ThreadBulkUpdate(BaseModel):
@@ -111,7 +106,7 @@ class ThreadBulkUpdate(BaseModel):
     thread_ids: List[int]
     parse_enabled: Optional[bool] = None
     is_visible: Optional[bool] = None
-    is_private: Optional[bool] = None
+    is_premium: Optional[bool] = None
 
 
 class BoardReorder(BaseModel):
@@ -124,14 +119,6 @@ class ResetResult(BaseModel):
     deleted_objects: int = 0
 
 
-class AccessRequest(BaseModel):
-    code: str
-
-
-class AccessResult(BaseModel):
-    granted: bool
-
-
 class AuthCredentials(BaseModel):
     email: str
     password: str
@@ -140,6 +127,8 @@ class AuthCredentials(BaseModel):
 class UserOut(BaseModel):
     id: int
     email: str
+    premium_until: Optional[datetime] = None
+    is_premium: bool = False  # премиум активен прямо сейчас
 
 
 class MediaOut(BaseModel):
@@ -162,9 +151,12 @@ class MediaOut(BaseModel):
     source_md5: Optional[str] = None
     file_hash: Optional[str] = None
     url: Optional[str] = None        # оригинал (/media/{id}/raw)
-    thumb_url: Optional[str] = None  # превью-дериватив (/media/{id}/asset/thumb)
+    thumb_url: Optional[str] = None  # превью-дериватив (/media/{id}/asset/thumb|thumb_blur)
     web_url: Optional[str] = None    # оптимизированная версия (/media/{id}/asset/web)
     duration_seconds: Optional[float] = None  # длительность видео
+    # Премиум-контент: locked=True — нужна подписка (превью размыто, полный недоступен)
+    is_premium: bool = False
+    locked: bool = False
 
 
 class MediaListOut(BaseModel):
@@ -190,11 +182,10 @@ class ThreadOut(BaseModel):
     last_scanned_at: Optional[datetime] = None
     is_active: bool = True
 
-    # Управление (админка) и приватность
+    # Управление (админка) и премиум-доступ
     parse_enabled: bool = True
     is_visible: bool = True
-    is_private: bool = False
-    has_access_code: bool = False
+    is_premium: bool = False
 
     # Статистика по файлам из нашей БД
     media_total: int = 0          # всего записей в БД

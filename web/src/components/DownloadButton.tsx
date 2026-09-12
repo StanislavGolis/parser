@@ -38,6 +38,12 @@ export default function DownloadButton({
         if (window.confirm("Оригиналы доступны зарегистрированным пользователям. Войти?")) {
           window.location.assign("/login");
         }
+      } else if (status === 403) {
+        // Премиум-контент: нужна подписка
+        setState("idle");
+        if (window.confirm("Файл доступен по премиум-подписке. Открыть профиль?")) {
+          window.location.assign("/profile");
+        }
       } else if (status === 409 || status === 503) {
         // Файл пока недоступен (нет объекта в S3) — сервер отвечает осознанно.
         setState("idle");

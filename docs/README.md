@@ -3,7 +3,7 @@
 > SLUICE — медиа-архив / галерея / доступ: автоматически парсит медиа с разделов
 > форума (2ch), скачивает и архивирует в объектное хранилище S3 (Timeweb Cloud), каталогизирует и показывает
 > на сайте: каталог «досок», внутри — треды («папки»), файлы с техпанелью,
-> приватные разделы по коду, поиск, топ. Тёмный «технический» интерфейс.
+> приватные разделы по подписке (премиум), поиск, топ. Тёмный «технический» интерфейс.
 >
 > Единый документ: технические требования + текущий статус + планы.
 > Полный дизайн-документ: [`docs/DESIGN.md`](docs/DESIGN.md).
@@ -22,16 +22,17 @@
 - [x] 5. Backend FastAPI: REST API, rate limiting на Redis, admin-токен, статистика
       просмотров/скачиваний, пересчёт популярности.
 - [x] 6. Frontend Next.js: главная «Доски», новинки, доска→треды, карточки медиа,
-      lightbox с MD5/SHA-256, топ, поиск, приватный вход, мобильная навигация.
+      lightbox с MD5/SHA-256, топ, поиск, вход и премиум-подписка, мобильная навигация.
 - [x] 6.1. Дизайн-система SLUICE (этапы UI 1–4): токены, шрифты JetBrains Mono/Inter,
       админка приведена к токенам.
 - [x] 7. Production-стек Docker Compose (локально «в один клик»), Nginx; деплой на VPS — **не выполнен**.
 - [x] Админ-центр управления контентом: парсер-демон с кнопками запуска/остановки,
       очередь парсинга, переименование/удаление разделов (БД + S3), «очистка S3»,
       полный сброс, доски форума из `index.json`.
-- [x] Этап 2: управление контентом на уровне тредов — флаги «Парсить / На сайте / По коду»,
-      режим доски `parse_mode` (all|selected), код закрытого треда (cookie `bt_...`),
-      сквозная проверка видимости/приватности тредов в публичных эндпоинтах.
+- [x] Этап 2: управление контентом на уровне тредов — флаги «Парсить / published /
+      PREMIUM», режим доски `parse_mode` (all|selected), премиум-доступ на доску или
+      отдельный тред (доска закрывает все свои треды), сквозная проверка видимости
+      тредов и премиум-гейт в публичных эндпоинтах.
 
 **Известные ограничения:**
 - Исходящий трафик S3 (Timeweb Cloud) тарифицируется; медиа проксируется через VPS,
@@ -43,10 +44,13 @@
 
 Один VPS (Docker Compose): `postgres`, `redis`, `migrate`, `parser`, `api`, `web`, `nginx`.
 Наружу — только `nginx`; медиа отдаёт API (прокси S3 — бакет клиенту не раскрывается).
-Деривативы (`…/asset/thumb|web`) кэшируются nginx на диске (immutable, TTL 30 дней),
-поэтому S3-egress минимален; `/view` и `/download` не кэшируются — статистика и
-«Популярное» считаются корректно. Оригиналы (`/raw`, `/download`) доступны только
-зарегистрированным (cookie-сессия); публично — только деривативы.
+Деривативы (`…/asset/thumb|thumb_blur|web|video`) кэшируются nginx на диске
+(immutable, TTL 30 дней), поэтому S3-egress минимален; `/view` и `/download` не
+кэшируются — статистика и «Популярное» считаются корректно. Оригиналы (`/raw`,
+`/download`) доступны только зарегистрированным (cookie-сессия); премиум-контент
+(`thumb`/`web`/`video`/`raw`) требует активной подписки и отдаётся с
+`Cache-Control: private, no-store` (в общий кэш nginx не попадает), а вместо
+превью публично отдаётся размытый вариант `thumb_blur`.
 
 Запуск продакшен-стека (локально = как на VPS):
 
@@ -80,13 +84,15 @@ API — `uvicorn src.api.main:app --reload`, парсер — `python src/main.p
 - Главная = каталог досок со статусами и фильтрами; `/new` (новинки), `/top`,
   `/board/{slug}` (треды), `/search`, `/media/{id}`;
 - карточки медиа (фото/видео) с graceful-fallback, lightbox с MD5/SHA-256;
-- приватные разделы: замок в каталоге → экран кода → доступ 24 ч (cookie);
+- приватные разделы: бейдж `[PREMIUM]` в каталоге → размытые превью, полные файлы
+  открываются после активации премиума в профиле (`/profile`);
 - дизайн-система SLUICE — см. `docs/DESIGN.md`.
 
 ### 3.4 Админ-панель (/admin)
 - Кнопки «Запустить/Остановить парсер», очередь парсинга (▲/▼);
-- «Мои разделы»: переключатели Парсить/На сайте/По коду, поле кода у каждой доски,
-  переименование, удаление, статистика (в БД/S3/пропущено/треды), polling;
+- «Мои разделы»: кнопка «Треды» перед «Парсить», переключатели Парсить /
+  published-unpublished / FREE-PREMIUM, переименование, удаление, статистика
+  (в БД/S3/пропущено/треды), polling;
 - «Доски форума»: весь список 2ch с поиском и добавлением;
 - «Очистить S3», «Сбросить всё» (БД + S3, сначала останавливает парсер).
 ## 4. Дизайн (кратко)
@@ -96,17 +102,21 @@ API — `uvicorn src.api.main:app --reload`, парсер — `python src/main.p
   скругления ≤ 4px; моноширинные данные (JetBrains Mono) + Inter;
 - логотип `SLUICE`, навигация: Доски / Новинки / Популярное / Поиск
   (+ нижняя мобильная навигация);
-- бейджи-статусы `[ПРИВАТНАЯ]`, `[ТОП]`, `[НЕДОСТУПНО]`; формат чисел `1.2к`.
+- бейджи-статусы `[PREMIUM]`, `[ТОП]`, `[НЕДОСТУПНО]`; формат чисел `1.2к`.
 
 ## 5. База данных (PostgreSQL, Alembic)
 
-- **boards**: `id, slug, title, description, is_visible, parse_enabled, is_private,
-  access_code_hash, sort_order, created_at, updated_at`
+- **boards**: `id, slug, title, description, is_visible, parse_enabled, is_premium,
+  parse_mode(all|selected), sort_order, created_at, updated_at`
 - **threads_state**: `board_id, thread_id, subject, comment, thread_timestamp,
-  posts_count, files_count, last_scanned_at, is_active` (unique board+thread)
+  posts_count, files_count, last_scanned_at, is_active, parse_enabled, is_visible,
+  is_premium` (unique board+thread)
+- **users / sessions**: `email, password_hash, is_active, premium_until` + сессии
+  (`token_hash`, `expires_at`)
 - **media**: `id, board_id, thread_id, original_name, source_url, file_hash (sha-256),
   source_md5, file_size, mime_type, media_type(image|video), s3_bucket, s3_key,
   local_path, width, height, download_status(new|downloaded|uploaded|verified|missing),
+  variants(thumb|thumb_blur|web|video), duration_seconds, is_premium,
   is_visible, duplicate_of_id, is_active, views_count, downloads_count,
   popularity_score, created_at, updated_at`
 - **view_stats / download_stats**: дедуп по `ip_hash` за 24 ч.
@@ -114,17 +124,17 @@ API — `uvicorn src.api.main:app --reload`, парсер — `python src/main.p
 ## 6. REST API (актуально)
 
 ```
-GET   /api/v1/boards                       доски (вкл. приватные, is_private)
+GET   /api/v1/boards                       доски (вкл. премиум, is_premium)
 GET   /api/v1/boards/{slug}/threads        треды доски (метаданные + статистика + превью)
 GET   /api/v1/boards/{slug}/media          файлы доски (?thread=, ?sort=, ?type=)
-POST  /api/v1/boards/{slug}/access         код доступа (=> httpOnly-cookie ba_{slug}, 24 ч)
-POST  /api/v1/boards/{slug}/threads/{id}/access  код закрытого треда (=> cookie bt_{board}_{thread})
-POST  /api/v1/auth/register | /login | /logout    аккаунт (доступ к оригиналам)
-GET   /api/v1/auth/me                             текущий пользователь
-GET   /api/v1/media/{id} | /view | /download | /raw | /asset/{thumb|web}
-      (raw — оригинал; asset/thumb — превью, asset/web — оптимизированная версия
-GET   /api/v1/feed?type=&page=             новинки (без приватных)
-GET   /api/v1/top?type=&period=&limit=     топ день/неделя/месяц (без приватных)
+POST  /api/v1/auth/register | /login | /logout    аккаунт (оригиналы, премиум)
+GET   /api/v1/auth/me                             текущий пользователь + статус премиума
+POST  /api/v1/auth/premium/activate               промо-активация премиума на 1 день
+GET   /api/v1/media/{id} | /view | /download | /raw | /asset/{kind}
+      (kind = thumb | thumb_blur | web | video; raw — оригинал;
+       thumb_blur — публичное размытое превью; остальное для премиума — по подписке)
+GET   /api/v1/feed?type=&page=             новинки (премиум — с размытым превью)
+GET   /api/v1/top?type=&period=&limit=     топ день/неделя/месяц (премиум — размытый)
 GET   /api/v1/search?q=                    поиск: имя файла / md5 / sha-256
 GET   /healthz
 # админ (Bearer admin-токен):

@@ -7,10 +7,10 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.common import VISIBLE_FILTER, sign_media_urls, visible_thread_clause
-from src.api.deps import check_rate_limit, client_ip, get_s3
+from src.api.deps import check_rate_limit, client_ip, get_current_user, get_s3
 from src.api.schemas import MediaListOut, MediaOut
 from src.core.db import get_session
-from src.core.models import Board, Media
+from src.core.models import Board, Media, User
 from src.services.s3_storage import S3Storage
 
 router = APIRouter(prefix="/api/v1/search", tags=["search"])
@@ -25,8 +25,9 @@ async def search_media(
     media_type: Optional[str] = Query(None, alias="type", pattern="^(image|video)$"),
     session: AsyncSession = Depends(get_session),
     s3: S3Storage = Depends(get_s3),
+    user: Optional[User] = Depends(get_current_user),
 ):
-    """Поиск по имени файла, md5 или sha-256 (только публичные видимые файлы)."""
+    """Поиск по имени файла, md5 или sha-256 (премиум-файлы — с размытым превью)."""
     await check_rate_limit(client_ip(request))
 
     query_text = q.strip()
@@ -36,7 +37,6 @@ async def search_media(
     pattern = f"%{query_text}%"
     filters = list(VISIBLE_FILTER) + [
         Board.is_visible.is_(True),
-        Board.is_private.is_(False),
         visible_thread_clause(),
         or_(
             Media.original_name.ilike(pattern),
@@ -67,7 +67,7 @@ async def search_media(
     items = result.scalars().all()
 
     out = [MediaOut.model_validate(m) for m in items]
-    sign_media_urls(out, items, s3)
+    sign_media_urls(out, items, s3, user)
     return MediaListOut(
         items=out,
         page=page,

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import Link from "next/link";
+
 import BoardBadge from "@/components/BoardBadge";
 import DownloadButton from "@/components/DownloadButton";
 import MediaFilmstrip from "@/components/MediaFilmstrip";
@@ -13,6 +15,7 @@ import {
   EyeIcon,
   FilmIcon,
   ImageIcon,
+  LockIcon,
 } from "@/components/icons";
 import { apiGet } from "@/lib/api";
 import { mediaUrl } from "@/lib/env";
@@ -70,7 +73,8 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
   if (!media) return null;
 
   const isVideo = media.media_type === "video";
-  const canShow = Boolean(media.url || media.web_url || media.thumb_url) && !failed;
+  const locked = Boolean(media.locked);
+  const canShow = !locked && Boolean(media.url || media.web_url || media.thumb_url) && !failed;
   const position = `${index + 1} / ${items.length}`;
 
   return (
@@ -98,6 +102,12 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
               <span className="badge badge-hot">
                 <FilmIcon className="h-2.5 w-2.5" />
                 {`видео${formatDuration(media.duration_seconds) ? ` ${formatDuration(media.duration_seconds)}` : ""}`}
+              </span>
+            ) : null}
+            {locked ? (
+              <span className="badge badge-warn">
+                <LockIcon className="h-2.5 w-2.5" />
+                premium
               </span>
             ) : null}
           </div>
@@ -143,6 +153,20 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
               className="max-h-full w-auto max-w-full rounded object-contain"
             />
           )
+        ) : locked ? (
+          <div className="flex flex-col items-center gap-3 rounded border border-accent-warning/40 bg-ink-secondary px-8 py-12 text-center">
+            <LockIcon className="h-8 w-8 text-accent-warning" />
+            <p className="font-mono text-[11px] uppercase tracking-widest text-accent-warning">
+              премиум-контент
+            </p>
+            <p className="max-w-sm text-xs text-text-secondary">
+              Файл доступен по премиум-подписке. Активируйте премиум в профиле, чтобы смотреть и
+              скачивать полные версии.
+            </p>
+            <Link href="/profile" className="btn-primary px-4 py-2 text-xs">
+              Активировать премиум
+            </Link>
+          </div>
         ) : (
           <div className="flex flex-col items-center gap-3 rounded border border-line bg-ink-secondary px-8 py-12 text-center">
             {isVideo ? <FilmIcon className="h-8 w-8 text-text-muted" /> : <ImageIcon className="h-8 w-8 text-text-muted" />}
@@ -194,7 +218,14 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
           >
             <ChevronRightIcon className="h-4 w-4" />
           </button>
-          <DownloadButton mediaId={media.id} size="sm" />
+          {locked ? (
+            <Link href="/profile" className="btn-primary px-3 py-1.5 text-xs">
+              <LockIcon className="h-4 w-4" />
+              Premium
+            </Link>
+          ) : (
+            <DownloadButton mediaId={media.id} size="sm" />
+          )}
         </div>
       </div>
     </div>

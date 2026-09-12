@@ -64,6 +64,16 @@ docker compose -f docker-compose.prod.yml up -d --build
 - Данные (тома `pgdata`, `media`) переживают перезапуск; `down -v` удаляет их.
 - Медиа отдаёт наш API (`/api/v1/media/{id}/raw`): файл стримится из приватного S3,
   бакет и его адрес клиенту не раскрываются (nginx: `proxy_buffering off`).
+- Nginx кэширует только `/api/v1/media/{id}/asset/*`. Свободные превью и размытые
+  премиум-превью (`thumb_blur`) идут с `Cache-Control: public, immutable` и
+  кэшируются; премиум-варианты (`thumb`/`web`/`video`) отдаются с
+  `Cache-Control: private, no-store` и в кэш НЕ попадают — поэтому в конфиге
+  nginx стоит `proxy_ignore_headers Set-Cookie` без игнорирования `Cache-Control`.
+  Проверка после деплоя: у `thumb_blur` заголовок `X-Cache-Status` меняется
+  `MISS → HIT`, у премиум-`web` всегда `MISS`, у `/view` и `/download` заголовка нет.
+- Премиум-доступ: `boards.is_premium` закрывает все треды доски, `threads_state.is_premium` —
+  отдельный тред; пользователь активирует подписку в профиле (`/profile`,
+  промо на 1 день), статус — `users.premium_until`.
 - Если S3 не настроен — парсер складывает файлы в том `media`, а сайт
   показывает заглушки вместо превью (функционал API сохраняется).
 

@@ -7,12 +7,12 @@ import { LockIcon } from "@/components/icons";
 import { formatNumber } from "@/lib/format";
 import type { Board } from "@/lib/types";
 
-type Filter = "all" | "public" | "private";
+type Filter = "all" | "free" | "premium";
 
 const FILTERS: Array<{ value: Filter; label: string }> = [
   { value: "all", label: "ВСЕ" },
-  { value: "public", label: "ПУБЛИЧНЫЕ" },
-  { value: "private", label: "ПРИВАТНЫЕ" },
+  { value: "free", label: "БЕЗ ПОДПИСКИ" },
+  { value: "premium", label: "ПРЕМИУМ" },
 ];
 
 /** Главная = «Доски»: каталог разделов-архивов со статусами. */
@@ -22,7 +22,7 @@ export default function BoardsCatalog({ boards }: { boards: Board[] }) {
   const visible = useMemo(
     () =>
       boards.filter((b) =>
-        filter === "private" ? b.is_private : filter === "public" ? !b.is_private : true,
+        filter === "premium" ? b.is_premium : filter === "free" ? !b.is_premium : true,
       ),
     [boards, filter],
   );
@@ -74,10 +74,10 @@ export default function BoardsCatalog({ boards }: { boards: Board[] }) {
                 <span className="font-mono text-base font-bold uppercase tracking-wider text-text-primary">
                   /{b.slug}
                 </span>
-                {b.is_private ? (
+                {b.is_premium ? (
                   <span className="badge badge-warn">
                     <LockIcon className="h-2.5 w-2.5" />
-                    приватная
+                    premium
                   </span>
                 ) : null}
               </div>
@@ -90,8 +90,8 @@ export default function BoardsCatalog({ boards }: { boards: Board[] }) {
               <span className="font-mono text-[11px] text-text-muted">
                 {formatNumber(b.media_count)} файлов
               </span>
-              {b.is_private ? (
-                <span className="font-mono text-[11px] text-accent-warning">доступ по коду</span>
+              {b.is_premium ? (
+                <span className="font-mono text-[11px] text-accent-warning">по подписке</span>
               ) : (
                 <span className="font-mono text-[11px] text-text-muted transition-colors group-hover:text-accent-primary">
                   открыть →

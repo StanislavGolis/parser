@@ -41,7 +41,6 @@ export default function AdminConsole() {
   const [loading, setLoading] = useState(false);
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [rowError, setRowError] = useState<Record<string, string>>({});
-  const [codes, setCodes] = useState<Record<string, string>>({});
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [newSlug, setNewSlug] = useState("");
   const [creating, setCreating] = useState(false);
@@ -155,13 +154,6 @@ export default function AdminConsole() {
     } finally {
       setBusyKey(null);
     }
-  }
-
-  async function setCode(slug: string) {
-    const code = (codes[slug] ?? "").trim();
-    if (!code) return;
-    await patch(slug, { access_code: code });
-    setCodes((prev) => ({ ...prev, [slug]: "" }));
   }
 
   /** Перемещение доски в очереди парсинга (▲/▼). */
@@ -465,11 +457,8 @@ export default function AdminConsole() {
             loading={loading}
             parserStatus={parserStatus}
             busyKey={busyKey}
-            codes={codes}
             rowError={rowError}
-            onSetCodes={setCodes}
             onPatch={patch}
-            onSetCode={setCode}
             onMove={moveBoard}
             onRename={async (slug, title) => {
               await patch(slug, { title });

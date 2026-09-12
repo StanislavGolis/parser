@@ -11,10 +11,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.common import VISIBLE_FILTER, sign_media_urls, visible_thread_clause
-from src.api.deps import check_rate_limit, client_ip, get_s3
+from src.api.deps import check_rate_limit, client_ip, get_current_user, get_s3
 from src.api.schemas import MediaListOut, MediaOut
 from src.core.db import get_session
-from src.core.models import Board, Media
+from src.core.models import Board, Media, User
 from src.services.s3_storage import S3Storage
 
 router = APIRouter(prefix="/api/v1/feed", tags=["feed"])
@@ -28,14 +28,16 @@ async def media_feed(
     media_type: Optional[str] = Query(None, alias="type", pattern="^(image|video)$"),
     session: AsyncSession = Depends(get_session),
     s3: S3Storage = Depends(get_s3),
+    user: Optional[User] = Depends(get_current_user),
 ):
-    """Свежие файлы со всех видимых публичных досок (новинки), с пагинацией."""
+    """Свежие файлы со всех видимых досок (новинки), с пагинацией.
+
+    Премиум-файлы тоже попадают в ленту, но с размытым превью (locked).
+    """
     await check_rate_limit(client_ip(request))
 
-    # Только видимые и НЕ приватные доски: приватный контент открывается на странице доски по коду.
     filters = list(VISIBLE_FILTER) + [
         Board.is_visible.is_(True),
-        Board.is_private.is_(False),
         visible_thread_clause(),
     ]
     if media_type:
@@ -62,7 +64,7 @@ async def media_feed(
     items = result.scalars().all()
 
     out = [MediaOut.model_validate(m) for m in items]
-    sign_media_urls(out, items, s3)
+    sign_media_urls(out, items, s3, user)
     return MediaListOut(
         items=out,
         page=page,

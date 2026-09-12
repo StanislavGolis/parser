@@ -23,8 +23,7 @@ class Board(Base):
     # Управление из админки (этап: админ-панель). По умолчанию всё выключено:
     # доска не парсится и не показывается, пока админ не включит явно.
     parse_enabled = Column(Boolean, nullable=False, default=False)  # доска участвует в парсинге
-    is_private = Column(Boolean, nullable=False, default=False)     # контент по коду доступа
-    access_code_hash = Column(String(64), nullable=True)            # sha256 кода доступа
+    is_premium = Column(Boolean, nullable=False, default=False)     # контент только для премиум-пользователей
     sort_order = Column(Integer, nullable=False, default=0)         # порядок парсинга (очередь)
     parse_mode = Column(String(16), nullable=False, default="selected")  # all | selected — как выбирать треды
 
@@ -69,8 +68,7 @@ class ThreadState(Base):
     # Управление из админки (этап: управление контентом)
     parse_enabled = Column(Boolean, nullable=False, default=False)  # тред участвует в скачивании
     is_visible = Column(Boolean, nullable=False, default=False)     # показывать публично
-    is_private = Column(Boolean, nullable=False, default=False)     # контент только по коду
-    access_code_hash = Column(String(64), nullable=True)            # sha256 кода доступа треда
+    is_premium = Column(Boolean, nullable=False, default=False)     # контент только для премиум-пользователей
 
     board = relationship("Board", back_populates="threads_state")
 
@@ -101,9 +99,11 @@ class Media(Base):
     s3_bucket = Column(String(255), nullable=True)
     s3_key = Column(String(500), nullable=True, index=True)
     local_path = Column(String(500), nullable=True)  # относительный путь в локальном кэше
-    # Деривативы для оптимизации трафика: {"thumb": key, "web": key}
+    # Деривативы для оптимизации трафика: {"thumb": key, "thumb_blur": key, "web": key, "video": key}
     variants = Column(JSONB, nullable=True)
     duration_seconds = Column(Float, nullable=True)  # длительность видео (для бейджа)
+    # Премиум-контент (денормализовано: доска ИЛИ тред); превью блюрится, полный — по подписке
+    is_premium = Column(Boolean, nullable=False, default=False)
 
     width = Column(Integer, nullable=True)
     height = Column(Integer, nullable=True)
@@ -161,6 +161,7 @@ class User(Base):
     email = Column(String(255), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
     is_active = Column(Boolean, nullable=False, default=True)
+    premium_until = Column(DateTime, nullable=True)  # премиум активен до этого времени
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 

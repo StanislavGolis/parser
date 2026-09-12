@@ -74,7 +74,7 @@ function Thumb({
           loading="lazy"
           decoding="async"
           referrerPolicy="no-referrer"
-          className="h-full w-full object-cover"
+          className={`h-full w-full object-cover ${media.locked ? "blur-[5px] scale-110" : ""}`}
         />
       ) : near && media.url && isVideo && active ? (
         // Для текущего видео без постера показываем кадр (preload=metadata)

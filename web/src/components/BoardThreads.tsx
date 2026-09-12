@@ -5,7 +5,7 @@ import { useCallback, useState } from "react";
 import Lightbox from "@/components/Lightbox";
 import { FilmIcon, ImageIcon, LockIcon, SpinnerIcon } from "@/components/icons";
 import When from "@/components/When";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet } from "@/lib/api";
 import { mediaUrl } from "@/lib/env";
 import { thumbSrc } from "@/lib/media";
 import { formatNumber, plural } from "@/lib/format";
@@ -63,26 +63,10 @@ export default function BoardThreads({ slug, initial }: BoardThreadsProps) {
     return apiGet<MediaList>(`/api/v1/boards/${encodeURIComponent(slug)}/media?${q}`);
   }
 
-  async function openThread(threadId: number, isPrivate: boolean, startIndex = 0) {
+  async function openThread(threadId: number, startIndex = 0) {
     setOpeningThread(threadId);
     try {
-      let data = await fetchThreadMedia(threadId);
-
-      // Закрытый тред: спрашиваем код доступа и пробуем снова
-      if (data.items.length === 0 && isPrivate) {
-        const code = window.prompt("Тред закрыт. Введите код доступа:");
-        if (!code) return;
-        const res = await apiPost<{ granted: boolean }>(
-          `/api/v1/boards/${encodeURIComponent(slug)}/threads/${threadId}/access`,
-          { code },
-        );
-        if (!res.granted) {
-          setError("Неверный код доступа.");
-          return;
-        }
-        data = await fetchThreadMedia(threadId);
-      }
-
+      const data = await fetchThreadMedia(threadId);
       if (data.items.length === 0) return;
       setLightbox({ items: data.items, index: Math.min(startIndex, data.items.length - 1) });
     } catch {
@@ -113,8 +97,8 @@ export default function BoardThreads({ slug, initial }: BoardThreadsProps) {
             slug={slug}
             thread={t}
             opening={openingThread === t.thread_id}
-            onOpenAll={() => void openThread(t.thread_id, t.is_private)}
-            onOpenAt={(i) => void openThread(t.thread_id, t.is_private, i)}
+            onOpenAll={() => void openThread(t.thread_id)}
+            onOpenAt={(i) => void openThread(t.thread_id, i)}
           />
         ))}
       </div>
@@ -187,9 +171,9 @@ function ThreadCard({
           </h2>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-text-muted">
             <span>№{thread.thread_id}</span>
-            {thread.is_private ? (
+            {thread.is_premium ? (
               <span className="inline-flex items-center gap-1 rounded-[3px] bg-accent-warning/15 px-1.5 py-0.5 text-accent-warning">
-                <LockIcon className="h-3 w-3" /> закрытый
+                <LockIcon className="h-3 w-3" /> premium
               </span>
             ) : null}
             {thread.thread_timestamp ? <When iso={thread.thread_timestamp} /> : null}
@@ -227,25 +211,33 @@ function ThreadCard({
               aria-label={`Открыть: ${m.original_name}`}
               className="group relative h-20 w-20 shrink-0 overflow-hidden rounded border border-line bg-ink-tertiary transition-colors hover:border-accent-primary"
             >
-              {m.url && m.media_type === "image" ? (
+              {m.thumb_url || m.url ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={thumbSrc(m)}
-                  alt={m.original_name}
+                  alt={m.locked ? "" : m.original_name}
                   loading="lazy"
                   decoding="async"
                   referrerPolicy="no-referrer"
-                  className="h-full w-full object-cover"
+                  className={`h-full w-full object-cover ${m.locked ? "blur-[7px] scale-110" : ""}`}
                 />
-              ) : m.url ? (
-                <span className="flex h-full w-full items-center justify-center bg-ink-tertiary">
-                  <FilmIcon className="h-5 w-5 text-text-muted" />
-                </span>
               ) : (
                 <span className="flex h-full w-full items-center justify-center bg-ink-tertiary">
-                  <ImageIcon className="h-5 w-5 text-text-muted" />
+                  {m.media_type === "video" ? (
+                    <FilmIcon className="h-5 w-5 text-text-muted" />
+                  ) : (
+                    <ImageIcon className="h-5 w-5 text-text-muted" />
+                  )}
                 </span>
               )}
+              {m.locked ? (
+                <span className="absolute inset-0 flex items-center justify-center bg-black/35">
+                  <span className="inline-flex items-center gap-1 rounded-[3px] bg-black/70 px-1.5 py-0.5 font-mono text-[9px] uppercase text-accent-warning">
+                    <LockIcon className="h-2.5 w-2.5" />
+                    premium
+                  </span>
+                </span>
+              ) : null}
             </button>
           ))}
           <button

@@ -24,11 +24,8 @@ export function BoardsTable({
   loading,
   parserStatus,
   busyKey,
-  codes,
   rowError,
-  onSetCodes,
   onPatch,
-  onSetCode,
   onMove,
   onRename,
   onDelete,
@@ -37,11 +34,8 @@ export function BoardsTable({
   loading: boolean;
   parserStatus?: ParserStatus | null;
   busyKey: string | null;
-  codes: Record<string, string>;
   rowError: Record<string, string>;
-  onSetCodes: (fn: (prev: Record<string, string>) => Record<string, string>) => void;
   onPatch: (slug: string, body: Record<string, unknown>) => Promise<void>;
-  onSetCode: (slug: string) => Promise<void>;
   onMove: (slug: string, dir: -1 | 1) => Promise<void>;
   onRename: (slug: string, title: string) => Promise<void>;
   onDelete: (slug: string) => Promise<void>;
@@ -66,11 +60,8 @@ export function BoardsTable({
           total={boards.length}
           parserStatus={parserStatus}
           busyKey={busyKey}
-          codes={codes}
           rowError={rowError}
-          onSetCodes={onSetCodes}
           onPatch={onPatch}
-          onSetCode={onSetCode}
           onMove={onMove}
           onRename={onRename}
           onDelete={onDelete}
@@ -85,11 +76,8 @@ function BoardRow({
   total,
   parserStatus,
   busyKey,
-  codes,
   rowError,
-  onSetCodes,
   onPatch,
-  onSetCode,
   onMove,
   onRename,
   onDelete,
@@ -99,11 +87,8 @@ function BoardRow({
   total: number;
   parserStatus?: ParserStatus | null;
   busyKey: string | null;
-  codes: Record<string, string>;
   rowError: Record<string, string>;
-  onSetCodes: (fn: (prev: Record<string, string>) => Record<string, string>) => void;
   onPatch: (slug: string, body: Record<string, unknown>) => Promise<void>;
-  onSetCode: (slug: string) => Promise<void>;
   onMove: (slug: string, dir: -1 | 1) => Promise<void>;
   onRename: (slug: string, title: string) => Promise<void>;
   onDelete: (slug: string) => Promise<void>;
@@ -155,7 +140,7 @@ function BoardRow({
             >
               /{board.slug}
             </Link>
-            {board.is_private ? <LockIcon className="h-3.5 w-3.5 text-accent-warning" /> : null}
+            {board.is_premium ? <LockIcon className="h-3.5 w-3.5 text-accent-warning" /> : null}
 
             {editingTitle ? (
               <span className="inline-flex items-center gap-1">
@@ -199,12 +184,6 @@ function BoardRow({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Switch
-            checked={board.parse_enabled}
-            label="Парсить"
-            title="Скачивать файлы с этой доски"
-            onChange={() => void onPatch(board.slug, { parse_enabled: !board.parse_enabled })}
-          />
           <button
             type="button"
             onClick={() => setShowThreads((v) => !v)}
@@ -217,16 +196,22 @@ function BoardRow({
             </span>
           </button>
           <Switch
+            checked={board.parse_enabled}
+            label="Парсить"
+            title="Скачивать файлы с этой доски"
+            onChange={() => void onPatch(board.slug, { parse_enabled: !board.parse_enabled })}
+          />
+          <Switch
             checked={board.is_visible}
-            label="На сайте"
-            title="Показывать раздел на сайте"
+            label={board.is_visible ? "published" : "unpublished"}
+            title="Показывать раздел на сайте (published/unpublished)"
             onChange={() => void onPatch(board.slug, { is_visible: !board.is_visible })}
           />
           <Switch
-            checked={board.is_private}
-            label="По коду"
-            title="Контент доступен только по коду"
-            onChange={() => void onPatch(board.slug, { is_private: !board.is_private })}
+            checked={board.is_premium}
+            label={board.is_premium ? "PREMIUM" : "FREE"}
+            title="Премиум-доступ: превью размыты, полные файлы — по подписке"
+            onChange={() => void onPatch(board.slug, { is_premium: !board.is_premium })}
           />
           <span className="inline-flex items-center gap-1 rounded border border-line bg-ink-secondary px-1 py-1">
             <button
@@ -285,37 +270,12 @@ function BoardRow({
         <span>Видимых: {formatNumber(board.media_count)}</span>
       </div>
 
-      {/* Код доступа: задаётся заранее, до включения «По коду» */}
-      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
-        <span className={`text-xs ${board.has_access_code ? "text-accent-secondary" : "text-text-muted"}`}>
-            {board.has_access_code ? "код задан" : "код не задан"}
-          </span>
-          <input
-            type="text"
-            value={codes[board.slug] ?? ""}
-            onChange={(e) => onSetCodes((prev) => ({ ...prev, [board.slug]: e.target.value }))}
-            placeholder="Новый код"
-            className="w-40 rounded border border-line bg-ink-secondary px-2.5 py-1.5 text-xs text-text-primary outline-none placeholder:text-text-muted focus:border-accent-primary"
-          />
-          <button
-            type="button"
-            disabled={busyKey === board.slug || !(codes[board.slug] ?? "").trim()}
-            onClick={() => void onSetCode(board.slug)}
-            className="btn-ghost px-2.5 py-1.5 text-xs"
-          >
-            {busyKey === board.slug ? <SpinnerIcon className="h-3.5 w-3.5" /> : "Установить"}
-          </button>
-          {board.has_access_code ? (
-            <button
-              type="button"
-              disabled={busyKey === board.slug}
-              onClick={() => void onPatch(board.slug, { access_code: "" })}
-              className="px-2 py-1.5 text-xs text-text-secondary transition-colors hover:text-accent-danger"
-            >
-              Сбросить
-            </button>
-          ) : null}
+      {/* Премиум-доступ: включается переключателем FREE/PREMIUM в шапке */}
+      {board.is_premium ? (
+        <div className="mt-3 border-t border-line pt-3 text-[11px] text-accent-warning">
+          Премиум-доступ включён: превью всех файлов размыты, полные версии — только по подписке.
         </div>
+      ) : null}
       {progress ? (
         <div className="mt-3 rounded border border-line bg-ink-tertiary/40 px-3 py-2">
           <div className="flex items-center justify-between text-[11px] text-text-secondary">
@@ -356,7 +316,7 @@ function BoardRow({
               }
             />
           </div>
-          <AdminBoardThreads slug={board.slug} parserStatus={parserStatus} />
+          <AdminBoardThreads slug={board.slug} parserStatus={parserStatus} boardPremium={board.is_premium} />
         </div>
       ) : null}
 

@@ -8,15 +8,14 @@ export interface Board {
   title: string;
   description: string | null;
   media_count: number;
-  /** Приватный раздел: виден в списке, контент по коду доступа. */
-  is_private: boolean;
+  /** Премиум-раздел: превью размыты, полный контент — по подписке. */
+  is_premium: boolean;
 }
 
 /** Доска в админ-панели (с живой статистикой). */
 export interface AdminBoard extends Board {
   parse_enabled: boolean;
   is_visible: boolean;
-  has_access_code: boolean;
   sort_order: number;
   /** Режим выбора тредов: all — все, selected — только включённые вручную. */
   parse_mode: "all" | "selected";
@@ -70,7 +69,7 @@ export interface ForumBoard {
   in_db: boolean;
   parse_enabled: boolean;
   is_visible: boolean;
-  is_private: boolean;
+  is_premium: boolean;
   media_total: number;
   media_in_s3: number;
   threads_active: number;
@@ -92,8 +91,7 @@ export interface BoardThread {
   /** Управление из админки. */
   parse_enabled: boolean;
   is_visible: boolean;
-  is_private: boolean;
-  has_access_code: boolean;
+  is_premium: boolean;
   media_total: number;
   media_downloaded: number;
   media_in_s3: number;
@@ -139,6 +137,9 @@ export interface MediaItem {
   web_url?: string | null;
   /** Длительность видео в секундах (для бейджа). */
   duration_seconds?: number | null;
+  /** Премиум-контент: locked — нужна подписка (превью размыто, полный недоступен). */
+  is_premium?: boolean;
+  locked?: boolean;
 }
 
 export interface MediaList {
@@ -156,10 +157,6 @@ export interface MediaDetail extends MediaItem {
 export interface ViewResult {
   media_id: number;
   counted: boolean;
-}
-
-export interface AccessResult {
-  granted: boolean;
 }
 
 /** Прогресс бэкфилла деривативов («Оптимизировать медиа»). */
@@ -210,10 +207,14 @@ export interface ParserStatus {
   stall_seconds: number | null;
 }
 
-/** Пользователь (доступ к оригиналам). */
+/** Пользователь (доступ к оригиналам и премиум-контенту). */
 export interface UserOut {
   id: number;
   email: string;
+  /** Срок действия премиума (ISO), null — премиум никогда не активировался. */
+  premium_until: string | null;
+  /** Премиум активен прямо сейчас. */
+  is_premium: boolean;
 }
 
 /** Индекс доски по id — чтобы показывать slug/title на плитках лент. */
