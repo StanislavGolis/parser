@@ -126,6 +126,10 @@ class AdminResetOut(BaseModel):
 class BoardCreate(BaseModel):
     slug: str
     name: Optional[str] = None  # настоящее название (из index.json), если известно
+    # Добавить, даже если каталог раздела сейчас не читается (2ch отдаёт 500 для
+    # закрытых/удалённых разделов). Такой раздел появится в списке с бейджем
+    # «каталог недоступен» и не будет парситься, пока форум его не откроет.
+    force: bool = False
 
 
 class BoardUpdate(BaseModel):

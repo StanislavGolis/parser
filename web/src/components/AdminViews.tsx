@@ -356,14 +356,17 @@ export function ForumTab({
   onRefresh,
   onAdd,
   onRemove,
+  addError,
 }: {
   forum: ForumBoard[] | null;
   loading: boolean;
   query: string;
   onQuery: (v: string) => void;
   onRefresh: () => void;
-  onAdd: (slug: string, name?: string | null) => Promise<void>;
+  onAdd: (slug: string, name?: string | null, force?: boolean) => Promise<void>;
   onRemove: (slug: string) => Promise<void>;
+  /** Ошибки добавления по слагам: сообщение + можно ли добавить принудительно. */
+  addError?: Record<string, { message: string; canForce: boolean }>;
 }) {
   const q = query.trim().toLowerCase();
   const filtered = (forum ?? []).filter(
@@ -466,6 +469,21 @@ export function ForumTab({
                   Добавить
                 </button>
               )}
+              {addError?.[f.slug] ? (
+                <div className="w-full rounded border border-accent-danger/30 bg-red-500/5 px-2 py-1.5 text-xs text-accent-danger">
+                  <div>{addError[f.slug].message}</div>
+                  {addError[f.slug].canForce ? (
+                    <button
+                      type="button"
+                      onClick={() => void onAdd(f.slug, f.name, true)}
+                      className="mt-1 rounded border border-line px-2 py-1 text-[11px] text-text-secondary transition-colors hover:text-text-primary"
+                      title="Добавить раздел в список, даже если форум сейчас не отдаёт его каталог: парситься он не будет, пока 2ch не откроет доступ"
+                    >
+                      Добавить всё равно
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ))}
         </div>

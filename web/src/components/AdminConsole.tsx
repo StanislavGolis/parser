@@ -51,6 +51,12 @@ export default function AdminConsole() {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [newSlug, setNewSlug] = useState("");
   const [creating, setCreating] = useState(false);
+  const [addError, setAddError] = useState<{ message: string; canForce: boolean; slug: string } | null>(
+    null,
+  );
+  const [forumError, setForumError] = useState<Record<string, { message: string; canForce: boolean }>>(
+    {},
+  );
   const [backfill, setBackfill] = useState<BackfillStatus | null>(null);
   const backfillPollRef = useRef<number | null>(null);
   const [parserStatus, setParserStatus] = useState<ParserStatus | null>(null);
@@ -349,20 +355,36 @@ export default function AdminConsole() {
     }
   }
 
-  async function addBoard(slug: string, name?: string | null) {
+  async function addBoard(slug: string, name?: string | null, force = false) {
     if (!token || creating) return;
     setCreating(true);
     setGlobalError(null);
+    setAddError(null);
+    setForumError((prev) => {
+      const next = { ...prev };
+      delete next[slug];
+      return next;
+    });
     try {
-      await apiPost<AdminBoard>("/api/v1/admin/boards", { slug, name: name ?? undefined }, token);
+      await apiPost<AdminBoard>(
+        "/api/v1/admin/boards",
+        { slug, name: name ?? undefined, force },
+        token,
+      );
       await loadOverview(token);
       setForum((prev) =>
         prev
           ? prev.map((f) => (f.slug === slug ? { ...f, in_db: true, parse_enabled: false } : f))
           : prev,
       );
+      setNewSlug("");
     } catch (err) {
-      setGlobalError(errText(err));
+      // Ошибку показываем там, где нажали: у карточки раздела на «Досках форума»
+      // и рядом с формой «Добавить раздел» на «Моих разделах».
+      const canForce = err instanceof ApiError && err.canForce;
+      const message = errText(err);
+      setForumError((prev) => ({ ...prev, [slug]: { message, canForce } }));
+      if (!name) setAddError({ message, canForce, slug });
     } finally {
       setCreating(false);
     }
@@ -686,14 +708,16 @@ export default function AdminConsole() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (newSlug.trim()) void addBoard(newSlug.trim().toLowerCase());
+              // Принимаем и «hc», и «/hc», и ссылку — лишние слеши убираем сразу
+              const slug = newSlug.trim().toLowerCase().replace(/^\/+|\/+$/g, "");
+              if (slug) void addBoard(slug);
             }}
             className="my-5 flex flex-wrap items-center gap-2"
           >
             <input
               value={newSlug}
               onChange={(e) => setNewSlug(e.target.value)}
-              placeholder="slug новой доски, например abc"
+              placeholder="slug новой доски, например abc или /abc"
               className="w-56 rounded border border-line bg-ink-secondary px-3 py-2 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-accent-primary"
             />
             <button type="submit" disabled={creating || !newSlug.trim()} className="btn-ghost">
@@ -701,6 +725,23 @@ export default function AdminConsole() {
               Добавить раздел
             </button>
           </form>
+
+          {addError ? (
+            <div className="mb-5 rounded border border-accent-danger/30 bg-red-500/5 px-3 py-2 text-sm text-accent-danger">
+              <div>{addError.message}</div>
+              {addError.canForce ? (
+                <button
+                  type="button"
+                  disabled={creating}
+                  onClick={() => void addBoard(addError.slug, undefined, true)}
+                  className="mt-2 rounded border border-line px-2.5 py-1.5 text-xs text-text-secondary transition-colors hover:text-text-primary"
+                  title="Раздел появится в списке с бейджем «каталог недоступен»; парситься он не будет, пока 2ch не откроет доступ"
+                >
+                  Добавить всё равно
+                </button>
+              ) : null}
+            </div>
+          ) : null}
 
           <BoardsTable
             boards={overview?.boards ?? null}
@@ -730,6 +771,7 @@ export default function AdminConsole() {
             await removeBoard(slug);
             setForum((prev) => (prev ? prev.map((f) => (f.slug === slug ? { ...f, in_db: false } : f)) : prev));
           }}
+          addError={forumError}
         />
       )}
     </div>

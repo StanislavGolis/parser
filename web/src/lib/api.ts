@@ -4,12 +4,15 @@ export class ApiError extends Error {
   status: number;
   /** detail из JSON-ответа FastAPI (если есть). */
   detail?: string;
+  /** Операцию можно повторить принудительно (detail.can_force, например добавление раздела). */
+  canForce: boolean;
 
-  constructor(status: number, message: string, detail?: string) {
+  constructor(status: number, message: string, detail?: string, canForce = false) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.detail = detail;
+    this.canForce = canForce;
   }
 }
 
@@ -47,13 +50,26 @@ export async function apiSend<T>(path: string, options: SendOptions = {}): Promi
   }
   if (!res.ok) {
     let detail: string | undefined;
+    let canForce = false;
     try {
       const data = (await res.json()) as { detail?: unknown };
-      detail = typeof data?.detail === "string" ? data.detail : undefined;
+      if (typeof data?.detail === "string") {
+        detail = data.detail;
+      } else if (data?.detail && typeof data.detail === "object") {
+        // Структурированная ошибка: {message, can_force}
+        const obj = data.detail as { message?: unknown; can_force?: unknown };
+        if (typeof obj.message === "string") detail = obj.message;
+        canForce = obj.can_force === true;
+      }
     } catch {
       /* тело не JSON */
     }
-    throw new ApiError(res.status, detail ?? `API ${res.status}: ${res.statusText}`, detail);
+    throw new ApiError(
+      res.status,
+      detail ?? `API ${res.status}: ${res.statusText}`,
+      detail,
+      canForce,
+    );
   }
   return (await res.json()) as T;
 }

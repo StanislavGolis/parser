@@ -217,33 +217,47 @@ async def _fetch_forum_boards() -> List[dict]:
     return boards
 
 
-async def _probe_board_catalog(slug: str) -> tuple[bool, str]:
+async def _probe_board_catalog(slug: str) -> tuple:
     """Проверяет, что каталог раздела читается (раздел не удалён с 2ch).
 
-    2ch отдаёт `500 Not found` для удалённых разделов, хотя `index.json` их ещё
-    перечисляет (хентай-доски `/h`, `/ho`, `/hc`), поэтому проверяем именно
-    каталог и возвращаем человеческую причину.
+    Возвращает `(ok, reason, in_index)`: `in_index` — есть ли слаг в `index.json`.
+    2ch отдаёт `500 Not found` для разделов, которые сам же перечисляет в
+    `index.json`: это удалённые доски и «взрослые» разделы, закрытые без pass
+    (`/h`, `/ho`, `/hc`, `/e`, `/hg`) — парсить их нельзя, но причина разная,
+    поэтому в тексте ошибки это различаем.
     """
     url = FORUM_CATALOG_URL.format(slug=slug)
+    try:
+        in_index = any(b.get("id") == slug for b in await _fetch_forum_boards())
+    except Exception:  # noqa: BLE001
+        in_index = False  # список форума недоступен — не мешаем проверке каталога
     try:
         async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
             resp = await client.get(url, headers={"User-Agent": FORUM_UA})
     except Exception as exc:  # noqa: BLE001
-        return False, f"не удалось проверить каталог: {exc}"
+        return False, f"не удалось проверить каталог: {exc}", in_index
 
     if resp.status_code == 200:
         try:
             threads = (resp.json() or {}).get("threads") or []
         except Exception:  # noqa: BLE001
-            return False, "форум вернул не JSON"
+            return False, "форум вернул не JSON", in_index
         if not threads:
-            return False, "каталог раздела пуст"
-        return True, ""
+            return False, "в каталоге раздела нет тредов", in_index
+        return True, "", in_index
+
     if resp.status_code == 404:
-        return False, "раздел не найден на форуме (404)"
-    if resp.status_code >= 500:
-        return False, f"форум ответил {resp.status_code} — раздел удалён или недоступен"
-    return False, f"форум ответил {resp.status_code}"
+        reason = "раздел не найден на форуме (404)"
+    elif resp.status_code >= 500:
+        reason = (
+            "форум ответил 500 «Not found»: раздел закрыт (взрослый раздел без pass) "
+            "или удалён"
+            if in_index
+            else "форум ответил 500 — раздела нет на форуме"
+        )
+    else:
+        reason = f"форум ответил {resp.status_code}"
+    return False, reason, in_index
 
 
 def _scan_error_text(slug: str, exc: Exception) -> str:
@@ -310,29 +324,69 @@ async def list_admin_boards(
     return await _all_boards_with_stats(session)
 
 
+def _normalize_slug(raw: str) -> str:
+    """Приводит ввод пользователя к слагу: `/hc`, ` hc `, `https://2ch.su/hc/` → `hc`."""
+    value = (raw or "").strip().lower()
+    if value.startswith("http://") or value.startswith("https://"):
+        # Берём первый сегмент пути после домена
+        value = value.split("//", 1)[-1]
+        value = value.split("/", 1)[1] if "/" in value else ""
+    return value.strip().strip("/").strip()
+
+
 @router.post("/boards", response_model=AdminBoardOut)
 async def create_board(
     payload: BoardCreate,
     _=Depends(verify_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Создаёт доску по слагу (которой ещё нет в нашей системе)."""
-    slug = (payload.slug or "").strip().lower()
+    """Создаёт доску по слагу (которой ещё нет в нашей системе).
+
+    По умолчанию раздел должен реально читаться на форуме: `index.json`
+    перечисляет и удалённые/закрытые разделы (у них каталог отдаёт 500), а
+    парсить их нельзя. Если каталог недоступен, но раздел нужен в списке —
+    панель предлагает добавить его принудительно (`force=true`): доска
+    появится с бейджем «каталог недоступен» и не будет парситься, пока 2ch
+    её не откроет.
+    """
+    slug = _normalize_slug(payload.slug)
     if not SLUG_RE.match(slug):
-        raise HTTPException(status_code=400, detail="Invalid slug (a-z0-9, до 32 символов)")
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Некорректный slug: допустимы латиница/цифры и `-`, до 32 символов",
+                "can_force": False,
+            },
+        )
 
     existing = await session.execute(select(Board).where(Board.slug == slug))
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="Board already exists")
-
-    # Раздел должен реально существовать на форуме: index.json перечисляет и
-    # удалённые доски (у них каталог отдаёт 500), а парсить их нельзя.
-    ok, reason = await _probe_board_catalog(slug)
-    if not ok:
         raise HTTPException(
-            status_code=400,
-            detail=f"Раздел /{slug} недоступен на 2ch: {reason}",
+            status_code=409,
+            detail={"message": f"Раздел /{slug} уже добавлен", "can_force": False},
         )
+
+    if not payload.force:
+        ok, reason, in_index = await _probe_board_catalog(slug)
+        if not ok:
+            if in_index:
+                message = (
+                    f"Раздел /{slug} есть в списке 2ch, но каталог не читается: {reason}. "
+                    f"Парсить его нельзя, пока форум не откроет доступ."
+                )
+            else:
+                message = f"Раздел /{slug} недоступен на 2ch: {reason}."
+            raise HTTPException(
+                status_code=400,
+                detail={"message": message, "can_force": True},
+            )
+    else:
+        # Добавляем принудительно, но состояние каталога всё равно проверяем и
+        # помечаем причину — в списке разделов сразу виден бейдж «каталог недоступен».
+        ok, reason, _in_index = await _probe_board_catalog(slug)
+        if not ok:
+            await mark_catalog_error(slug, f"раздел не читается: {reason}")
+        print(f"[admin] раздел /{slug} добавлен принудительно (каталог: {'ок' if ok else reason})")
 
     max_order = (await session.execute(select(func.max(Board.sort_order)))).scalar() or 0
     name = (payload.name or "").strip()
