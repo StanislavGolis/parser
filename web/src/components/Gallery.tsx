@@ -33,6 +33,9 @@ interface GalleryProps {
   emptyHint?: string;
 }
 
+/** Сколько первых карточек грузить сразу (первый экран → LCP). */
+const EAGER_CARDS = 6;
+
 /**
  * Masonry-галерея с клиентской догрузкой страниц (infinite scroll).
  * Требует "use client", т.к. догрузка идёт fetch из браузера.
@@ -142,6 +145,7 @@ export default function Gallery({
                   media={media}
                   board={boardsById ? boardsById[media.board_id] : undefined}
                   showTop={showTop}
+                  eager={idx < EAGER_CARDS}
                   onOpen={() => setOpenIndex(idx)}
                 />
               </div>

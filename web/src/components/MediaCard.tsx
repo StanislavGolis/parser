@@ -21,6 +21,11 @@ interface MediaCardProps {
   board?: Board | null;
   /** Показывать бейдж [ТОП] (для ленты «Популярное»). */
   showTop?: boolean;
+  /**
+   * Загружать превью сразу, а не по появлению в вьюпорте: нужно первым
+   * карточкам первого экрана (LCP — метрика ранжирования).
+   */
+  eager?: boolean;
   onOpen: () => void;
 }
 
@@ -33,7 +38,7 @@ function aspectOf(media: MediaItem): string {
  * Карточка медиа в стиле DREDGE: превью фото/видео (браузерный кадр) +
  * строка метаданных mono. При недоступности файла — аккуратный плейсхолдер.
  */
-export default function MediaCard({ media, board, showTop = false, onOpen }: MediaCardProps) {
+export default function MediaCard({ media, board, showTop = false, eager = false, onOpen }: MediaCardProps) {
   const [failed, setFailed] = useState(false);
   const aspect = aspectOf(media);
 
@@ -65,7 +70,8 @@ export default function MediaCard({ media, board, showTop = false, onOpen }: Med
             <img
               src={thumbSrc(media)}
               alt={locked ? "" : media.original_name}
-              loading="lazy"
+              loading={eager ? "eager" : "lazy"}
+              fetchPriority={eager ? "high" : "auto"}
               decoding="async"
               referrerPolicy="no-referrer"
               onError={() => setFailed(true)}
@@ -79,7 +85,8 @@ export default function MediaCard({ media, board, showTop = false, onOpen }: Med
                 <img
                   src={thumbSrc(media)}
                   alt={locked ? "" : media.original_name}
-                  loading="lazy"
+                  loading={eager ? "eager" : "lazy"}
+                  fetchPriority={eager ? "high" : "auto"}
                   decoding="async"
                   referrerPolicy="no-referrer"
                   onError={() => setFailed(true)}
