@@ -132,6 +132,16 @@ class AccessResult(BaseModel):
     granted: bool
 
 
+class AuthCredentials(BaseModel):
+    email: str
+    password: str
+
+
+class UserOut(BaseModel):
+    id: int
+    email: str
+
+
 class MediaOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

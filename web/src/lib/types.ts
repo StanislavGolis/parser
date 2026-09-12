@@ -188,5 +188,11 @@ export interface DownloadResult {
   url: string;
 }
 
+/** Пользователь (доступ к оригиналам). */
+export interface UserOut {
+  id: number;
+  email: string;
+}
+
 /** Индекс доски по id — чтобы показывать slug/title на плитках лент. */
 export type BoardsById = Record<number, Board>;

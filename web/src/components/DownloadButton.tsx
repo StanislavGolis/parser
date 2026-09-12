@@ -32,7 +32,13 @@ export default function DownloadButton({
       setState("idle");
     } catch (err) {
       const status = err instanceof ApiError ? err.status : 0;
-      if (status === 409 || status === 503) {
+      if (status === 401) {
+        // Оригиналы доступны только авторизованным
+        setState("idle");
+        if (window.confirm("Оригиналы доступны зарегистрированным пользователям. Войти?")) {
+          window.location.assign("/login");
+        }
+      } else if (status === 409 || status === 503) {
         // Файл пока недоступен (нет объекта в S3) — сервер отвечает осознанно.
         setState("idle");
         window.alert("Файл временно недоступен. Попробуйте позже.");

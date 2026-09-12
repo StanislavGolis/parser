@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import AuthMenu from "@/components/AuthMenu";
+
 const NAV = [
   {
     href: "/",
@@ -30,26 +32,29 @@ export default function Header() {
           </span>
         </Link>
 
-        {/* Desktop-навигация */}
-        <nav className="flex h-full items-stretch gap-1" aria-label="Основная навигация">
-          {NAV.map((item) => {
-            const active = item.match(pathname);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={active ? "page" : undefined}
-                className={`inline-flex items-center border-b-2 px-3 text-sm transition-colors duration-150 ${
-                  active
-                    ? "border-accent-primary font-semibold text-text-primary"
-                    : "border-transparent text-text-secondary hover:text-text-primary"
-                }`}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
+        {/* Desktop-навигация + вход */}
+        <div className="flex items-center gap-3">
+          <nav className="flex h-16 items-stretch gap-1" aria-label="Основная навигация">
+            {NAV.map((item) => {
+              const active = item.match(pathname);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={active ? "page" : undefined}
+                  className={`inline-flex items-center border-b-2 px-3 text-sm transition-colors duration-150 ${
+                    active
+                      ? "border-accent-primary font-semibold text-text-primary"
+                      : "border-transparent text-text-secondary hover:text-text-primary"
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
+          <AuthMenu />
+        </div>
       </div>
     </header>
   );

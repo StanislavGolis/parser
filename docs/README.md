@@ -45,7 +45,8 @@
 Наружу — только `nginx`; медиа отдаёт API (прокси S3 — бакет клиенту не раскрывается).
 Деривативы (`…/asset/thumb|web`) кэшируются nginx на диске (immutable, TTL 30 дней),
 поэтому S3-egress минимален; `/view` и `/download` не кэшируются — статистика и
-«Популярное» считаются корректно.
+«Популярное» считаются корректно. Оригиналы (`/raw`, `/download`) доступны только
+зарегистрированным (cookie-сессия); публично — только деривативы.
 
 Запуск продакшен-стека (локально = как на VPS):
 
@@ -118,6 +119,8 @@ GET   /api/v1/boards/{slug}/threads        треды доски (метадан
 GET   /api/v1/boards/{slug}/media          файлы доски (?thread=, ?sort=, ?type=)
 POST  /api/v1/boards/{slug}/access         код доступа (=> httpOnly-cookie ba_{slug}, 24 ч)
 POST  /api/v1/boards/{slug}/threads/{id}/access  код закрытого треда (=> cookie bt_{board}_{thread})
+POST  /api/v1/auth/register | /login | /logout    аккаунт (доступ к оригиналам)
+GET   /api/v1/auth/me                             текущий пользователь
 GET   /api/v1/media/{id} | /view | /download | /raw | /asset/{thumb|web}
       (raw — оригинал; asset/thumb — превью, asset/web — оптимизированная версия
 GET   /api/v1/feed?type=&page=             новинки (без приватных)

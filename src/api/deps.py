@@ -1,13 +1,19 @@
 # src/api/deps.py
 """Общие зависимости API: rate limiting, admin-токен, IP-хеш, S3."""
 import hashlib
+from datetime import datetime
 from functools import lru_cache
 from typing import Optional
 
-from fastapi import Header, HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Request, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
+from src.core.db import get_session
+from src.core.models import User, UserSession
 from src.core.redis_client import redis_client
+from src.services import auth as auth_service
 from src.services.s3_storage import S3Storage
 
 
@@ -61,3 +67,33 @@ async def verify_admin(authorization: Optional[str] = Header(None)) -> None:
 
     if token != settings.ADMIN_TOKEN:
         raise HTTPException(status_code=403, detail="Invalid admin token")
+
+
+# ─────────────────── Аутентификация пользователя ───────────────────
+
+
+async def get_current_user(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> Optional[User]:
+    """Текущий пользователь по cookie-сессии, либо None (аноним)."""
+    token = request.cookies.get(auth_service.COOKIE_NAME)
+    if not token:
+        return None
+    result = await session.execute(
+        select(User)
+        .join(UserSession, UserSession.user_id == User.id)
+        .where(
+            UserSession.token_hash == auth_service.token_hash(token),
+            UserSession.expires_at > datetime.utcnow(),
+            User.is_active.is_(True),
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def require_user(user: Optional[User] = Depends(get_current_user)) -> User:
+    """Требует авторизацию (для оригиналов и скачивания)."""
+    if user is None:
+        raise HTTPException(status_code=401, detail="Требуется вход")
+    return user

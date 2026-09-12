@@ -151,3 +151,25 @@ class DownloadStat(Base):
     media_id = Column(Integer, ForeignKey("media.id", ondelete="CASCADE"), nullable=False)
     ip_hash = Column(String(64), nullable=False)
     downloaded_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class User(Base):
+    """Пользователь: доступ к оригиналам (скачивание)."""
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    password_hash = Column(String(255), nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class UserSession(Base):
+    """Сессия пользователя (cookie sid → sha256(token))."""
+    __tablename__ = "sessions"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    token_hash = Column(String(64), unique=True, nullable=False, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)

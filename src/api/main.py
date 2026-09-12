@@ -12,7 +12,7 @@ from typing import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import admin, boards, feed, media, search, top
+from src.api.routes import admin, auth, boards, feed, media, search, top
 from src.api.services import recalc_popularity
 from src.core.config import settings
 from src.core.db import async_session_factory
@@ -72,6 +72,7 @@ app.add_middleware(
 # Роуты
 app.include_router(boards.router)
 app.include_router(media.router)
+app.include_router(auth.router)
 app.include_router(top.router)
 app.include_router(feed.router)
 app.include_router(search.router)

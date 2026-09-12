@@ -20,10 +20,10 @@ from src.api.common import (
     thread_access_granted,
     visible_thread_clause,
 )
-from src.api.deps import check_rate_limit, client_ip, get_s3, ip_hash
+from src.api.deps import check_rate_limit, client_ip, get_s3, ip_hash, require_user
 from src.api.schemas import DownloadResult, MediaDetailOut, MediaListOut, MediaOut, ViewResult
 from src.core.db import get_session
-from src.core.models import Board, DownloadStat, Media, ThreadState, ViewStat
+from src.core.models import Board, DownloadStat, Media, ThreadState, User, ViewStat
 from src.services.s3_storage import S3Storage
 
 router = APIRouter(prefix="/api/v1", tags=["media"])
@@ -190,8 +190,9 @@ async def media_download(
     request: Request,
     session: AsyncSession = Depends(get_session),
     s3: S3Storage = Depends(get_s3),
+    user: User = Depends(require_user),
 ):
-    """Отметить скачивание и вернуть URL файла."""
+    """Отметить скачивание и вернуть URL оригинала. Только для авторизованных."""
     await check_rate_limit(client_ip(request))
 
     media = await _get_visible_media(session, media_id)
@@ -296,10 +297,12 @@ async def media_raw(
     download: bool = Query(False),
     session: AsyncSession = Depends(get_session),
     s3: S3Storage = Depends(get_s3),
+    user: User = Depends(require_user),
 ):
-    """Отдаёт ОРИГИНАЛ файла через наш API (S3-бакет клиенту не раскрывается).
+    """Отдаёт ОРИГИНАЛ файла через наш API (только авторизованным).
 
-    Поддерживает Range (видео, докачка) и Content-Disposition при `?download=1`.
+    Публично доступны только деривативы (`/asset/thumb|web|video`).
+    Поддерживает Range и Content-Disposition при `?download=1`.
     """
     await check_rate_limit(client_ip(request))
 
