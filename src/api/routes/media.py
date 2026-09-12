@@ -436,13 +436,19 @@ def _local_file_response(
     )
 
 
-async def _iter_body_tee(body, temp: Path, cache: MediaCache, key: str):
+async def _iter_body_tee(body, temp: Path, cache: MediaCache, key: str, total: Optional[int] = None):
     """Читает объект из S3 и попутно складывает его в локальный кэш.
 
     Первый запрос не ждёт отдельной загрузки: клиент получает данные сразу, а файл
     остаётся на диске для следующих запросов (трафик S3 не удваивается).
+
+    Клиент может закрыть соединение сразу после получения последнего байта — тогда
+    генератор не успевает дойти до конца. Если записан весь объект (`total` из
+    Content-Length совпал), всё равно коммитим файл: иначе мелкие ассеты никогда
+    не попадали бы в кэш.
     """
     completed = False
+    written = 0
     handle = None
     try:
         handle = await asyncio.to_thread(temp.open, "wb")
@@ -451,19 +457,26 @@ async def _iter_body_tee(body, temp: Path, cache: MediaCache, key: str):
             if not chunk:
                 break
             await asyncio.to_thread(handle.write, chunk)
+            written += len(chunk)
             yield chunk
         completed = True
     finally:
+        # ВАЖНО: в finally нельзя делать await — при обрыве клиента задача
+        # отменяется, и первый же await падает с CancelledError, из-за чего файл
+        # не попадал в кэш. Закрываем и коммитим синхронно (это быстрые операции).
         if handle is not None:
             try:
-                await asyncio.to_thread(handle.close)
+                handle.close()
             except Exception:  # noqa: BLE001
                 pass
-        if completed:
-            await asyncio.to_thread(cache.commit_part, key, temp)
-            await asyncio.to_thread(cache.sweep)
+        if completed or (total is not None and written == total):
+            cache.commit_part(key, temp)
+            try:
+                asyncio.get_running_loop().create_task(asyncio.to_thread(cache.sweep))
+            except Exception:  # noqa: BLE001
+                pass
         else:
-            await asyncio.to_thread(cache.drop_part, temp)
+            cache.drop_part(temp)
 
 
 # Ключи, которые прямо сейчас догружаются в кэш (чтобы не дублировать работу)
@@ -558,7 +571,11 @@ async def _stream_object(
             # Объект целиком: пишем в кэш «по пути», клиент ничего не ждёт
             try:
                 body_iter = _iter_body_tee(
-                    obj["body"], cache.path_for_part(key), cache, key
+                    obj["body"],
+                    cache.path_for_part(key),
+                    cache,
+                    key,
+                    total=obj.get("content_length"),
                 )
             except OSError as exc:
                 print(f"   [cache] не удалось начать запись {key}: {exc}")
