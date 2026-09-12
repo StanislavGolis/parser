@@ -423,7 +423,7 @@ async def admin_board_threads(
     slug: str,
     page: int = Query(1, ge=1),
     per_page: int = Query(30, ge=1, le=100),
-    state: str = Query("all", pattern="^(all|active|parsing|visible|private|off)$"),
+    state: str = Query("all", pattern="^(all|active|parsing|visible|premium|off)$"),
     q: Optional[str] = Query(None, max_length=120),
     _=Depends(verify_admin),
     session: AsyncSession = Depends(get_session),
