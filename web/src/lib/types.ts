@@ -160,6 +160,16 @@ export interface AccessResult {
   granted: boolean;
 }
 
+/** Прогресс бэкфилла деривативов («Оптимизировать медиа»). */
+export interface BackfillStatus {
+  status: "idle" | "running" | "done" | "error";
+  total: number;
+  done: number;
+  processed?: number;
+  errors?: number;
+  error?: string;
+}
+
 /** Прогресс сканирования каталога доски (кнопка «Сканировать треды»). */
 export interface ScanStatus {
   status: "idle" | "running" | "done" | "error";

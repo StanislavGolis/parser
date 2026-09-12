@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PlusIcon, SpinnerIcon } from "@/components/icons";
 import { BoardsTable, ForumTab } from "@/components/AdminViews";
 import { ApiError, apiDelete, apiPatch, apiPost, apiSend } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
-import type { AdminBoard, AdminOverview, ForumBoard, SystemTotals } from "@/lib/types";
+import type { AdminBoard, AdminOverview, BackfillStatus, ForumBoard, SystemTotals } from "@/lib/types";
 
 const TOKEN_KEY = "admin_token";
 const POLL_MS = 7000;
@@ -37,6 +37,8 @@ export default function AdminConsole() {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [newSlug, setNewSlug] = useState("");
   const [creating, setCreating] = useState(false);
+  const [backfill, setBackfill] = useState<BackfillStatus | null>(null);
+  const backfillPollRef = useRef<number | null>(null);
 
   const loadOverview = useCallback(
     async (t: string) => {
@@ -92,6 +94,11 @@ export default function AdminConsole() {
   useEffect(() => {
     if (token && tab === "forum" && forum === null) void loadForum();
   }, [token, tab, forum, loadForum]);
+
+  // Останавливаем поллинг бэкфилла при размонтировании
+  useEffect(() => () => {
+    if (backfillPollRef.current) window.clearTimeout(backfillPollRef.current);
+  }, []);
 
   function login(e: React.FormEvent) {
     e.preventDefault();
@@ -199,6 +206,37 @@ export default function AdminConsole() {
     }
   }
 
+  const pollBackfill = useCallback(async () => {
+    if (!token) return;
+    try {
+      const st = await apiSend<BackfillStatus>("/api/v1/admin/backfill-variants/status", { token });
+      setBackfill(st);
+      if (st.status === "running") {
+        backfillPollRef.current = window.setTimeout(() => void pollBackfill(), 700);
+      } else if (st.status === "done") {
+        void loadOverview(token);
+        backfillPollRef.current = window.setTimeout(() => setBackfill(null), 4000);
+      }
+    } catch (err) {
+      setGlobalError(errText(err));
+      setBackfill(null);
+    }
+  }, [token, loadOverview]);
+
+  async function optimizeMedia() {
+    if (!token) return;
+    setGlobalError(null);
+    try {
+      const st = await apiPost<BackfillStatus>("/api/v1/admin/backfill-variants", undefined, token);
+      setBackfill(st);
+      if (st.status === "running") {
+        backfillPollRef.current = window.setTimeout(() => void pollBackfill(), 700);
+      }
+    } catch (err) {
+      setGlobalError(errText(err));
+    }
+  }
+
   async function cleanupStorage() {
     if (!token) return;
     setGlobalError(null);
@@ -300,6 +338,15 @@ export default function AdminConsole() {
             <>
               <button
                 type="button"
+                onClick={() => void optimizeMedia()}
+                disabled={backfill?.status === "running"}
+                className="btn-ghost px-3 py-1.5 text-xs"
+                title="Сгенерировать превью и оптимизированные версии (720p) для уже скачанных файлов"
+              >
+                {backfill?.status === "running" ? "Оптимизируем…" : "Оптимизировать медиа"}
+              </button>
+              <button
+                type="button"
                 onClick={() => void cleanupStorage()}
                 className="btn-ghost px-3 py-1.5 text-xs"
                 title="Удалить из S3 объекты, которых нет в базе"
@@ -323,6 +370,39 @@ export default function AdminConsole() {
         <p className="mb-4 rounded border border-accent-danger/30 bg-red-500/10 px-3 py-2 text-sm text-accent-danger">
           {globalError}
         </p>
+      ) : null}
+
+      {backfill && backfill.status !== "idle" ? (
+        <div className="mb-4 rounded border border-line bg-ink-secondary px-3 py-2">
+          <div className="flex items-center justify-between text-xs text-text-secondary">
+            <span>
+              {backfill.status === "running"
+                ? "Оптимизируем медиа (превью/720p)…"
+                : backfill.status === "done"
+                  ? `Готово: обработано ${formatNumber(backfill.processed ?? 0)} из ${formatNumber(backfill.total)}`
+                  : `Ошибка: ${backfill.error ?? "не удалось"}`}
+            </span>
+            <span className="tabular-nums">
+              {formatNumber(backfill.done)}/{formatNumber(backfill.total || 0)}
+            </span>
+          </div>
+          <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded bg-ink-tertiary">
+            <div
+              className={`h-full transition-all ${
+                backfill.status === "error" ? "bg-accent-danger" : "bg-accent-primary"
+              }`}
+              style={{
+                width: `${
+                  backfill.total > 0
+                    ? Math.min(100, Math.round((backfill.done / backfill.total) * 100))
+                    : backfill.status === "running"
+                      ? 10
+                      : 0
+                }%`,
+              }}
+            />
+          </div>
+        </div>
       ) : null}
 
       {tab === "boards" ? (
