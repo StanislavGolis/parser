@@ -3,12 +3,12 @@
 import { useCallback, useState } from "react";
 
 import Lightbox from "@/components/Lightbox";
-import { FilmIcon, ImageIcon, LockIcon, SpinnerIcon, StarIcon } from "@/components/icons";
+import { FilmIcon, ImageIcon, LockIcon, PlayIcon, SpinnerIcon, StarIcon } from "@/components/icons";
 import When from "@/components/When";
 import { apiGet } from "@/lib/api";
 import { mediaUrl } from "@/lib/env";
 import { thumbSrc, premiumState } from "@/lib/media";
-import { formatNumber, plural } from "@/lib/format";
+import { formatDuration, formatNumber, plural } from "@/lib/format";
 import type { BoardThread, MediaItem, MediaList, ThreadList } from "@/lib/types";
 
 const PER_PAGE = 15;
@@ -251,6 +251,16 @@ function ThreadCard({
                   title="Премиум-контент: доступен по вашей подписке"
                 >
                   <StarIcon className="h-2.5 w-2.5" />
+                </span>
+              ) : null}
+              {/* Маркер видео: значок ▶ и длительность (как на карточках галереи) */}
+              {m.media_type === "video" ? (
+                <span
+                  className="pointer-events-none absolute bottom-0.5 right-0.5 inline-flex items-center gap-0.5 rounded-[3px] bg-black/70 px-1 py-0.5 font-mono text-[9px] leading-none text-text-primary"
+                  aria-hidden
+                >
+                  <PlayIcon className="h-2.5 w-2.5" />
+                  {formatDuration(m.duration_seconds) || ""}
                 </span>
               ) : null}
             </button>

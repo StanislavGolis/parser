@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { FilmIcon, ImageIcon } from "@/components/icons";
+import { FilmIcon, ImageIcon, PlayIcon } from "@/components/icons";
+import { formatDuration } from "@/lib/format";
 import { mediaUrl } from "@/lib/env";
 import { thumbSrc } from "@/lib/media";
 import type { MediaItem } from "@/lib/types";
@@ -59,9 +60,13 @@ function Thumb({
       ref={ref}
       type="button"
       onClick={onSelect}
-      aria-label={`Файл ${position}: ${media.original_name}`}
+      aria-label={`${isVideo ? "Видео" : "Файл"} ${position}: ${media.original_name}`}
       aria-current={active ? "true" : undefined}
-      title={media.original_name}
+      title={
+        isVideo
+          ? `Видео${formatDuration(media.duration_seconds) ? ` ${formatDuration(media.duration_seconds)}` : ""}: ${media.original_name}`
+          : media.original_name
+      }
       className={`relative h-16 w-16 shrink-0 overflow-hidden rounded border transition-colors ${
         active ? "border-accent-primary ring-1 ring-accent-primary" : "border-line hover:border-line-hover"
       }`}
@@ -90,6 +95,17 @@ function Thumb({
           {isVideo ? <FilmIcon className="h-4 w-4" /> : <ImageIcon className="h-4 w-4" />}
         </span>
       )}
+
+      {/* Маркер видео: значок ▶ и длительность (как на карточках галереи) */}
+      {isVideo ? (
+        <span
+          className="pointer-events-none absolute bottom-0.5 right-0.5 inline-flex items-center gap-0.5 rounded-[3px] bg-black/70 px-1 py-0.5 font-mono text-[9px] leading-none text-text-primary"
+          aria-hidden
+        >
+          <PlayIcon className="h-2.5 w-2.5" />
+          {formatDuration(media.duration_seconds) || ""}
+        </span>
+      ) : null}
     </button>
   );
 }

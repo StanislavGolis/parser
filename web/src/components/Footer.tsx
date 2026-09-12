@@ -11,7 +11,7 @@ export default function Footer() {
           <Link href="/" className="transition-colors hover:text-text-primary">доски</Link>
           <Link href="/new" className="transition-colors hover:text-text-primary">новинки</Link>
           <Link href="/top" className="transition-colors hover:text-text-primary">популярное</Link>
-          <Link href="/favorites" className="transition-colors hover:text-text-primary">избранное</Link>
+          <Link href="/marks" className="transition-colors hover:text-text-primary">метки</Link>
         </nav>
       </div>
     </footer>

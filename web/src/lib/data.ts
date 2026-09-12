@@ -121,12 +121,12 @@ export async function getMediaDetail(id: number): Promise<MediaDetail | null> {
 }
 
 /**
- * Избранное текущего пользователя (требует сессии).
+ * «Мои метки» текущего пользователя (требует сессии).
  * `revalidate: 0` — персональные данные не кэшируем; при 401 страница
- * показывает приглашение войти (см. `/favorites`).
+ * показывает приглашение войти (см. `/marks`).
  */
-export async function getFavoritesPage(page: number, perPage: number): Promise<MediaList> {
+export async function getMarksPage(page: number, perPage: number): Promise<MediaList> {
   const q = new URLSearchParams({ page: String(page), per_page: String(perPage) });
   const fallback: MediaList = { items: [], page, per_page: perPage, total: 0 };
-  return serverFetch<MediaList>(`/api/v1/favorites?${q}`, 0, fallback);
+  return serverFetch<MediaList>(`/api/v1/marks?${q}`, 0, fallback);
 }

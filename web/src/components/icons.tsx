@@ -130,7 +130,7 @@ export function TagIcon(props: IconProps) {
   );
 }
 
-/** Избранное — личная подборка (закладка). */
+/** Закладка (личный список). */
 export function BookmarkIcon(props: IconProps) {
   return (
     <svg {...base(props)}>

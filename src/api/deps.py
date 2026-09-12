@@ -94,7 +94,7 @@ async def get_current_user(
 
 
 async def require_user(user: Optional[User] = Depends(get_current_user)) -> User:
-    """Требует авторизацию (метки, избранное, профиль)."""
+    """Требует авторизацию (метки, профиль)."""
     if user is None:
         raise HTTPException(status_code=401, detail="Требуется вход")
     return user

@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.deps import check_rate_limit, client_ip, require_user
 from src.api.schemas import AuthCredentials, UserOut
 from src.core.db import get_session
-from src.core.models import Favorite, MediaMark, User, UserSession
+from src.core.models import MediaMark, User, UserSession
 from src.services import auth as auth_service
 from src.services.premium import PROMO_PREMIUM_DAYS, grant_premium, premium_active
 
@@ -34,20 +34,14 @@ def user_out(user: User) -> UserOut:
 
 
 async def user_out_with_counts(session: AsyncSession, user: User) -> UserOut:
-    """Схема пользователя + счётчики его меток и избранного (для профиля)."""
+    """Схема пользователя + счётчик его меток (для профиля)."""
     marks = (
         await session.execute(
             select(func.count()).select_from(MediaMark).where(MediaMark.user_id == user.id)
         )
     ).scalar()
-    favorites = (
-        await session.execute(
-            select(func.count()).select_from(Favorite).where(Favorite.user_id == user.id)
-        )
-    ).scalar()
     data = user_out(user)
     data.marks_count = int(marks or 0)
-    data.favorites_count = int(favorites or 0)
     return data
 
 
@@ -146,7 +140,7 @@ async def me(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(require_user),
 ):
-    """Текущий пользователь + счётчики меток и избранного (401, если не вошёл)."""
+    """Текущий пользователь + счётчик меток (401, если не вошёл)."""
     return await user_out_with_counts(session, user)
 
 

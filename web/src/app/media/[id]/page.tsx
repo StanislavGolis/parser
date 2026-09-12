@@ -3,7 +3,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import DownloadButton from "@/components/DownloadButton";
-import FavoriteButton from "@/components/FavoriteButton";
 import MarkButton from "@/components/MarkButton";
 import TrackView from "@/components/TrackView";
 import When from "@/components/When";
@@ -154,7 +153,6 @@ export default async function MediaDetailPage({ params }: DetailProps) {
               marksCount={media.marks_count ?? 0}
               marked={Boolean(media.marked)}
             />
-            <FavoriteButton mediaId={media.id} favorited={Boolean(media.favorited)} />
           </div>
         </div>
       </div>

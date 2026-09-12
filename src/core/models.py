@@ -181,27 +181,14 @@ class UserSession(Base):
 class MediaMark(Base):
     """Метка пользователя на файле — «отличный контент» (наш аналог лайка).
 
-    Метка требует аккаунта, ставится/снимается как переключатель; счётчик
-    дублируется в `media.marks_count` для отображения и сортировки.
+    Единственная пользовательская отметка файла: и публичный счётчик
+    (`media.marks_count`), и личный список «мои метки» (страница `/marks`).
+    Требует аккаунт, ставится/снимается как переключатель.
     """
     __tablename__ = "media_marks"
     __table_args__ = (
         UniqueConstraint("user_id", "media_id", name="uq_media_marks_user_media"),
         Index("ix_media_marks_media", "media_id"),
-    )
-
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    media_id = Column(Integer, ForeignKey("media.id", ondelete="CASCADE"), nullable=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-
-
-class Favorite(Base):
-    """Избранное пользователя (личная подборка файлов, требует аккаунта)."""
-    __tablename__ = "favorites"
-    __table_args__ = (
-        UniqueConstraint("user_id", "media_id", name="uq_favorites_user_media"),
-        Index("ix_favorites_media", "media_id"),
     )
 
     id = Column(Integer, primary_key=True)

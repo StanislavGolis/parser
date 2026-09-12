@@ -6,7 +6,6 @@ import Link from "next/link";
 
 import BoardBadge from "@/components/BoardBadge";
 import DownloadButton from "@/components/DownloadButton";
-import FavoriteButton from "@/components/FavoriteButton";
 import MarkButton from "@/components/MarkButton";
 import MediaFilmstrip from "@/components/MediaFilmstrip";
 import {
@@ -293,14 +292,8 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
             <DownloadIcon className="h-3.5 w-3.5" />
             {formatCompact(media.downloads_count)} скачиваний
           </span>
-          {/* Метка («отличный контент») и избранное — требуют аккаунт.
-              Метка управляется общим хуком: пробел делает то же самое. */}
+          {/* Метка («отличный контент») — общий хук: пробел делает то же самое. */}
           <MarkButton mediaId={media.id} state={mark} />
-          <FavoriteButton
-            key={`fav-${media.id}`}
-            mediaId={media.id}
-            favorited={Boolean(media.favorited)}
-          />
         </div>
 
         <div className="flex items-center gap-2">

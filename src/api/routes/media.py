@@ -30,7 +30,6 @@ from src.api.deps import (
 )
 from src.api.schemas import (
     DownloadResult,
-    FavoriteResult,
     MarkResult,
     MediaDetailOut,
     MediaListOut,
@@ -41,7 +40,6 @@ from src.core.db import get_session
 from src.core.models import (
     Board,
     DownloadStat,
-    Favorite,
     Media,
     MediaMark,
     ThreadState,
@@ -285,7 +283,8 @@ async def media_mark(
     """Поставить/снять метку «отличный контент» (наш аналог лайка).
 
     Требует аккаунт (аноним → 401). Метка — переключатель: повторный вызов
-    снимает её. Счётчик хранится в `media.marks_count`.
+    снимает её. Счётчик хранится в `media.marks_count`, а личный список
+    отмеченного доступен на `GET /api/v1/marks`.
     """
     await check_rate_limit(client_ip(request))
 
@@ -312,36 +311,6 @@ async def media_mark(
     _recalc_popularity(media)
     await session.commit()
     return MarkResult(media_id=media.id, marked=marked, marks_count=int(media.marks_count or 0))
-
-
-@router.post("/media/{media_id}/favorite", response_model=FavoriteResult)
-async def media_favorite(
-    media_id: int,
-    request: Request,
-    session: AsyncSession = Depends(get_session),
-    user: User = Depends(require_user),
-):
-    """Добавить/убрать файл в избранное (личная подборка, требует аккаунт)."""
-    await check_rate_limit(client_ip(request))
-
-    media = await _get_visible_media(session, media_id)
-    await _check_media_access(session, media)
-
-    existing = (
-        await session.execute(
-            select(Favorite).where(Favorite.user_id == user.id, Favorite.media_id == media.id)
-        )
-    ).scalar_one_or_none()
-
-    if existing:
-        await session.delete(existing)
-        favorited = False
-    else:
-        session.add(Favorite(user_id=user.id, media_id=media.id))
-        favorited = True
-
-    await session.commit()
-    return FavoriteResult(media_id=media.id, favorited=favorited)
 
 
 # ─────────────── Анонимная отдача файлов (прокси S3) ───────────────

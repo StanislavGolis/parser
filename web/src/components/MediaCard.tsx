@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 
-import FavoriteButton from "@/components/FavoriteButton";
 import MarkButton from "@/components/MarkButton";
 import {
   EyeIcon,
@@ -158,9 +157,8 @@ export default function MediaCard({ media, board, showTop = false, onOpen }: Med
         </span>
       </button>
 
-      {/* Метка и избранное — поверх превью; клики не открывают lightbox */}
+      {/* Метка — поверх превью; клик не открывает lightbox */}
       <span className="absolute right-1.5 top-1.5 z-10 flex items-center gap-1">
-        <FavoriteButton mediaId={media.id} favorited={Boolean(media.favorited)} variant="overlay" />
         <MarkButton
           mediaId={media.id}
           marksCount={media.marks_count ?? 0}

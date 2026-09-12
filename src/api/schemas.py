@@ -131,8 +131,7 @@ class UserOut(BaseModel):
     email: str
     premium_until: Optional[datetime] = None
     is_premium: bool = False  # премиум активен прямо сейчас
-    marks_count: int = 0      # сколько меток поставил пользователь
-    favorites_count: int = 0  # сколько файлов в избранном
+    marks_count: int = 0      # сколько меток поставил пользователь («мои метки»)
 
 
 class MarkResult(BaseModel):
@@ -140,12 +139,6 @@ class MarkResult(BaseModel):
     media_id: int
     marked: bool       # стоит ли метка теперь
     marks_count: int   # всего меток у файла
-
-
-class FavoriteResult(BaseModel):
-    """Результат переключения избранного."""
-    media_id: int
-    favorited: bool
 
 
 class MediaOut(BaseModel):
@@ -174,10 +167,9 @@ class MediaOut(BaseModel):
     # Премиум-контент: locked=True — нужна подписка (превью размыто, полный недоступен)
     is_premium: bool = False
     locked: bool = False
-    # Метки («отличный контент») и избранное
+    # Метка «отличный контент» (аналог лайка) — публичный счётчик и личный список
     marks_count: int = 0          # сколько пользователей отметили файл
     marked: bool = False          # отметил ли текущий пользователь
-    favorited: bool = False       # в избранном ли у текущего пользователя
 
 
 class MediaListOut(BaseModel):

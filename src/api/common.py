@@ -6,7 +6,7 @@ from sqlalchemy import exists, select
 
 from src.api.schemas import MediaOut
 from src.core.config import settings
-from src.core.models import Board, Favorite, Media, MediaMark, ThreadState, User
+from src.core.models import Board, Media, MediaMark, ThreadState, User
 from src.services.premium import premium_active
 from src.services.s3_storage import S3Storage
 
@@ -120,10 +120,10 @@ async def apply_user_flags(
     items: list[MediaOut],
     user: Optional[User],
 ) -> None:
-    """Проставляет `marked`/`favorited` по данным текущего пользователя.
+    """Проставляет `marked` по данным текущего пользователя.
 
     Один запрос на список (а не по элементу): для страницы галереи берём
-    множества media_id, отмеченных меткой и добавленных в избранное.
+    множество media_id, отмеченных меткой.
     """
     if user is None or not items:
         return
@@ -138,18 +138,8 @@ async def apply_user_flags(
             )
         ).scalars().all()
     )
-    favorited = set(
-        (
-            await session.execute(
-                select(Favorite.media_id).where(
-                    Favorite.user_id == user.id, Favorite.media_id.in_(ids)
-                )
-            )
-        ).scalars().all()
-    )
     for item in items:
         item.marked = item.id in marked
-        item.favorited = item.id in favorited
 
 
 def sign_media_urls(

@@ -1,5 +1,9 @@
-# src/api/routes/favorites.py
-"""Избранное пользователя — личная подборка файлов (требует аккаунт)."""
+# src/api/routes/marks.py
+"""Метки пользователя — личный список отмеченного («мои метки»).
+
+Метка — единая пользовательская сущность (наш аналог лайка): она же даёт
+публичный счётчик у файла, она же формирует личный список. Требует аккаунт.
+"""
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -15,14 +19,14 @@ from src.api.common import (
 from src.api.deps import check_rate_limit, client_ip, get_s3, require_user
 from src.api.schemas import MediaListOut, MediaOut
 from src.core.db import get_session
-from src.core.models import Board, Favorite, Media, User
+from src.core.models import Board, Media, MediaMark, User
 from src.services.s3_storage import S3Storage
 
-router = APIRouter(prefix="/api/v1/favorites", tags=["favorites"])
+router = APIRouter(prefix="/api/v1/marks", tags=["marks"])
 
 
 @router.get("", response_model=MediaListOut)
-async def my_favorites(
+async def my_marks(
     request: Request,
     page: int = Query(1, ge=1),
     per_page: int = Query(30, ge=1, le=100),
@@ -31,17 +35,17 @@ async def my_favorites(
     s3: S3Storage = Depends(get_s3),
     user: User = Depends(require_user),
 ):
-    """Файлы из избранного текущего пользователя (свежие добавления сверху).
+    """Файлы, отмеченные текущим пользователем (свежие метки сверху).
 
     Учитываются только видимые файлы видимых досок/тредов: если файл скрыли
-    в админке, он пропадает и из избранного (но отметка в БД остаётся).
+    в админке, он пропадает и из списка (метка в БД остаётся).
     """
     await check_rate_limit(client_ip(request))
 
     filters = list(VISIBLE_FILTER) + [
         Board.is_visible.is_(True),
         visible_thread_clause(),
-        Favorite.user_id == user.id,
+        MediaMark.user_id == user.id,
     ]
     if media_type:
         filters.append(Media.media_type == media_type)
@@ -50,7 +54,7 @@ async def my_favorites(
         await session.execute(
             select(func.count())
             .select_from(Media)
-            .join(Favorite, Favorite.media_id == Media.id)
+            .join(MediaMark, MediaMark.media_id == Media.id)
             .join(Board, Board.id == Media.board_id)
             .where(*filters)
         )
@@ -60,10 +64,10 @@ async def my_favorites(
         (
             await session.execute(
                 select(Media)
-                .join(Favorite, Favorite.media_id == Media.id)
+                .join(MediaMark, MediaMark.media_id == Media.id)
                 .join(Board, Board.id == Media.board_id)
                 .where(*filters)
-                .order_by(Favorite.created_at.desc(), Media.id.desc())
+                .order_by(MediaMark.created_at.desc(), Media.id.desc())
                 .offset((page - 1) * per_page)
                 .limit(per_page)
             )
@@ -75,7 +79,7 @@ async def my_favorites(
     out = [MediaOut.model_validate(m) for m in items]
     sign_media_urls(out, items, s3, user)
     await apply_user_flags(session, out, user)
-    for item in out:  # по определению списка всё уже в избранном
-        item.favorited = True
+    for item in out:  # по определению списка всё уже отмечено
+        item.marked = True
 
     return MediaListOut(items=out, page=page, per_page=per_page, total=int(total or 0))

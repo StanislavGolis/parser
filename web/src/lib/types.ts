@@ -144,10 +144,9 @@ export interface MediaItem {
   /** Премиум-контент: locked — нужна подписка (превью размыто, полный недоступен). */
   is_premium?: boolean;
   locked?: boolean;
-  /** Метки («отличный контент», аналог лайка) и избранное. */
+  /** Метка «отличный контент» (аналог лайка): публичный счётчик и личный список. */
   marks_count?: number;
   marked?: boolean;
-  favorited?: boolean;
 }
 
 export interface MediaList {
@@ -229,10 +228,8 @@ export interface UserOut {
   premium_until: string | null;
   /** Премиум активен прямо сейчас. */
   is_premium: boolean;
-  /** Сколько меток поставил пользователь. */
+  /** Сколько меток поставил пользователь («мои метки»). */
   marks_count?: number;
-  /** Сколько файлов в избранном. */
-  favorites_count?: number;
 }
 
 /** Результат переключения метки («отличный контент»). */
@@ -240,12 +237,6 @@ export interface MarkResult {
   media_id: number;
   marked: boolean;
   marks_count: number;
-}
-
-/** Результат переключения избранного. */
-export interface FavoriteResult {
-  media_id: number;
-  favorited: boolean;
 }
 
 /** Индекс доски по id — чтобы показывать slug/title на плитках лент. */
