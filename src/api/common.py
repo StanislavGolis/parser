@@ -96,6 +96,11 @@ def apply_media_urls(
         item.url = build_media_url(source.id, s3, source.s3_key)
 
     blur_key = variants.get("thumb_blur")
+    # Размытый вариант — публичный: он же служит плейсхолдером при загрузке
+    # превью (blur-up), поэтому отдаём его отдельным полем.
+    if blur_key:
+        item.blur_url = asset_url(source.id, "thumb_blur", blur_key)
+
     if locked:
         # Всегда указываем публичный размытый вариант: пока блюр не сгенерирован
         # (бэкфилл не проходил), эндпоинт отдаст обычное превью, а размытие

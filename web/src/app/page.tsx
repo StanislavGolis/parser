@@ -1,14 +1,16 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import Link from "next/link";
 
 import FilterChips from "@/components/FilterChips";
 import Gallery from "@/components/Gallery";
 import MediaShelf from "@/components/MediaShelf";
+import VisitStamp from "@/components/VisitStamp";
 import { getBoards, getFeedPage, getStatus, getTopMedia } from "@/lib/data";
 import { SITE_URL } from "@/lib/env";
-import { formatNumber } from "@/lib/format";
+import { formatNumber, plural } from "@/lib/format";
 import type { MediaType } from "@/lib/types";
+import { LAST_VISIT_COOKIE, parseVisitDate, visitLabel } from "@/lib/visit";
 
 export const dynamic = "force-dynamic";
 
@@ -75,13 +77,20 @@ export default async function HomePage({
   const rawFree = Array.isArray(searchParams?.free) ? searchParams.free[0] : searchParams?.free;
   const freeOnly = rawFree === "1";
 
-  const [feed, status, popular, boards] = await Promise.all([
+  // «Новое с прошлого визита»: cookie пишет VisitStamp (клиент), читаем здесь.
+  const lastVisit = parseVisitDate(cookies().get(LAST_VISIT_COOKIE)?.value);
+
+  const [feed, status, popular, boards, fresh] = await Promise.all([
     getFeedPage(1, HOME_SIZE, type, freeOnly),
     getStatus(),
     getTopMedia("week", null, POPULAR_SIZE),
     getBoards(),
+    lastVisit
+      ? getFeedPage(1, 1, null, false, lastVisit.toISOString())
+      : Promise.resolve(null),
   ]);
   const boardsById = Object.fromEntries(boards.map((b) => [b.id, b]));
+  const freshCount = fresh?.total ?? 0;
 
   // Микроразметка сайта: имя + поиск (потенциальный «sitelinks searchbox»).
   const siteJsonLd = {
@@ -104,6 +113,8 @@ export default async function HomePage({
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(siteJsonLd).replace(/</g, "\\u003c") }}
       />
+      {/* Отметка визита: cookie для блока «новое с прошлого визита» */}
+      <VisitStamp />
       {/* Сводка архива: две строки, чтобы медиа попадало в первый экран */}
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <h1 className="dredge-title">архив // новое</h1>
@@ -112,6 +123,18 @@ export default async function HomePage({
           +{formatNumber(status.files_24h)} за сутки
         </span>
       </div>
+
+      {/* «Новое с прошлого визита» — главный триггер вернуться (cookie dv_last) */}
+      {lastVisit && freshCount > 0 ? (
+        <Link
+          href={`/new?since=${encodeURIComponent(lastVisit.toISOString())}`}
+          className="mb-3 inline-flex items-center gap-1.5 rounded border border-accent-primary/50 bg-accent-primary/10 px-2.5 py-1 font-mono text-[11px] text-accent-primary transition-colors duration-150 hover:border-accent-primary hover:bg-accent-primary/20"
+        >
+          +{formatNumber(freshCount)}{" "}
+          {plural(freshCount, ["новый файл", "новых файла", "новых файлов"])} с{" "}
+          {visitLabel(lastVisit)} →
+        </Link>
+      ) : null}
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <FilterChips typeOptions={TYPE_OPTIONS} />

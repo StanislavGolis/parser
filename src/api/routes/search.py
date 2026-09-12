@@ -6,7 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.common import VISIBLE_FILTER, sign_media_urls, visible_thread_clause
+from src.api.common import (
+    VISIBLE_FILTER,
+    apply_user_flags,
+    sign_media_urls,
+    visible_thread_clause,
+)
 from src.api.deps import check_rate_limit, client_ip, get_current_user, get_s3
 from src.api.schemas import MediaListOut, MediaOut
 from src.core.db import get_session
@@ -68,6 +73,7 @@ async def search_media(
 
     out = [MediaOut.model_validate(m) for m in items]
     sign_media_urls(out, items, s3, user)
+    await apply_user_flags(session, out, user)
     return MediaListOut(
         items=out,
         page=page,

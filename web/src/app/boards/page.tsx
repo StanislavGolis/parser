@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Разделы архива",
   description:
-    "Каталог разделов архива: внутри каждого — треды и файлы, превью и оригиналы, свежие поступления и топ.",
+    "Разделы-архивы: внутри каждого — треды и файлы, превью и оригиналы, свежие поступления и топ.",
   alternates: { canonical: "/boards" },
 };
 
@@ -21,13 +21,13 @@ export default async function BoardsPage() {
   return (
     <div className="py-6 sm:py-8">
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-3">
-        <h1 className="dredge-title">архив // доски</h1>
+        <h1 className="dredge-title">архив // разделы</h1>
         <span className="font-mono text-[11px] text-text-muted">
-          {formatNumber(boards.length)} досок · {formatNumber(totalFiles)} файлов
+          {formatNumber(boards.length)} разделов · {formatNumber(totalFiles)} файлов
         </span>
       </div>
       <p className="mb-6 text-sm text-text-secondary">
-        Разделы-архивы. Внутри каждого — треды и файлы с раздела.
+        Разделы-архивы. Внутри каждого — треды и файлы.
       </p>
 
       <BoardsCatalog boards={boards} />

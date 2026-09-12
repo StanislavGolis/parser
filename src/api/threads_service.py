@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Tuple
 from sqlalchemy import Integer, String, and_, cast, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.common import is_locked, sign_media_urls
+from src.api.common import apply_user_flags, is_locked, sign_media_urls
 from src.api.schemas import MediaOut, ThreadOut
 from src.core.config import settings
 from src.core.models import Media, ThreadState, User
@@ -392,6 +392,9 @@ async def build_thread_outs(
                 preview_out = [MediaOut.model_validate(m) for m in media_items]
                 if s3 is not None:
                     sign_media_urls(preview_out, media_items, s3, user)
+                if user is not None:
+                    # Отметки зрителя видны и на превью в списке тредов.
+                    await apply_user_flags(session, preview_out, user)
                 item.preview = preview_out
         out.append(item)
 

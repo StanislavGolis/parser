@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { LockIcon, StarIcon } from "@/components/icons";
+import { mediaUrl } from "@/lib/env";
 import { formatNumber } from "@/lib/format";
 import type { Board } from "@/lib/types";
 
@@ -15,7 +16,57 @@ const FILTERS: Array<{ value: Filter; label: string }> = [
   { value: "premium", label: "ПРЕМИУМ" },
 ];
 
-/** Главная = «Доски»: каталог разделов-архивов со статусами. */
+/** Сколько превью в мозаике обложки (2×2). */
+const MOSAIC_TILES = 4;
+
+/** Плитка обложки: пульсирующий скелетон → плавное появление превью. */
+function CoverTile({ src }: { src?: string }) {
+  const [loaded, setLoaded] = useState(false);
+  // Пустая плитка (в разделе меньше 4 файлов) остаётся скелетоном.
+  const showSkeleton = Boolean(src) && !loaded;
+
+  return (
+    <span className="relative block overflow-hidden bg-ink-tertiary">
+      {showSkeleton ? (
+        <span className="absolute inset-0 animate-pulse bg-ink-tertiary" aria-hidden />
+      ) : null}
+      {src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          onLoad={() => setLoaded(true)}
+          className={`h-full w-full object-cover transition-all duration-300 group-hover:scale-[1.04] ${
+            loaded ? "opacity-100" : "opacity-0"
+          }`}
+        />
+      ) : (
+        <span className="absolute inset-0 bg-ink-secondary/40" aria-hidden />
+      )}
+    </span>
+  );
+}
+
+/** Обложка раздела: мозаика 2×2 из свежих превью (до 4 плиток). */
+function CoverMosaic({ board }: { board: Board }) {
+  const thumbs = (board.cover_thumbs ?? []).slice(0, MOSAIC_TILES);
+  return (
+    <span
+      className="grid grid-cols-2 gap-px border-b border-line bg-line"
+      style={{ aspectRatio: "16 / 9" }}
+      aria-hidden
+    >
+      {Array.from({ length: MOSAIC_TILES }, (_, i) => (
+        <CoverTile key={i} src={mediaUrl(thumbs[i])} />
+      ))}
+    </span>
+  );
+}
+
+/** Каталог разделов: карточка = мозаика свежих превью + имя и счётчик файлов. */
 export default function BoardsCatalog({ boards }: { boards: Board[] }) {
   const [filter, setFilter] = useState<Filter>("all");
 
@@ -61,22 +112,29 @@ export default function BoardsCatalog({ boards }: { boards: Board[] }) {
         </span>
       </div>
 
-      {/* Сетка досок */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+      {/* Сетка разделов: карточка с мозаикой свежих превью */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {visible.map((b) => (
           <Link
             key={b.id}
             href={`/board/${b.slug}`}
-            className="group flex flex-col justify-between rounded border border-line bg-ink-secondary p-4 transition-colors duration-150 hover:border-accent-primary"
+            className="group flex flex-col overflow-hidden rounded border border-line bg-ink-secondary transition-colors duration-150 hover:border-accent-primary"
           >
-            <div>
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-base font-bold uppercase tracking-wider text-text-primary">
-                  /{b.slug}
-                </span>
+            <CoverMosaic board={b} />
+
+            <div className="flex flex-1 flex-col justify-between gap-3 p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <span className="font-mono text-base font-bold uppercase tracking-wider text-text-primary">
+                    /{b.slug}
+                  </span>
+                  <p className="mt-1 truncate text-sm text-text-secondary" title={b.title || b.slug}>
+                    {b.title || b.slug}
+                  </p>
+                </div>
                 {b.is_premium ? (
                   <span
-                    className="badge badge-warn"
+                    className="badge badge-warn shrink-0"
                     title={
                       b.locked
                         ? "Премиум-раздел: нужна подписка"
@@ -92,22 +150,19 @@ export default function BoardsCatalog({ boards }: { boards: Board[] }) {
                   </span>
                 ) : null}
               </div>
-              <p className="mt-1 truncate text-sm text-text-secondary" title={b.title || b.slug}>
-                {b.title || b.slug}
-              </p>
-            </div>
 
-            <div className="mt-4 flex items-center justify-between">
-              <span className="font-mono text-[11px] text-text-muted">
-                {formatNumber(b.media_count)} файлов
-              </span>
-              {b.is_premium ? (
-                <span className="font-mono text-[11px] text-accent-warning">по подписке</span>
-              ) : (
-                <span className="font-mono text-[11px] text-text-muted transition-colors group-hover:text-accent-primary">
-                  открыть →
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[11px] text-text-muted">
+                  {formatNumber(b.media_count)} файлов
                 </span>
-              )}
+                {b.is_premium ? (
+                  <span className="font-mono text-[11px] text-accent-warning">по подписке</span>
+                ) : (
+                  <span className="font-mono text-[11px] text-text-muted transition-colors group-hover:text-accent-primary">
+                    открыть →
+                  </span>
+                )}
+              </div>
             </div>
           </Link>
         ))}

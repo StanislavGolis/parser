@@ -17,6 +17,8 @@ class BoardOut(BaseModel):
     is_premium: bool = False
     # Премиум-контент, но подписки у зрителя нет (превью размыто)
     locked: bool = False
+    # До 4 свежих превью раздела — мозаика 2×2 на карточке каталога
+    cover_thumbs: List[str] = []
 
 
 class AdminBoardOut(BoardOut):
@@ -221,6 +223,8 @@ class MediaOut(BaseModel):
     file_hash: Optional[str] = None
     url: Optional[str] = None        # оригинал (/media/{id}/raw)
     thumb_url: Optional[str] = None  # превью-дериватив (/media/{id}/asset/thumb|thumb_blur)
+    # Размытый плейсхолдер (blur-up): показывается, пока грузится превью
+    blur_url: Optional[str] = None
     web_url: Optional[str] = None    # оптимизированная версия (/media/{id}/asset/web)
     duration_seconds: Optional[float] = None  # длительность видео
     # Премиум-контент: locked=True — нужна подписка (превью размыто, полный недоступен)

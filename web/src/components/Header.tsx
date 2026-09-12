@@ -13,7 +13,7 @@ const NAV = [
   },
   {
     href: "/boards",
-    label: "Доски",
+    label: "Разделы",
     match: (p: string) => p === "/boards" || p.startsWith("/board"),
   },
   { href: "/top", label: "Популярное", match: (p: string) => p === "/top" },

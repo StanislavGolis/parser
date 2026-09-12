@@ -11,6 +11,7 @@ import { cookies } from "next/headers";
 
 import { ApiError } from "./api";
 import { SERVER_API_BASE } from "./env";
+import { LAST_VISIT_COOKIE } from "./visit";
 import type {
   Board,
   MediaDetail,
@@ -38,8 +39,16 @@ async function serverFetch<T>(path: string, revalidate: number, fallback?: T): P
     // Пробрасываем cookie браузера в SSR-запрос: приватные разделы
     // проверяют доступ по cookie ba_{slug} на стороне API.
     const cookieStore = cookies();
+    // Ответ зависит от зрителя (`marked`, `locked`), а Data Cache Next.js общий
+    // для всех: с пользовательскими cookie кэш отключаем, иначе чужой «лайк»
+    // и чужой премиум-статус попали бы в чужую страницу. Единственное
+    // исключение — наша cookie визита: она на выдачу не влияет.
+    const userSpecific = cookieStore
+      .getAll()
+      .some((cookie) => cookie.name !== LAST_VISIT_COOKIE);
+
     res = await fetch(`${SERVER_API_BASE}${path}`, {
-      next: { revalidate },
+      ...(userSpecific ? { cache: "no-store" as const } : { next: { revalidate } }),
       headers: {
         accept: "application/json",
         cookie: cookieStore.toString(),
@@ -68,10 +77,13 @@ export async function getFeedPage(
   perPage: number,
   type?: MediaType | null,
   freeOnly = false,
+  since?: string | null,
 ): Promise<MediaList> {
   const q = new URLSearchParams({ page: String(page), per_page: String(perPage) });
   if (type) q.set("type", type);
   if (freeOnly) q.set("free", "1");
+  // «Новое с прошлого визита»: только файлы новее момента (ISO 8601, UTC)
+  if (since) q.set("since", since);
   return serverFetch<MediaList>(`/api/v1/feed?${q}`, REVALIDATE.feed, EMPTY_LIST);
 }
 

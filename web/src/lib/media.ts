@@ -5,6 +5,14 @@ export function thumbSrc(m: { thumb_url?: string | null; url: string | null }): 
   return mediaUrl(m.thumb_url ?? m.url);
 }
 
+/**
+ * URL размытого плейсхолдера (blur-up): грузится мгновенно (маленький файл),
+ * реальное превью проявляется поверх него — сетка не «прыгает».
+ */
+export function blurSrc(m: { blur_url?: string | null }): string | undefined {
+  return mediaUrl(m.blur_url);
+}
+
 /** URL оптимизированной версии (web-дериватив) с фолбэком на оригинал. */
 export function webSrc(m: { web_url?: string | null; url: string | null }): string | undefined {
   return mediaUrl(m.web_url ?? m.url);

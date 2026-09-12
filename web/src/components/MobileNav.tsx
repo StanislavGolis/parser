@@ -14,7 +14,7 @@ const ITEMS = [
   },
   {
     href: "/boards",
-    label: "Доски",
+    label: "Разделы",
     Icon: LayersIcon,
     match: (p: string) => p === "/boards" || p.startsWith("/board"),
   },
