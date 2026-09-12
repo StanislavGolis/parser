@@ -261,8 +261,11 @@ chmod +x /etc/cron.daily/dredge-backup
 
 **Этап 2 (когда будет домен):** A-запись → `37.221.66.168`; `apt install nginx certbot
 python3-certbot-nginx`; конфиг из шага 6 (`server_name <домен>`, `proxy_pass 127.0.0.1:8080`);
-в `.env` → `HTTP_PORT=8080`, `SESSION_COOKIE_SECURE=1`, `API_CORS_ORIGINS=https://<домен>`;
-`docker compose -f docker-compose.prod.yml up -d`; `certbot --nginx -d <домен> --redirect`.
+в `.env` → `HTTP_PORT=8080`, `SESSION_COOKIE_SECURE=1`, `API_CORS_ORIGINS=https://<домен>`,
+`PUBLIC_BASE_URL=https://<домен>` (иначе ссылки восстановления в письмах останутся на IP);
+`docker compose -f docker-compose.prod.yml up -d` (пересоздаст nginx и api);
+`certbot --nginx -d <домен> --redirect`. Проверить после: `https://<домен>/healthz` → 200,
+вход в админку по email+паролю, «Забыли пароль?» → письмо со ссылкой на новый домен.
 
 ### 10. Обслуживание (настроено на VPS)
 
