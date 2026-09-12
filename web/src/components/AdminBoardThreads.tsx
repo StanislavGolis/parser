@@ -191,7 +191,7 @@ export default function AdminBoardThreads({ slug }: { slug: string }) {
           className="btn-ghost px-2.5 py-1.5 text-xs"
           title="Сканировать каталог доски и загрузить список тредов"
         >
-          {scan?.status === "running" ? "Сканируем…" : "Загрузить треды"}
+          {scan?.status === "running" ? "Сканируем…" : "Сканировать треды"}
         </button>
       </div>
 

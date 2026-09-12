@@ -18,13 +18,14 @@ class Board(Base):
     slug = Column(String(50), unique=True, nullable=False)
     title = Column(String(100), nullable=False, default="")
     description = Column(Text, nullable=True)
-    is_visible = Column(Boolean, nullable=False, default=True)
-    # Управление из админки (этап: админ-панель)
-    parse_enabled = Column(Boolean, nullable=False, default=True)   # доска участвует в парсинге
+    is_visible = Column(Boolean, nullable=False, default=False)
+    # Управление из админки (этап: админ-панель). По умолчанию всё выключено:
+    # доска не парсится и не показывается, пока админ не включит явно.
+    parse_enabled = Column(Boolean, nullable=False, default=False)  # доска участвует в парсинге
     is_private = Column(Boolean, nullable=False, default=False)     # контент по коду доступа
     access_code_hash = Column(String(64), nullable=True)            # sha256 кода доступа
     sort_order = Column(Integer, nullable=False, default=0)         # порядок парсинга (очередь)
-    parse_mode = Column(String(16), nullable=False, default="all")  # all | selected — как выбирать треды
+    parse_mode = Column(String(16), nullable=False, default="selected")  # all | selected — как выбирать треды
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -63,8 +64,8 @@ class ThreadState(Base):
     is_active = Column(Boolean, nullable=False, default=True)
 
     # Управление из админки (этап: управление контентом)
-    parse_enabled = Column(Boolean, nullable=False, default=True)   # тред участвует в скачивании
-    is_visible = Column(Boolean, nullable=False, default=True)      # показывать публично
+    parse_enabled = Column(Boolean, nullable=False, default=False)  # тред участвует в скачивании
+    is_visible = Column(Boolean, nullable=False, default=False)     # показывать публично
     is_private = Column(Boolean, nullable=False, default=False)     # контент только по коду
     access_code_hash = Column(String(64), nullable=True)            # sha256 кода доступа треда
 

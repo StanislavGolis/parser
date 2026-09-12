@@ -149,8 +149,8 @@ class DvachParser:
     async def ensure_configured_boards(self) -> None:
         """Создаёт в БД доски из BOARDS_TO_PARSE, которых ещё нет (первый запуск).
 
-        parse_enabled=True ставится только новым доскам из конфигурации.
-        Уже существующие доски не трогаем: их настройки управляются из админки.
+        Новые доски создаются выключенными (parse_enabled=False, is_visible=False):
+        их включает админ. Уже существующие доски не трогаем.
         """
         print("[init] Проверка/создание досок из конфигурации...")
         cnt = (await self.session.execute(select(func.count()).select_from(Board))).scalar() or 0
@@ -170,8 +170,8 @@ class DvachParser:
                 defaults={
                     "title": board_info.get("name") or board_slug.upper(),
                     "description": board_info.get("info_outer"),
-                    "is_visible": True,
-                    "parse_enabled": True,
+                    "is_visible": False,
+                    "parse_enabled": False,
                 },
             )
             # Название с форума берём только если его ещё не задали вручную в админке
@@ -218,7 +218,7 @@ class DvachParser:
             slug=board_slug,
             defaults={
                 "title": board_info.get("name") or board_slug.upper(),
-                "is_visible": True,
+                "is_visible": False,
             },
         )
         # Название с форума берём только если его ещё не задали вручную в админке

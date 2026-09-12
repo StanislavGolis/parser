@@ -7,7 +7,7 @@
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.common import sign_media_urls
@@ -35,6 +35,17 @@ async def list_threads(
     filters = [ThreadState.board_id == board_id, ThreadState.is_active.is_(True)]
     if only_visible:
         filters.append(ThreadState.is_visible.is_(True))
+        # Публично показываем только треды, в которых есть видимые файлы
+        # (иначе получаются «пустые» карточки-мусор после сканирования).
+        filters.append(
+            exists().where(
+                Media.board_id == ThreadState.board_id,
+                Media.thread_id == ThreadState.thread_id,
+                Media.is_visible.is_(True),
+                Media.is_active.is_(True),
+                Media.duplicate_of_id.is_(None),
+            )
+        )
 
     total = (
         await session.execute(
