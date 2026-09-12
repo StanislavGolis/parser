@@ -37,6 +37,7 @@ from src.api.schemas import (
     MediaOut,
     ViewResult,
 )
+from src.core.config import settings
 from src.core.db import get_session
 from src.core.models import (
     Board,
@@ -488,9 +489,7 @@ async def _warm_object(key: str, s3: S3Storage, cache: MediaCache) -> None:
     """Фоновая загрузка объекта целиком (нужна после Range-запросов к видео)."""
     global _WARM_SEMAPHORE
     if _WARM_SEMAPHORE is None:
-        from src.core.config import settings as _settings
-
-        _WARM_SEMAPHORE = asyncio.Semaphore(max(1, _settings.MEDIA_CACHE_WARM_WORKERS))
+        _WARM_SEMAPHORE = asyncio.Semaphore(max(1, settings.MEDIA_CACHE_WARM_WORKERS))
     try:
         async with _WARM_SEMAPHORE:
             if cache.has(key):
@@ -609,7 +608,7 @@ async def media_raw(
     Аноним получает 401, зарегистрированный без подписки — 403.
     Поддерживает Range и Content-Disposition при `?download=1`.
     """
-    await check_rate_limit(client_ip(request), limit=_settings.MEDIA_RATE_LIMIT, scope="media")
+    await check_rate_limit(client_ip(request), limit=settings.MEDIA_RATE_LIMIT, scope="media")
 
     media = await _get_visible_media(session, media_id)
     if not media.s3_key:
@@ -649,7 +648,7 @@ async def media_asset(
     if kind not in ASSET_KINDS:
         raise HTTPException(status_code=404, detail="Unknown asset kind")
 
-    await check_rate_limit(client_ip(request), limit=_settings.MEDIA_RATE_LIMIT, scope="media")
+    await check_rate_limit(client_ip(request), limit=settings.MEDIA_RATE_LIMIT, scope="media")
 
     media = await _get_visible_media(session, media_id)
     await _check_media_access(session, media)
@@ -678,7 +677,9 @@ async def media_asset(
         raise HTTPException(status_code=404, detail="Asset not available")
 
     content_type = "video/mp4" if (kind == "video") else None
-    cache = (
+    # ВАЖНО: имя не `cache` — иначе локальная переменная перекрывает объект кэша,
+    # пришедший из Depends(get_media_cache), и _stream_object получает строку.
+    cache_control = (
         "private, no-store"
         if media.is_premium
         else "public, max-age=31536000, immutable"
@@ -690,5 +691,5 @@ async def media_asset(
         s3=s3,
         cache=cache,
         content_type=content_type,
-        cache_control=cache,
+        cache_control=cache_control,
     )
