@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import BoardThreads from "@/components/BoardThreads";
+import { LockIcon, StarIcon } from "@/components/icons";
 import { ApiError } from "@/lib/api";
 import { getBoardThreads, getBoards } from "@/lib/data";
 import { formatNumber, plural } from "@/lib/format";
@@ -53,14 +54,32 @@ function BoardHeader({ board, slug, threadsTotal }: { board?: Board; slug: strin
           /{slug}
         </h1>
         {board?.title ? <span className="text-sm text-text-secondary">— {board.title}</span> : null}
-        {board?.is_premium ? <span className="badge badge-warn">premium</span> : null}
+        {board?.is_premium ? (
+          <span
+            className="badge badge-warn"
+            title={
+              board.locked
+                ? "Премиум-раздел: нужна подписка"
+                : "Премиум-раздел: доступен по вашей подписке"
+            }
+          >
+            {board.locked ? (
+              <LockIcon className="h-2.5 w-2.5" />
+            ) : (
+              <StarIcon className="h-2.5 w-2.5" />
+            )}
+            premium
+          </span>
+        ) : null}
       </div>
       {board?.description ? (
         <p className="mt-1 max-w-xl text-sm text-text-secondary">{board.description}</p>
       ) : null}
       {board?.is_premium ? (
         <p className="mt-1 max-w-xl text-xs text-accent-warning">
-          Контент раздела доступен по премиум-подписке: превью размыты, полные файлы скрыты.
+          {board.locked
+            ? "Контент раздела доступен по премиум-подписке: превью размыты, полные файлы скрыты."
+            : "Премиум-раздел: ваша подписка активна — полные файлы доступны."}
         </p>
       ) : null}
       <p className="mt-2 font-mono text-[11px] text-text-muted">

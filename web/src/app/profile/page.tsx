@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
-import { LockIcon, SpinnerIcon } from "@/components/icons";
+import { LockIcon, SpinnerIcon, StarIcon } from "@/components/icons";
 import { ApiError, apiSend } from "@/lib/api";
 import type { UserOut } from "@/lib/types";
 
@@ -46,6 +46,8 @@ export default function ProfilePage() {
     setError(null);
     try {
       setUser(await apiSend<UserOut>("/api/v1/auth/premium/activate", { method: "POST" }));
+      // Перерисовываем SSR-данные: превью премиум-файлов должны перестать блюриться
+      router.refresh();
     } catch (err) {
       setError(err instanceof ApiError ? (err.detail ?? err.message) : "Не удалось активировать премиум.");
     } finally {
@@ -80,7 +82,11 @@ export default function ProfilePage() {
         }`}
       >
         <div className="flex items-center gap-2">
-          <LockIcon className={`h-4 w-4 ${user.is_premium ? "text-accent-warning" : "text-text-muted"}`} />
+          {user.is_premium ? (
+            <StarIcon className="h-4 w-4 text-accent-warning" />
+          ) : (
+            <LockIcon className="h-4 w-4 text-text-muted" />
+          )}
           <span className="font-mono text-xs uppercase tracking-widest text-text-primary">
             {user.is_premium ? "премиум активен" : "бесплатный доступ"}
           </span>
@@ -98,7 +104,11 @@ export default function ProfilePage() {
 
         <button type="button" onClick={() => void activate()} disabled={busy} className="btn-primary mt-4 w-full">
           {busy ? <SpinnerIcon className="h-4 w-4" /> : null}
-          {busy ? "Активируем…" : "Активировать премиум на 1 день"}
+          {busy
+            ? "Активируем…"
+            : user.is_premium
+              ? "Продлить премиум на 1 день"
+              : "Активировать премиум на 1 день"}
         </button>
         <p className="mt-2 text-[11px] text-text-muted">
           Пока бесплатно (тестовый период). Повторная активация продлевает срок.

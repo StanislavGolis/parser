@@ -10,6 +10,8 @@ export interface Board {
   media_count: number;
   /** Премиум-раздел: превью размыты, полный контент — по подписке. */
   is_premium: boolean;
+  /** Премиум, но подписки у зрителя нет (контент закрыт). */
+  locked?: boolean;
 }
 
 /** Доска в админ-панели (с живой статистикой). */
@@ -92,6 +94,8 @@ export interface BoardThread {
   parse_enabled: boolean;
   is_visible: boolean;
   is_premium: boolean;
+  /** Премиум-тред (с учётом доски), но подписки у зрителя нет. */
+  locked?: boolean;
   media_total: number;
   media_downloaded: number;
   media_in_s3: number;

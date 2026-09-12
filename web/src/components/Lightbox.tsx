@@ -16,11 +16,12 @@ import {
   FilmIcon,
   ImageIcon,
   LockIcon,
+  StarIcon,
 } from "@/components/icons";
 import { apiGet } from "@/lib/api";
 import { mediaUrl } from "@/lib/env";
 import { formatBytes, formatCompact, formatDuration } from "@/lib/format";
-import { webSrc } from "@/lib/media";
+import { webSrc, premiumState } from "@/lib/media";
 import type { BoardsById, MediaItem, ViewResult } from "@/lib/types";
 
 interface LightboxProps {
@@ -73,7 +74,8 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
   if (!media) return null;
 
   const isVideo = media.media_type === "video";
-  const locked = Boolean(media.locked);
+  const premium = premiumState(media);
+  const locked = premium === "locked";
   const canShow = !locked && Boolean(media.url || media.web_url || media.thumb_url) && !failed;
   const position = `${index + 1} / ${items.length}`;
 
@@ -104,9 +106,17 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
                 {`видео${formatDuration(media.duration_seconds) ? ` ${formatDuration(media.duration_seconds)}` : ""}`}
               </span>
             ) : null}
-            {locked ? (
-              <span className="badge badge-warn">
+            {premium === "locked" ? (
+              <span className="badge badge-warn" title="Премиум-контент: нужна подписка">
                 <LockIcon className="h-2.5 w-2.5" />
+                premium
+              </span>
+            ) : premium === "granted" ? (
+              <span
+                className="badge badge-warn"
+                title="Премиум-контент: доступен по вашей подписке"
+              >
+                <StarIcon className="h-2.5 w-2.5" />
                 premium
               </span>
             ) : null}

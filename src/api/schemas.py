@@ -15,6 +15,8 @@ class BoardOut(BaseModel):
     description: Optional[str] = None
     media_count: int = 0
     is_premium: bool = False
+    # Премиум-контент, но подписки у зрителя нет (превью размыто)
+    locked: bool = False
 
 
 class AdminBoardOut(BoardOut):
@@ -186,6 +188,8 @@ class ThreadOut(BaseModel):
     parse_enabled: bool = True
     is_visible: bool = True
     is_premium: bool = False
+    # Премиум-тред (с учётом премиума доски), но подписки у зрителя нет
+    locked: bool = False
 
     # Статистика по файлам из нашей БД
     media_total: int = 0          # всего записей в БД

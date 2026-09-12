@@ -3,11 +3,11 @@
 import { useCallback, useState } from "react";
 
 import Lightbox from "@/components/Lightbox";
-import { FilmIcon, ImageIcon, LockIcon, SpinnerIcon } from "@/components/icons";
+import { FilmIcon, ImageIcon, LockIcon, SpinnerIcon, StarIcon } from "@/components/icons";
 import When from "@/components/When";
 import { apiGet } from "@/lib/api";
 import { mediaUrl } from "@/lib/env";
-import { thumbSrc } from "@/lib/media";
+import { thumbSrc, premiumState } from "@/lib/media";
 import { formatNumber, plural } from "@/lib/format";
 import type { BoardThread, MediaItem, MediaList, ThreadList } from "@/lib/types";
 
@@ -172,8 +172,16 @@ function ThreadCard({
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-text-muted">
             <span>№{thread.thread_id}</span>
             {thread.is_premium ? (
-              <span className="inline-flex items-center gap-1 rounded-[3px] bg-accent-warning/15 px-1.5 py-0.5 text-accent-warning">
-                <LockIcon className="h-3 w-3" /> premium
+              <span
+                className="inline-flex items-center gap-1 rounded-[3px] bg-accent-warning/15 px-1.5 py-0.5 text-accent-warning"
+                title={
+                  thread.locked
+                    ? "Премиум-тред: нужна подписка"
+                    : "Премиум-тред: доступен по вашей подписке"
+                }
+              >
+                {thread.locked ? <LockIcon className="h-3 w-3" /> : <StarIcon className="h-3 w-3" />}
+                premium
               </span>
             ) : null}
             {thread.thread_timestamp ? <When iso={thread.thread_timestamp} /> : null}
@@ -236,6 +244,13 @@ function ThreadCard({
                     <LockIcon className="h-2.5 w-2.5" />
                     premium
                   </span>
+                </span>
+              ) : premiumState(m) === "granted" ? (
+                <span
+                  className="absolute left-0.5 top-0.5 inline-flex items-center gap-0.5 rounded-[3px] bg-black/60 px-1 py-0.5 text-[9px] uppercase text-accent-warning"
+                  title="Премиум-контент: доступен по вашей подписке"
+                >
+                  <StarIcon className="h-2.5 w-2.5" />
                 </span>
               ) : null}
             </button>

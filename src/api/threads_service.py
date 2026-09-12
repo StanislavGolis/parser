@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Tuple
 from sqlalchemy import Integer, String, cast, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.common import sign_media_urls
+from src.api.common import is_locked, sign_media_urls
 from src.api.schemas import MediaOut, ThreadOut
 from src.core.models import Media, ThreadState, User
 from src.services.s3_storage import S3Storage
@@ -249,11 +249,13 @@ async def build_thread_outs(
     s3: Optional[S3Storage] = None,
     with_preview: bool = True,
     user: Optional[User] = None,
+    board_premium: bool = False,
 ) -> List[ThreadOut]:
     """Собирает ThreadOut для списка тредов (+ статистика и превью).
 
     Превью премиум-файлов отдаются размытыми (thumb_blur) для пользователей
-    без активной подписки.
+    без активной подписки. `is_premium` учитывает премиум доски (доска
+    закрывает все свои треды), `locked` — премиум без подписки у зрителя.
     """
     if not threads:
         return []
@@ -279,7 +281,8 @@ async def build_thread_outs(
             is_active=t.is_active,
             parse_enabled=t.parse_enabled,
             is_visible=t.is_visible,
-            is_premium=t.is_premium,
+            is_premium=bool(t.is_premium or board_premium),
+            locked=is_locked(t.is_premium or board_premium, user),
             media_total=s.get("media_total", 0),
             media_downloaded=s.get("media_downloaded", 0),
             media_in_s3=s.get("media_in_s3", 0),

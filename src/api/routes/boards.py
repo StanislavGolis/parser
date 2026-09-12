@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.api.common import is_locked
 from src.api.deps import check_rate_limit, client_ip, get_current_user, get_s3
 from src.api.schemas import BoardOut, ThreadListOut
 from src.api.threads_service import build_thread_outs, list_threads
@@ -19,10 +20,12 @@ router = APIRouter(prefix="/api/v1/boards", tags=["boards"])
 async def list_boards(
     request: Request,
     session: AsyncSession = Depends(get_session),
+    user: Optional[User] = Depends(get_current_user),
 ):
     """Список видимых досок с числом видимых файлов.
 
-    Премиум-доски видны в списке: их контент открывается по подписке.
+    Премиум-доски видны в списке: их контент открывается по подписке
+    (`locked=true`, если подписки у зрителя нет).
     """
     await check_rate_limit(client_ip(request))
 
@@ -58,6 +61,7 @@ async def list_boards(
             description=board.description,
             media_count=int(cnt or 0),
             is_premium=board.is_premium,
+            locked=is_locked(board.is_premium, user),
         ))
     return boards
 
@@ -87,6 +91,12 @@ async def board_threads(
 
     threads, total = await list_threads(session, board.id, page, per_page, only_visible=True)
     items = await build_thread_outs(
-        session, board.id, threads, s3=s3, with_preview=True, user=user
+        session,
+        board.id,
+        threads,
+        s3=s3,
+        with_preview=True,
+        user=user,
+        board_premium=board.is_premium,
     )
     return ThreadListOut(items=items, page=page, per_page=per_page, total=total)

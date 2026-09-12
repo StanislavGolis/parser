@@ -8,10 +8,11 @@ import {
   ImageIcon,
   LockIcon,
   PlayIcon,
+  StarIcon,
 } from "@/components/icons";
 import { mediaUrl } from "@/lib/env";
 import { formatBytes, formatCompact, formatDuration } from "@/lib/format";
-import { thumbSrc } from "@/lib/media";
+import { isLocked, premiumState, thumbSrc } from "@/lib/media";
 import type { Board, MediaItem } from "@/lib/types";
 
 interface MediaCardProps {
@@ -42,6 +43,8 @@ export default function MediaCard({ media, board, showTop = false, onOpen }: Med
 
   const canShow = Boolean(media.url || media.thumb_url) && !failed;
   const isVideo = media.media_type === "video";
+  const premium = premiumState(media);
+  const locked = isLocked(media);
 
   return (
     <button
@@ -59,26 +62,26 @@ export default function MediaCard({ media, board, showTop = false, onOpen }: Med
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={thumbSrc(media)}
-            alt={media.locked ? "" : media.original_name}
+            alt={locked ? "" : media.original_name}
             loading="lazy"
             decoding="async"
             referrerPolicy="no-referrer"
             onError={() => setFailed(true)}
-            className={`absolute inset-0 h-full w-full object-cover ${media.locked ? "blur-[8px] scale-110" : ""}`}
+            className={`absolute inset-0 h-full w-full object-cover ${locked ? "blur-[8px] scale-110" : ""}`}
           />
         ) : canShow && isVideo ? (
           <>
             {/* Постер-дериватив, иначе браузерный кадр (preload=metadata) */}
-            {media.thumb_url || media.locked ? (
+            {media.thumb_url || locked ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={thumbSrc(media)}
-                alt={media.locked ? "" : media.original_name}
+                alt={locked ? "" : media.original_name}
                 loading="lazy"
                 decoding="async"
                 referrerPolicy="no-referrer"
                 onError={() => setFailed(true)}
-                className={`absolute inset-0 h-full w-full object-cover ${media.locked ? "blur-[8px] scale-110" : ""}`}
+                className={`absolute inset-0 h-full w-full object-cover ${locked ? "blur-[8px] scale-110" : ""}`}
               />
             ) : (
               <video
@@ -91,7 +94,7 @@ export default function MediaCard({ media, board, showTop = false, onOpen }: Med
                 className="absolute inset-0 h-full w-full object-cover"
               />
             )}
-            {media.locked ? null : (
+            {locked ? null : (
               <span className="absolute inset-0 flex items-center justify-center bg-black/35 transition-opacity group-hover:bg-black/25">
                 <span className="flex h-11 w-11 items-center justify-center rounded bg-accent-primary text-ink-primary">
                   <PlayIcon className="h-5 w-5 translate-x-0.5" />
@@ -107,18 +110,26 @@ export default function MediaCard({ media, board, showTop = false, onOpen }: Med
           </span>
         )}
 
-        {/* Бейджи поверх превью */}
+        {/* Бейджи поверх превью: замок — нет доступа, звезда — премиум по подписке */}
         <span className="absolute left-1.5 top-1.5 flex items-center gap-1">
-          {media.locked ? (
-            <span className="badge badge-warn">
+          {premium === "locked" ? (
+            <span className="badge badge-warn" title="Премиум-контент: нужна подписка">
               <LockIcon className="h-2.5 w-2.5" />
+              premium
+            </span>
+          ) : premium === "granted" ? (
+            <span
+              className="badge badge-warn"
+              title="Премиум-контент: доступен по вашей подписке"
+            >
+              <StarIcon className="h-2.5 w-2.5" />
               premium
             </span>
           ) : showTop ? (
             <span className="badge badge-hot">топ</span>
           ) : null}
         </span>
-        {isVideo && canShow && !media.locked ? (
+        {isVideo && canShow && !locked ? (
           <span className="absolute bottom-1.5 right-1.5 flex items-center gap-1 rounded-[3px] bg-black/60 px-1.5 py-0.5 font-mono text-[10px] text-text-primary">
             <PlayIcon className="h-2.5 w-2.5" />
             {formatDuration(media.duration_seconds) || "видео"}

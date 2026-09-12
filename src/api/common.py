@@ -19,9 +19,14 @@ VISIBLE_FILTER = (
 
 # ─────────────────── Премиум-доступ ───────────────────
 
+def is_locked(is_premium: bool, user: Optional[User]) -> bool:
+    """Нужен ли премиум-доступ, но у пользователя его нет."""
+    return bool(is_premium) and not premium_active(user)
+
+
 def media_locked(media: Media, user: Optional[User]) -> bool:
     """Нужен ли премиум для полного доступа к файлу, но его у пользователя нет."""
-    return bool(media.is_premium) and not premium_active(user)
+    return is_locked(media.is_premium, user)
 
 
 def visible_thread_clause():
