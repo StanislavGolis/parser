@@ -423,7 +423,7 @@ async def admin_board_threads(
     slug: str,
     page: int = Query(1, ge=1),
     per_page: int = Query(30, ge=1, le=100),
-    state: str = Query("all", pattern="^(all|active|parsing|visible|premium|off)$"),
+    state: str = Query("all", pattern="^(all|active|parsing|visible|premium|off|dead|stale)$"),
     q: Optional[str] = Query(None, max_length=120),
     _=Depends(verify_admin),
     session: AsyncSession = Depends(get_session),
@@ -510,6 +510,13 @@ async def update_thread(
     if payload.is_premium is not None and payload.is_premium != thread.is_premium:
         thread.is_premium = payload.is_premium
         await sync_thread_media_premium(session, board, thread)
+    if payload.restore:
+        # «Вернуть в обход»: тред выпал из каталога доски — возвращаем в работу
+        # и сбрасываем промахи (тред снова попадает в публичные списки; до
+        # следующего отключения пройдёт DEAD_THREAD_AFTER_MISSES проходов).
+        thread.is_active = True
+        thread.misses = 0
+        thread.missing_since = None
 
     await session.commit()
     items = await build_thread_outs(session, board.id, [thread], with_preview=False)
@@ -542,6 +549,10 @@ async def bulk_update_threads(
             thread.is_visible = payload.is_visible
         if payload.is_premium is not None:
             thread.is_premium = payload.is_premium
+        if payload.restore:
+            thread.is_active = True
+            thread.misses = 0
+            thread.missing_since = None
     if payload.is_premium is not None:
         await sync_threads_media_premium(session, board, payload.thread_ids)
     await session.commit()

@@ -130,6 +130,9 @@ class ThreadDiscovery:
                 created += 1
             else:
                 state.is_active = True
+                # Тред снова в каталоге — сбрасываем «промахи»
+                state.misses = 0
+                state.missing_since = None
                 if subject:
                     state.subject = subject
                 if comment:

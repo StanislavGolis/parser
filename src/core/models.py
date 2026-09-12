@@ -65,6 +65,13 @@ class ThreadState(Base):
     last_scanned_at = Column(DateTime, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
 
+    # Гигиена обхода: сколько проходов каталога подряд тред отсутствовал
+    # (misses) и с какого момента его нет в каталоге (missing_since).
+    # Тред выключается (is_active=False) только после DEAD_THREAD_AFTER_MISSES
+    # промахов: разовый обрыв каталога 2ch не гасит треды пачкой.
+    misses = Column(Integer, nullable=False, default=0)
+    missing_since = Column(DateTime, nullable=True)
+
     # Управление из админки (этап: управление контентом)
     parse_enabled = Column(Boolean, nullable=False, default=False)  # тред участвует в скачивании
     is_visible = Column(Boolean, nullable=False, default=False)     # показывать публично

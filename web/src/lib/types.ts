@@ -90,6 +90,11 @@ export interface BoardThread {
   thread_timestamp: string | null;
   last_scanned_at: string | null;
   is_active: boolean;
+  /** Гигиена обхода (админка). */
+  misses: number;
+  missing_since: string | null;
+  /** «Парсить» включён, но тред давно не сканировался. */
+  is_stale: boolean;
   /** Управление из админки. */
   parse_enabled: boolean;
   is_visible: boolean;

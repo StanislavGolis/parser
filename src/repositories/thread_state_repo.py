@@ -28,3 +28,13 @@ class ThreadStateRepository(BaseRepository[ThreadState]):
         )
         result = await self.session.execute(query)
         return result.scalars().all()
+
+    async def get_all_by_board(self, board_id: int):
+        """Все треды доски, включая выпавшие из каталога (is_active=False).
+
+        Нужно для гигиены обхода: считаем «промахи» и по уже отключённым
+        тредам, чтобы их не потерять окончательно.
+        """
+        query = select(ThreadState).where(ThreadState.board_id == board_id)
+        result = await self.session.execute(query)
+        return result.scalars().all()

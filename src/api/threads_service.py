@@ -5,13 +5,15 @@
 (статистика по тредам), чтобы не дублировать логику.
 """
 from collections import defaultdict
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
-from sqlalchemy import Integer, String, cast, exists, func, or_, select
+from sqlalchemy import Integer, String, and_, cast, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.common import is_locked, sign_media_urls
 from src.api.schemas import MediaOut, ThreadOut
+from src.core.config import settings
 from src.core.models import Media, ThreadState, User
 from src.services.s3_storage import S3Storage
 
@@ -26,6 +28,27 @@ def thread_work_rank():
         cast(ThreadState.parse_enabled, Integer) * 4
         + cast(ThreadState.is_visible, Integer) * 2
         + cast(ThreadState.is_premium, Integer)
+    )
+
+
+def stale_before() -> datetime:
+    """Порог «просроченного» треда: сканировался раньше этого времени."""
+    return datetime.utcnow() - timedelta(hours=settings.STALE_SCAN_HOURS)
+
+
+def stale_clause():
+    """Условие «просрочен»: парсить включено, но тред давно не сканировался.
+
+    Нужно потому, что обход идёт по каталогу и тред без изменений в каталоге
+    может не перепроверяться бесконечно долго — такие треды важно видеть.
+    """
+    return and_(
+        ThreadState.is_active.is_(True),
+        ThreadState.parse_enabled.is_(True),
+        or_(
+            ThreadState.last_scanned_at.is_(None),
+            ThreadState.last_scanned_at < stale_before(),
+        ),
     )
 
 
@@ -46,35 +69,49 @@ def _state_filters(state: str):
         return [ThreadState.is_premium.is_(True)]
     if state == "off":
         return [~work]
+    if state == "dead":
+        # Выпали из каталога доски (is_active=False): не теряем их из вида
+        return [ThreadState.is_active.is_(False)]
+    if state == "stale":
+        return [stale_clause()]
     return []
 
 
 async def thread_state_counts(session: AsyncSession, board_id: int) -> Dict[str, int]:
-    """Счётчики по состояниям тредов (для чипов фильтра)."""
+    """Счётчики по состояниям тредов (для чипов фильтра).
+
+    Считаем **все** треды доски, включая выпавшие из каталога (`dead`):
+    иначе «забытые» треды не видны в админке вообще.
+    """
     work = or_(
         ThreadState.parse_enabled.is_(True),
         ThreadState.is_visible.is_(True),
         ThreadState.is_premium.is_(True),
     )
+    active = ThreadState.is_active.is_(True)
     row = (
         await session.execute(
             select(
                 func.count(),
-                func.count().filter(work),
-                func.count().filter(ThreadState.parse_enabled.is_(True)),
-                func.count().filter(ThreadState.is_visible.is_(True)),
-                func.count().filter(ThreadState.is_premium.is_(True)),
-                func.count().filter(~work),
-            ).where(ThreadState.board_id == board_id, ThreadState.is_active.is_(True))
+                func.count().filter(and_(active, work)),
+                func.count().filter(and_(active, ThreadState.parse_enabled.is_(True))),
+                func.count().filter(and_(active, ThreadState.is_visible.is_(True))),
+                func.count().filter(and_(active, ThreadState.is_premium.is_(True))),
+                func.count().filter(and_(active, ~work)),
+                func.count().filter(ThreadState.is_active.is_(False)),
+                func.count().filter(stale_clause()),
+            ).where(ThreadState.board_id == board_id)
         )
     ).one()
     return {
-        "all": int(row[0] or 0),
+        "all": int(row[0] or 0),        # все треды доски, включая мёртвые
         "active": int(row[1] or 0),
         "parsing": int(row[2] or 0),
         "visible": int(row[3] or 0),
         "premium": int(row[4] or 0),
         "off": int(row[5] or 0),
+        "dead": int(row[6] or 0),       # нет в каталоге доски
+        "stale": int(row[7] or 0),      # давно не сканировались
     }
 
 
@@ -94,8 +131,10 @@ async def list_threads(
     state/q — фильтры админки (состояние, поиск по теме/номеру).
     admin_order=True — «в работе» сверху (для админки).
     """
-    filters = [ThreadState.board_id == board_id, ThreadState.is_active.is_(True)]
+    filters = [ThreadState.board_id == board_id]
     if only_visible:
+        # Публично — только активные треды (выпавшие из каталога форума скрыты)
+        filters.append(ThreadState.is_active.is_(True))
         filters.append(ThreadState.is_visible.is_(True))
         # Публично показываем только треды, в которых есть видимые файлы
         # (иначе получаются «пустые» карточки-мусор после сканирования).
@@ -109,6 +148,10 @@ async def list_threads(
             )
         )
     else:
+        # «Мёртвые» (выпавшие из каталога доски) — отдельный фильтр. Остальные
+        # состояния показываем только по активным тредам.
+        if state != "dead":
+            filters.append(ThreadState.is_active.is_(True))
         filters.extend(_state_filters(state))
         if q:
             like = f"%{q.strip()}%"
@@ -265,6 +308,7 @@ async def build_thread_outs(
     previews = await _previews(session, board_id, thread_ids) if with_preview else {}
 
     out = []
+    stale_at = stale_before()
     for t in threads:
         s = stats.get(t.thread_id, {})
         item = ThreadOut(
@@ -279,6 +323,14 @@ async def build_thread_outs(
             thread_timestamp=t.thread_timestamp,
             last_scanned_at=t.last_scanned_at,
             is_active=t.is_active,
+            misses=int(t.misses or 0),
+            missing_since=t.missing_since,
+            # «Просрочен» считаем только для тредов в работе: остальные не парсим
+            is_stale=bool(
+                t.is_active
+                and t.parse_enabled
+                and (t.last_scanned_at is None or t.last_scanned_at < stale_at)
+            ),
             parse_enabled=t.parse_enabled,
             is_visible=t.is_visible,
             is_premium=bool(t.is_premium or board_premium),

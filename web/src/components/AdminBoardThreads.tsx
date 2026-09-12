@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 
 import { Switch } from "@/components/Switch";
 import { ApiError, apiPatch, apiPost, apiSend } from "@/lib/api";
-import { formatNumber } from "@/lib/format";
+import { formatNumber, formatUtc } from "@/lib/format";
 import type { BoardThread, ParserStatus, ScanStatus, ThreadList } from "@/lib/types";
 
 const PER_PAGE = 50;
@@ -16,6 +16,8 @@ const FILTERS: Array<{ key: string; label: string }> = [
   { key: "parsing", label: "Парсить" },
   { key: "visible", label: "published" },
   { key: "premium", label: "PREMIUM" },
+  { key: "stale", label: "Просроченные" },
+  { key: "dead", label: "Мёртвые" },
   { key: "off", label: "Без настроек" },
 ];
 
@@ -227,7 +229,9 @@ export default function AdminBoardThreads({
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs text-text-muted">
           {threads
-            ? `тредов: ${formatNumber(total)} · постов: ${formatNumber(totals.posts_total)} · просмотров: ${formatNumber(totals.views_total)} · файлов на форуме: ${formatNumber(totals.files_detected_total)} · скачано: ${formatNumber(totals.files_downloaded_total)}`
+            ? `тредов: ${formatNumber(total)} · постов: ${formatNumber(totals.posts_total)} · просмотров: ${formatNumber(totals.views_total)} · файлов на форуме: ${formatNumber(totals.files_detected_total)} · скачано: ${formatNumber(totals.files_downloaded_total)}${
+                (counts?.dead ?? 0) > 0 ? ` · мёртвых: ${formatNumber(counts?.dead ?? 0)}` : ""
+              }${(counts?.stale ?? 0) > 0 ? ` · просрочено: ${formatNumber(counts?.stale ?? 0)}` : ""}`
             : "загрузка…"}
         </span>
         <div className="flex flex-wrap items-center gap-2">
@@ -374,6 +378,16 @@ export default function AdminBoardThreads({
           <button type="button" disabled={disabled} onClick={() => void bulk({ is_premium: false })} className="btn-ghost px-2.5 py-1 text-xs">
             PREMIUM: выкл
           </button>
+          <span className="mx-1 h-4 w-px bg-line" />
+          <button
+            type="button"
+            disabled={disabled}
+            title="Вернуть выбранные треды в работу и в публичные списки (промахи каталога сбрасываются)"
+            onClick={() => void bulk({ restore: true })}
+            className="btn-ghost px-2.5 py-1 text-xs"
+          >
+            Вернуть в обход
+          </button>
         </div>
       ) : null}
       {threads === null ? (
@@ -455,6 +469,30 @@ export default function AdminBoardThreads({
                   <span className="text-text-muted">постов: {formatNumber(t.posts_count)}</span>
                   <span className="text-text-muted">просмотров: {formatNumber(t.views_count)}</span>
                 </div>
+
+                {!t.is_active ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 rounded border border-accent-danger/40 bg-accent-danger/10 px-2 py-1.5 text-[11px] text-accent-danger">
+                    <span className="font-mono uppercase tracking-wider">нет в каталоге</span>
+                    <span>
+                      {t.missing_since ? `с ${formatUtc(t.missing_since)}` : "дата неизвестна"}
+                      {t.misses > 0 ? ` · промахов: ${formatNumber(t.misses)}` : ""}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={busyKey === `t${t.thread_id}`}
+                      title="Вернуть тред в работу и в публичные списки (промахи каталога сбрасываются)"
+                      onClick={() => void patchThread(t.thread_id, { restore: true })}
+                      className="rounded border border-accent-danger/50 px-2 py-0.5 transition-colors hover:bg-accent-danger/20 disabled:opacity-50"
+                    >
+                      вернуть в обход
+                    </button>
+                  </div>
+                ) : t.is_stale ? (
+                  <div className="mt-2 rounded border border-accent-warning/40 bg-accent-warning/10 px-2 py-1.5 text-[11px] text-accent-warning">
+                    просрочен: парсинг включён, но тред не сканировался
+                    {t.last_scanned_at ? ` с ${formatUtc(t.last_scanned_at)}` : " ни разу"}
+                  </div>
+                ) : null}
 
                 {parserStatus?.current_board === slug &&
                 parserStatus.progress?.thread_id === t.thread_id ? (

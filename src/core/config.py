@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     # Сверка данных (reconciliation)
     RECONCILE_MINUTES: int = 60  # период сверки БД ↔ хранилище, 0 = только при старте
 
+    # Гигиена обхода тредов (чтобы не было «забытых» тредов)
+    DEAD_THREAD_AFTER_MISSES: int = 3  # столько проходов каталога подряд без треда → is_active=False
+    STALE_SCAN_HOURS: int = 24         # тред не сканировался дольше → «просрочен» (чип в админке)
+
     # API сайта
     ADMIN_TOKEN: str = ""                     # токен для админ-эндпоинтов
     API_RATE_LIMIT: int = 30                  # запросов в минуту на IP (публичные API)

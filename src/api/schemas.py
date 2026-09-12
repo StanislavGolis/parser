@@ -101,6 +101,9 @@ class ThreadUpdate(BaseModel):
     parse_enabled: Optional[bool] = None
     is_visible: Optional[bool] = None
     is_premium: Optional[bool] = None
+    # «Вернуть в обход»: тред выпал из каталога доски, вернуть его в работу
+    # (is_active=True, сброс промахов каталога)
+    restore: Optional[bool] = None
 
 
 class ThreadBulkUpdate(BaseModel):
@@ -109,6 +112,7 @@ class ThreadBulkUpdate(BaseModel):
     parse_enabled: Optional[bool] = None
     is_visible: Optional[bool] = None
     is_premium: Optional[bool] = None
+    restore: Optional[bool] = None  # вернуть в обход (is_active=True, misses=0)
 
 
 class BoardReorder(BaseModel):
@@ -194,6 +198,10 @@ class ThreadOut(BaseModel):
     thread_timestamp: Optional[datetime] = None
     last_scanned_at: Optional[datetime] = None
     is_active: bool = True
+    # Гигиена обхода (админка): промахи каталога, дата исчезновения, «просрочен»
+    misses: int = 0                            # проходов каталога подряд без треда
+    missing_since: Optional[datetime] = None   # когда тред впервые выпал из каталога
+    is_stale: bool = False                     # «Парсить» включён, но давно не сканировался
 
     # Управление (админка) и премиум-доступ
     parse_enabled: bool = True

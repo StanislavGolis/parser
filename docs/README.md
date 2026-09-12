@@ -183,6 +183,11 @@ nginx (кэш на диске) → api → S3 (поток, без буфериз
   доски определяет, включать ли новые треды автоматически.
 - Инкрементальный проход: тред пересканируется, если он новый, изменились
   `posts_count`/`files_count` или `last_scanned_at IS NULL`.
+- Гигиена обхода (чтобы не было «забытых» тредов): тред, выпавший из каталога
+  доски, получает `misses`/`missing_since` и гасится (`is_active=false`) только
+  после `DEAD_THREAD_AFTER_MISSES` проходов подряд — обрезанный каталог 2ch
+  больше не прячет живые треды; треды, которые давно не сканировались
+  (`STALE_SCAN_HOURS`, дефолт 24 ч), видны отдельным чипом «Просроченные».
 - Дедупликация по `md5` из API до скачивания; файл, уже сохранённый **в этом же**
   треде, пропускается; для файла из другого треда создаётся строка-ссылка
   (`duplicate_of_id`, объект S3 переиспользуется).
@@ -246,8 +251,12 @@ nginx (кэш на диске) → api → S3 (поток, без буфериз
   (В БД / В S3 / Скачано / Пропущено / В каталоге / Видимых), переключатели
   `Парсить`, `published|unpublished`, `FREE|PREMIUM`, кнопка «Треды».
 - Треды доски: чипы-фильтры, поиск по теме/номеру, «в работе» сверху, массовые
-  операции (парсить/показать/PREMIUM), «Сканировать треды» (глубокий скан),
-  прогресс-бар текущего треда.
+  операции (парсить/показать/PREMIUM/«вернуть в обход»), «Сканировать треды»
+  (глубокий скан), прогресс-бар текущего треда.
+- Гигиена обхода в списке тредов: чипы «Просроченные» (парсинг включён, но тред
+  давно не сканировался) и «Мёртвые» (тред выпал из каталога форума) со
+  счётчиками; у мёртвого треда видно дату исчезновения и число промахов, есть
+  «вернуть в обход» (сброс `misses`, возврат в публичные списки).
 - Глобальные операции: «Оптимизировать медиа» (бэкфилл, «осталось N из M»),
   «Очистить S3», «Сбросить всё».
 - Легаси-страница `/admin/boards/{slug}` (полный список тредов доски) осталась, но
@@ -355,7 +364,8 @@ l7m8n9o0p1q2  видео-дериватив в ключ 'video' (кэш nginx sl
 m8n9o0p1q2r3  аккаунты: users + sessions
 n9o0p1q2r3s4  премиум: boards/threads/media.is_premium, users.premium_until
 o0p1q2r3s4t5  метки и избранное: media_marks, favorites, media.marks_count
-p1q2r3s4t5u6  объединение: favorites → media_marks, удаление таблицы favorites  ← head
+p1q2r3s4t5u6  объединение: favorites → media_marks, удаление таблицы favorites
+q2r3s4t5u6v7  threads_state.misses/missing_since (гигиена обхода)  ← head
 ```
 
 Полезные запросы:
@@ -411,9 +421,9 @@ POST  /api/v1/admin/boards                 добавить раздел по sl
 PATCH /api/v1/admin/boards/{slug}          флаги, title, parse_mode, is_premium
 DELETE /api/v1/admin/boards/{slug}         удалить раздел (БД + объекты S3)
 POST  /api/v1/admin/boards/reorder         порядок очереди парсинга
-GET   /api/v1/admin/boards/{slug}/threads  треды раздела (state, q, page)
-PATCH /api/v1/admin/boards/{slug}/threads/{id}   флаги треда
-POST  /api/v1/admin/boards/{slug}/threads/bulk   массовые флаги
+GET   /api/v1/admin/boards/{slug}/threads  треды раздела (state: all|active|parsing|visible|premium|off|dead|stale, q, page)
+PATCH /api/v1/admin/boards/{slug}/threads/{id}   флаги треда (+ restore — вернуть в обход)
+POST  /api/v1/admin/boards/{slug}/threads/bulk   массовые флаги (+ restore)
 POST  /api/v1/admin/boards/{slug}/scan[?deep=true]   сканировать каталог/файлы
 GET   /api/v1/admin/boards/{slug}/scan/status        прогресс сканирования
 POST  /api/v1/admin/backfill-variants[?limit=]       бэкфилл деривативов (вся очередь)

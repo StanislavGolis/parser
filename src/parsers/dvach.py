@@ -294,6 +294,11 @@ class DvachParser:
             # Просмотры треда (из каталога) — обновляем каждый цикл, дёшево
             state.views_count = int(t.get("views") or 0)
 
+            # Тред найден в каталоге — снимаем «промахи» (гигиена обхода):
+            # тред вернулся (или никуда не пропадал) — счётчик мёртвых сбрасываем.
+            state.misses = 0
+            state.missing_since = None
+
             if not state.parse_enabled:
                 # Тред отключён в админке: счётчики не трогаем, чтобы при включении
                 # он снова попал в сканирование.
@@ -375,15 +380,29 @@ class DvachParser:
                 print("   [stop] Обработка доски прервана командой из админки")
                 return
 
-        # Треды, исчезнувшие из каталога
-        active_states = await self.thread_state_repo.get_active_by_board(board.id)
-        deactivated = 0
-        for st in active_states:
-            if st.thread_id not in current_ids:
+        # Треды, исчезнувшие из каталога: считаем промахи и гасим не сразу.
+        # Каталог 2ch иногда отдаётся обрезанным — мгновенное is_active=False
+        # прятало живые треды и с сайта, и из админки. Теперь тред выключается
+        # только после DEAD_THREAD_AFTER_MISSES проходов подряд, а в админке
+        # у него видно misses/missing_since (фильтры «Мёртвые»/«Просроченные»).
+        all_states = await self.thread_state_repo.get_all_by_board(board.id)
+        missing = noted = deactivated = 0
+        for st in all_states:
+            if st.thread_id in current_ids:
+                continue
+            missing += 1
+            st.misses = int(st.misses or 0) + 1
+            if st.missing_since is None:
+                st.missing_since = datetime.utcnow()
+                noted += 1
+            if st.is_active and st.misses >= settings.DEAD_THREAD_AFTER_MISSES:
                 st.is_active = False
                 deactivated += 1
-        if deactivated:
-            print(f"   [off] Деактивировано тредов: {deactivated}")
+        if missing:
+            print(
+                f"   [miss] Нет в каталоге тредов: {missing} "
+                f"(впервые отмечено: {noted}, отключено: {deactivated})"
+            )
 
         await self.session.commit()
         await self._clear_progress()
