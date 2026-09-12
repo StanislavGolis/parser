@@ -20,6 +20,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import aiohttp
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, func, or_, select, text
@@ -51,6 +52,7 @@ from src.api.threads_service import (
 from src.core.db import async_session_factory, get_session
 from src.core.models import Board, Media, ThreadState
 from src.core.redis_client import redis_client
+from src.services.catalog_health import catalog_errors, mark_catalog_error, mark_catalog_ok
 from src.services.s3_storage import S3Storage
 from src.services.derivatives import generate_and_upload
 from src.services.premium import (
@@ -68,11 +70,17 @@ SLUG_RE = re.compile(r"^[a-z0-9]{1,32}$")
 
 # Полный список досок форума
 FORUM_INDEX_URL = "https://2ch.hk/index.json"
+FORUM_CATALOG_URL = "https://2ch.hk/{slug}/catalog.json"
+FORUM_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 FORUM_CACHE_TTL = 300  # 5 минут
 _forum_cache: Dict[str, object] = {}
 
 
-def _admin_out(board: Board, m: Optional[dict] = None) -> AdminBoardOut:
+def _admin_out(
+    board: Board,
+    m: Optional[dict] = None,
+    catalog_error: Optional[str] = None,
+) -> AdminBoardOut:
     m = m or {}
     return AdminBoardOut(
         id=board.id,
@@ -97,6 +105,7 @@ def _admin_out(board: Board, m: Optional[dict] = None) -> AdminBoardOut:
         last_scan=m.get("last_scan"),
         views_total=int(m.get("views_total", 0)),
         downloads_total=int(m.get("downloads_total", 0)),
+        catalog_error=catalog_error,
     )
 
 
@@ -109,13 +118,19 @@ async def _load_board(session: AsyncSession, slug: str) -> Board:
 
 
 async def _all_boards_with_stats(session: AsyncSession) -> List[AdminBoardOut]:
-    """Все доски (включая скрытые) с флагами и статистикой, в порядке очереди."""
+    """Все доски (включая скрытые) с флагами и статистикой, в порядке очереди.
+
+    Дополнительно отдаём `catalog_error` — причину, по которой каталог доски не
+    читается (2ch отдаёт 500 «Not found» у удалённых разделов, а index.json их
+    всё ещё перечисляет). Карточка доски показывает это бейджем.
+    """
     boards_result = await session.execute(
         select(Board).order_by(Board.sort_order, Board.slug)
     )
     boards = boards_result.scalars().all()
     stats, _totals = await collect_board_stats(session)
-    return [_admin_out(b, stats.get(b.id)) for b in boards]
+    errors = await catalog_errors([b.slug for b in boards])
+    return [_admin_out(b, stats.get(b.id), errors.get(b.slug)) for b in boards]
 
 
 @router.get("/overview", response_model=AdminOverview)
@@ -196,6 +211,53 @@ async def _fetch_forum_boards() -> List[dict]:
     return boards
 
 
+async def _probe_board_catalog(slug: str) -> tuple[bool, str]:
+    """Проверяет, что каталог раздела читается (раздел не удалён с 2ch).
+
+    2ch отдаёт `500 Not found` для удалённых разделов, хотя `index.json` их ещё
+    перечисляет (хентай-доски `/h`, `/ho`, `/hc`), поэтому проверяем именно
+    каталог и возвращаем человеческую причину.
+    """
+    url = FORUM_CATALOG_URL.format(slug=slug)
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            resp = await client.get(url, headers={"User-Agent": FORUM_UA})
+    except Exception as exc:  # noqa: BLE001
+        return False, f"не удалось проверить каталог: {exc}"
+
+    if resp.status_code == 200:
+        try:
+            threads = (resp.json() or {}).get("threads") or []
+        except Exception:  # noqa: BLE001
+            return False, "форум вернул не JSON"
+        if not threads:
+            return False, "каталог раздела пуст"
+        return True, ""
+    if resp.status_code == 404:
+        return False, "раздел не найден на форуме (404)"
+    if resp.status_code >= 500:
+        return False, f"форум ответил {resp.status_code} — раздел удалён или недоступен"
+    return False, f"форум ответил {resp.status_code}"
+
+
+def _scan_error_text(slug: str, exc: Exception) -> str:
+    """Человеческий текст ошибки сканирования вместо сырого текста aiohttp."""
+    if isinstance(exc, aiohttp.ClientResponseError):
+        if exc.status == 404:
+            return f"Раздел /{slug} не найден на 2ch (404)"
+        if exc.status >= 500:
+            return (
+                f"2ch ответил {exc.status} на каталог /{slug}: раздел удалён или "
+                f"недоступен (проверьте slug)"
+            )
+        return f"2ch ответил {exc.status} на каталог /{slug}"
+    if isinstance(exc, asyncio.TimeoutError):
+        return "2ch не ответил вовремя (таймаут) — попробуйте ещё раз"
+    if isinstance(exc, aiohttp.ClientError):
+        return f"Не удалось связаться с 2ch: {exc}"
+    return str(exc) or exc.__class__.__name__
+
+
 @router.get("/forum", response_model=list[ForumBoardOut])
 async def admin_forum_boards(
     _=Depends(verify_admin),
@@ -256,6 +318,15 @@ async def create_board(
     existing = await session.execute(select(Board).where(Board.slug == slug))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Board already exists")
+
+    # Раздел должен реально существовать на форуме: index.json перечисляет и
+    # удалённые доски (у них каталог отдаёт 500), а парсить их нельзя.
+    ok, reason = await _probe_board_catalog(slug)
+    if not ok:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Раздел /{slug} недоступен на 2ch: {reason}",
+        )
 
     max_order = (await session.execute(select(func.max(Board.sort_order)))).scalar() or 0
     name = (payload.name or "").strip()
@@ -594,6 +665,7 @@ async def _run_board_scan(slug: str, deep: bool = False) -> None:
             result = await ThreadDiscovery(session).discover(
                 board, on_progress=on_progress, deep=deep
             )
+        await mark_catalog_ok(slug)
 
         await redis_client.set(
             key,
@@ -612,7 +684,9 @@ async def _run_board_scan(slug: str, deep: bool = False) -> None:
         )
     except Exception as e:  # noqa: BLE001
         logger.exception("scan failed for /%s", slug)
-        await redis_client.set(key, json.dumps({"status": "error", "error": str(e)}), ex=600)
+        text = _scan_error_text(slug, e)
+        await mark_catalog_error(slug, text)
+        await redis_client.set(key, json.dumps({"status": "error", "error": text}), ex=600)
 
 
 @router.post("/boards/{slug}/scan")

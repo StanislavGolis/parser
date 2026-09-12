@@ -141,6 +141,14 @@ function BoardRow({
               /{board.slug}
             </Link>
             {board.is_premium ? <LockIcon className="h-3.5 w-3.5 text-accent-warning" /> : null}
+            {board.catalog_error ? (
+              <span
+                className="badge border-accent-danger text-accent-danger"
+                title={`${board.catalog_error}. Раздел удалён с форума или slug неверный — парсить его нельзя.`}
+              >
+                каталог недоступен
+              </span>
+            ) : null}
 
             {editingTitle ? (
               <span className="inline-flex items-center gap-1">

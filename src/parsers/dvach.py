@@ -24,6 +24,7 @@ from src.core.redis_client import redis_client
 from src.repositories.board_repo import BoardRepository
 from src.repositories.media_repo import MediaRepository
 from src.repositories.thread_state_repo import FRESH_REASONS, ThreadStateRepository
+from src.services.catalog_health import mark_catalog_error, mark_catalog_ok
 from src.services.s3_storage import S3Storage
 from src.services.downloader import DownloaderService
 from src.services.derivatives import generate_and_upload
@@ -242,9 +243,16 @@ class DvachParser:
         await self._progress(board_slug=board_slug, phase="catalog")
         catalog = await self._get_json(f"{self.BASE_URL}/{board_slug}/catalog.json")
         if not catalog:
+            # Раздел мог быть удалён с форума (2ch отдаёт 500 «Not found»), а
+            # index.json всё ещё его перечисляет — фиксируем в Redis, чтобы
+            # админка показала «каталог недоступен» на карточке доски.
+            await mark_catalog_error(
+                board_slug, "2ch не отдал каталог (500/404 или сеть) — раздел удалён?"
+            )
             print(f"   [err] Не удалось получить каталог /{board_slug}")
             await self._clear_progress()
             return None
+        await mark_catalog_ok(board_slug)
 
         board_info = catalog.get("board", {})
 

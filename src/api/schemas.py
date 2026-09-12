@@ -39,6 +39,8 @@ class AdminBoardOut(BoardOut):
     last_scan: Optional[datetime] = None
     views_total: int = 0
     downloads_total: int = 0
+    # Каталог доски недоступен (2ch вернул 500/404 — раздел удалён): текст причины
+    catalog_error: Optional[str] = None
 
 
 class SystemTotals(BaseModel):

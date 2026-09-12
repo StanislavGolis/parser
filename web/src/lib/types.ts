@@ -33,6 +33,8 @@ export interface AdminBoard extends Board {
   last_scan: string | null;
   views_total: number;
   downloads_total: number;
+  /** Каталог раздела недоступен (2ch вернул 500/404 — раздел удалён). */
+  catalog_error?: string | null;
 }
 
 /** Итоговые цифры системы (в админке). */
