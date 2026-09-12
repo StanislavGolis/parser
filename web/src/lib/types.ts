@@ -269,8 +269,6 @@ export interface SiteStatus {
   files_24h: number;
   threads_active: number;
   boards_visible: number;
-  /** Раздел, который обрабатывает парсер; null — парсер на паузе. */
-  parser_board: string | null;
 }
 
 /** Прогресс прогрева дискового кэша медиа. */

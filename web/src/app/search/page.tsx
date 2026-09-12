@@ -12,6 +12,9 @@ const PER_PAGE = 30;
 
 export const metadata: Metadata = {
   title: "Поиск",
+  // Результаты поиска — тонкие страницы с параметрами: в индекс их не пускаем,
+  // но по ссылкам робот ходить может (контент доступен по обычным адресам).
+  robots: { index: false, follow: true },
 };
 
 export default async function SearchPage({

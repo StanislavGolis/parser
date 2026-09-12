@@ -19,11 +19,27 @@ export function joinApi(base: string, path: string): string {
   return `${base}${path}`;
 }
 
+/**
+ * Публичный адрес сайта (canonical, sitemap, robots, Open Graph).
+ * Задаётся переменной SITE_URL у сервиса web; по умолчанию — прод-домен.
+ */
+export const SITE_URL = (process.env.SITE_URL ?? "https://dredg.ru").replace(/\/+$/, "");
+
 /** Разрешает URL медиа из API (относительный /api/... → адрес клиентского API). */
 export function mediaUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
   if (/^https?:\/\//i.test(url)) return url;
   return apiPathForClient(url);
+}
+
+/**
+ * Абсолютный URL к файлу сайта — для Open Graph и schema.org (JSON-LD).
+ * Внешние ссылки возвращаем как есть.
+ */
+export function absoluteUrl(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  if (/^https?:\/\//i.test(url)) return url;
+  return `${SITE_URL}${url.startsWith("/") ? url : `/${url}`}`;
 }
 
 export function apiPathForClient(path: string): string {

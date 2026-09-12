@@ -8,6 +8,13 @@ import type { MediaItem, MediaList, MediaType, PeriodKey } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
+export const metadata: Metadata = {
+  title: "Топ файлов",
+  description:
+    "Самые популярные файлы архива: топ за день, неделю и месяц — по просмотрам и скачиваниям.",
+  alternates: { canonical: "/top" },
+};
+
 const TOP_LIMIT = 60;
 
 const PERIOD_OPTIONS = [

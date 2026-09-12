@@ -4,6 +4,7 @@ import { Inter, JetBrains_Mono } from "next/font/google";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
 import MobileNav from "@/components/MobileNav";
+import { SITE_URL } from "@/lib/env";
 import "./globals.css";
 
 const inter = Inter({
@@ -19,11 +20,22 @@ const jetbrains = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
+  // Базовый адрес для canonical/Open Graph: страницы задают относительные пути.
+  metadataBase: new URL(SITE_URL),
   title: {
-    default: "DREDGE — архив // отбор // доступ",
+    default: "DREDGE — медиа-архив: фото и видео",
     template: "%s · DREDGE",
   },
-  description: "Медиа-архив: фото и видео с разделов, треды, топ.",
+  description:
+    "DREDGE — автоматический медиа-архив: фото и видео с разделов, свежие поступления, топ за день и неделю, поиск по файлам.",
+  applicationName: "DREDGE",
+  robots: { index: true, follow: true },
+  openGraph: {
+    siteName: "DREDGE",
+    locale: "ru_RU",
+    type: "website",
+  },
+  twitter: { card: "summary_large_image" },
   icons: {
     icon: "/favicon.svg",
   },

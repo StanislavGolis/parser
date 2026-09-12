@@ -80,10 +80,9 @@ const EMPTY_STATUS: SiteStatus = {
   files_24h: 0,
   threads_active: 0,
   boards_visible: 0,
-  parser_board: null,
 };
 
-/** Публичная сводка архива (файлы, суточный прирост, треды, разделы, парсер). */
+/** Публичная сводка архива (файлы, суточный прирост, треды, разделы). */
 export async function getStatus(): Promise<SiteStatus> {
   return serverFetch<SiteStatus>("/api/v1/status", REVALIDATE.status, EMPTY_STATUS);
 }

@@ -124,13 +124,11 @@ class AdminResetOut(BaseModel):
 
 
 class StatusOut(BaseModel):
-    """Публичная сводка архива для главной страницы (без служебных деталей)."""
+    """Публичная сводка архива для главной страницы (только цифры о контенте)."""
     files_total: int
     files_24h: int
     threads_active: int
     boards_visible: int
-    # Какой раздел обрабатывает парсер прямо сейчас; None — парсер на паузе
-    parser_board: Optional[str] = None
 
 
 class BoardCreate(BaseModel):

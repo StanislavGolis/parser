@@ -383,6 +383,12 @@ curl -s -o /dev/null -w '%{http_code}\n' "$BASE/api/v1/media/<id>/asset/web"   #
 curl -s -D - -o /dev/null "$BASE/api/v1/media/<id>/asset/thumb_blur" \
   | grep -Ei 'x-cache-status|cache-control'                                     # MISS → HIT
 curl -s -o /dev/null -w '%{http_code}\n' "$BASE/api/v1/media/<id>/raw"          # 401 без сессии
+# SEO и заголовки:
+curl -s "$BASE/robots.txt" | head -12                                            # Allow + Disallow + Sitemap
+curl -s "$BASE/sitemap.xml" | grep -c "<url>"                                    # > 0 (страницы + разделы + файлы)
+curl -sI "$BASE/" | grep -Ei 'server|x-powered-by'                              # Server: nginx (без версии), без X-Powered-By
+curl -s "$BASE/" | grep -o 'application/ld+json' | head -1                       # микроразметка на месте
+curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' "$BASE/-" -H 'Host: www.dredg.ru'  # www → 301 на основной домен
 ```
 
 Чек-лист:
@@ -395,7 +401,9 @@ curl -s -o /dev/null -w '%{http_code}\n' "$BASE/api/v1/media/<id>/raw"          
 - [ ] метка: анониму 401, после входа 200 и файл появляется на `/marks`
       (`/favorites` редиректит на `/marks`);
 - [ ] регистрация → «Активировать премиум» в `/profile` → премиум-файл открывается;
-- [ ] парсер запускается из админки, в треде появляются записи (и на сайте).
+- [ ] парсер запускается из админки, в треде появляются записи (и на сайте);
+- [ ] `robots.txt` и `sitemap.xml` отдаются, canonical в HTML указывает на `https://dredg.ru`;
+- [ ] в заголовках нет версии nginx и `X-Powered-By`; `www` редиректит на основной домен.
 
 ## Диагностика
 
@@ -528,6 +536,47 @@ git push --force --tags
 
 После перезаписи истории в других клонах: `git fetch --all && git reset --hard origin/main`.
 
+## SEO и приватность публичной выдачи
+
+**Что отдаём роботам.** `web/src/app/robots.ts` и `web/src/app/sitemap.ts` — маршруты
+Next.js: `robots.txt` разрешает обход публичных страниц и закрывает служебные
+(`/admin`, `/api/`, `/login`, `/profile`, `/marks`, `/favorites`, `/search`),
+`sitemap.xml` содержит главную, `/new`, `/boards`, `/top`, все разделы
+(`/board/<slug>`) и 200 последних файлов (`/media/<id>`). Адрес берётся из
+`SITE_URL` — от него же зависят `canonical`, Open Graph и микроразметка.
+
+**Canonical и микроразметка.** В корневом layout задан `metadataBase`, поэтому
+страницы указывают относительный `alternates.canonical`; фильтры и периоды
+(`?type=`, `?period=`, `?free=`) канонизируются на «чистый» адрес, чтобы дубликаты
+не плодились. На главной — JSON-LD `WebSite` + `SearchAction` (поиск по архиву), на
+страницах файлов — `ImageObject`/`VideoObject` (превью, размеры, дата, длительность).
+
+**Служебные страницы.** `/admin`, `/admin/*`, `/profile`, `/login`, `/marks` и
+`/search` закрыты `robots: noindex` (для клиентских страниц — через одноимённый
+`layout.tsx`). Страница «файл не найден» тоже `noindex`.
+
+**Заголовки и версии.** `server_tokens off` в конфиге nginx (и внутреннего, и
+хостового) — заголовок `Server: nginx` без номера версии; `poweredByHeader: false`
+в `web/next.config.mjs` — без `X-Powered-By: Next.js`. Так выдача не подсказывает
+сканеру, какой софт и какой версии стоит.
+
+**Один канонический хост.** `https://dredg.ru` — основной адрес; `www.dredg.ru`
+отдаёт `301` на него (блок в `/etc/nginx/sites-available/dredge`), HTTP → HTTPS —
+тоже `301`.
+
+**Что наружу не уходит.** `.env`, `.git`, `DEPLOY.md`, `docker-compose.prod.yml`,
+`package.json`, `requirements.txt`, `openapi.json`, `/docs`, `/redoc` — все `404`
+(nginx проксирует только `/` и `/api/`, docs API выключены). Медиа отдаёт свой API:
+в ответах нет ни `x-amz-*`, ни `Server: AmazonS3`, ни ссылок на бакет, поэтому
+провайдер хранилища по ответам не определяется. Секреты живут только в `.env` и
+уходят в переменные окружения контейнеров — проверка «нет ли `ADMIN_TOKEN`/`S3_*`/
+пароля БД в собранном фронте» лежит в `dredge-backups/check_secrets.sh` (вне репозитория).
+
+**rDNS (PTR).** У IP-адреса обратная зона по умолчанию указывает на чужой домен
+провайдера — это лишний маркер «кто хостит». В тикете поддержке ava.hosting:
+«установите PTR-запись для IP `37.221.66.168` → `dredg.ru`». Заодно это улучшает
+репутацию домена при отправке писем (SMTP Яндекс).
+
 ## Переменные окружения
 
 Читаются из `.env` (pydantic-settings; лишние ключи игнорируются, поэтому старые
@@ -543,6 +592,7 @@ git push --force --tags
 | `ADMIN_EMAILS` | — | адреса, которым разрешён вход в админку и восстановление пароля (через запятую); для них заводятся админ-аккаунты |
 | `ADMIN_RESET_TTL_MINUTES` | `30` | срок жизни ссылки восстановления пароля, мин |
 | `PUBLIC_BASE_URL` | — | домен для ссылок в письмах (`https://example.com`); пусто — берётся адрес запроса |
+| `SITE_URL` | `https://dredg.ru` | публичный адрес сайта для SEO: canonical, `sitemap.xml`, `robots.txt`, Open Graph |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_TLS` | — / `465` / `ssl` | SMTP для писем восстановления (`ssl`, `starttls` или `none`) |
 | `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` | — | креды отправки: логин, «пароль приложения», адрес отправителя |
 | `API_RATE_LIMIT` | `300` | лимит JSON-запросов в минуту на IP (ленты, детали, статистика; 0 — выключить) |

@@ -9,7 +9,11 @@ import type { MediaList } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = { title: "Метки" };
+export const metadata: Metadata = {
+  title: "Метки",
+  // Личная страница: в поиске не нужна.
+  robots: { index: false, follow: false },
+};
 
 const PER_PAGE = 30;
 

@@ -6,6 +6,7 @@ import FilterChips from "@/components/FilterChips";
 import Gallery from "@/components/Gallery";
 import MediaShelf from "@/components/MediaShelf";
 import { getBoards, getFeedPage, getStatus, getTopMedia } from "@/lib/data";
+import { SITE_URL } from "@/lib/env";
 import { formatNumber } from "@/lib/format";
 import type { MediaType } from "@/lib/types";
 
@@ -51,9 +52,16 @@ export async function generateMetadata(): Promise<Metadata> {
   }
 
   return {
-    title,
+    // Абсолютный заголовок: главная — основная точка входа из поиска.
+    title: { absolute: "DREDGE — медиа-архив: свежие фото и видео" },
     description,
-    openGraph: { title, description, type: "website", images: image ? [image] : undefined },
+    alternates: { canonical: "/" },
+    openGraph: {
+      title: "DREDGE — медиа-архив",
+      description,
+      type: "website",
+      images: image ? [image] : undefined,
+    },
   };
 }
 
@@ -75,15 +83,33 @@ export default async function HomePage({
   ]);
   const boardsById = Object.fromEntries(boards.map((b) => [b.id, b]));
 
+  // Микроразметка сайта: имя + поиск (потенциальный «sitelinks searchbox»).
+  const siteJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "DREDGE",
+    alternateName: "DREDGE — медиа-архив",
+    url: SITE_URL,
+    inLanguage: "ru-RU",
+    potentialAction: {
+      "@type": "SearchAction",
+      target: { "@type": "EntryPoint", urlTemplate: `${SITE_URL}/search?q={search_term_string}` },
+      "query-input": "required name=search_term_string",
+    },
+  };
+
   return (
     <div className="py-6 sm:py-8">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(siteJsonLd).replace(/</g, "\\u003c") }}
+      />
       {/* Сводка архива: две строки, чтобы медиа попадало в первый экран */}
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <h1 className="dredge-title">архив // новое</h1>
         <span className="font-mono text-[11px] text-text-muted">
           {formatNumber(status.files_total)} файлов · {formatNumber(status.threads_active)} тредов ·{" "}
-          +{formatNumber(status.files_24h)} за сутки ·{" "}
-          {status.parser_board ? `парсер: /${status.parser_board}` : "парсер: пауза"}
+          +{formatNumber(status.files_24h)} за сутки
         </span>
       </div>
 

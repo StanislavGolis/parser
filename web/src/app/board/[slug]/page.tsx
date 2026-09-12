@@ -19,8 +19,12 @@ interface BoardPageProps {
 export async function generateMetadata({ params }: BoardPageProps): Promise<Metadata> {
   const boards = await getBoards();
   const board = boards.find((b) => b.slug === params.slug);
+  const title = board ? `/${board.slug} — ${board.title ?? board.slug}` : `Раздел /${params.slug}`;
+  const files = board?.media_count ? `${formatNumber(board.media_count)} файлов — ` : "";
   return {
-    title: board ? `/${board.slug} — ${board.title ?? board.slug}` : `Раздел /${params.slug}`,
+    title,
+    description: `Раздел /${params.slug}: ${files}фото и видео в архиве, треды, превью и оригиналы файлов.`,
+    alternates: { canonical: `/board/${params.slug}` },
   };
 }
 

@@ -358,9 +358,14 @@ S3 у провайдера отдаёт ~3 МБ/с (4 потока — ~8 МБ/�
   `/search`, `/media/{id}`, `/marks` («мои метки»; `/favorites` редиректит сюда),
   `/login`, `/profile`, `/admin`; `web/` standalone-сборка.
 - Первый экран главной — медийный: над сеткой только две строки (название и цифры:
-  файлов, тредов, +за сутки, состояние парсера) и чипы фильтра, дальше сразу
+  файлов, тредов, +за сутки) и чипы фильтра, дальше сразу
   masonry. Полный поток — по ссылке «Смотреть дальше в полном потоке» (`/new`),
   правила компоновки — `docs/DESIGN.md` §4.0.
+- SEO: `robots.txt` и `sitemap.xml` — маршруты Next (`app/robots.ts`, `app/sitemap.ts`);
+  служебные страницы (`/admin`, `/profile`, `/login`, `/marks`, `/search`) закрыты
+  `noindex`, публичные — с `canonical` и `metadataBase` (адрес из `SITE_URL`);
+  фильтры/периоды канонизируются на «чистые» адреса. Микроразметка: `WebSite` +
+  `SearchAction` на главной, `ImageObject`/`VideoObject` на страницах файлов.
 - Показатели: masonry-галерея + infinite scroll, карточки с бейджами
   (`ТОП`, `PREMIUM` 🔒/★, `НЕДОСТУПНО`), кнопка «метка» (🏷) поверх превью и в
   lightbox, маркер видео (значок ▶ + длительность) на карточках, превью тредов и
@@ -599,9 +604,12 @@ DELETE /api/v1/admin/reset                           полный сброс (Б
 - обновление кода: `git pull && docker compose -f docker-compose.prod.yml up -d --build`
   (помните про общий образ `parser-backend` — §2);
 - миграции применяются сервисом `migrate` при старте; текущая голова —
-  `s4t5u6v7w8x9`;
+  `t5u6v7w8x9y0`;
 - проверка после выкатки: `X-Cache-Status` у `thumb_blur` (`MISS → HIT`), 403 у
   премиум-`web` без подписки, 401 у `/raw` без сессии;
+- SEO и заголовки: `robots.txt`/`sitemap.xml` отдаются, `SITE_URL` задаёт canonical
+  и адреса в микроразметке; в ответах нет версии nginx (`server_tokens off`) и
+  `X-Powered-By` (`poweredByHeader: false`), `www` → `301` на основной домен;
 - обязательные переменные парсера: `DB_COMMIT_EVERY_FILES` (дефолт 25),
   `REQUEST_DELAY`, `PARSE_INTERVAL`, `MAX_FILE_SIZE`, `RECONCILE_MINUTES`;
 - резервные копии: `pg_dump` + версионирование бакета S3 (см. `DEPLOY.md`);

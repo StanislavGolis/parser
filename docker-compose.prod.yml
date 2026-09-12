@@ -182,6 +182,8 @@ services:
     environment:
       # SSR внутри сети compose ходит на API по внутреннему имени
       API_BASE_SERVER: http://api:8000
+      # Публичный адрес сайта: canonical, sitemap.xml, robots.txt, Open Graph.
+      SITE_URL: ${SITE_URL:-https://dredg.ru}
       # NEXT_PUBLIC_API_BASE не задаём: браузер ходит на тот же origin
       # (/api проксируется nginx на сервис api).
     healthcheck:

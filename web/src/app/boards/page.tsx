@@ -7,8 +7,10 @@ import { formatNumber } from "@/lib/format";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Доски",
-  description: "Разделы-архивы: внутри каждого — треды и файлы, сохранённые парсером с 2ch.",
+  title: "Разделы архива",
+  description:
+    "Каталог разделов архива: внутри каждого — треды и файлы, превью и оригиналы, свежие поступления и топ.",
+  alternates: { canonical: "/boards" },
 };
 
 /** Каталог разделов-архивов (перенесён с главной: главная теперь — витрина новинок). */

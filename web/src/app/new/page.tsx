@@ -23,6 +23,9 @@ function mediaType(value?: string | string[]): MediaType | null {
 
 export const metadata: Metadata = {
   title: "Новинки",
+  description:
+    "Полный поток свежих файлов архива: новые фото и видео, фильтры по типу, автоподгрузка. Обновляется постоянно.",
+  alternates: { canonical: "/new" },
 };
 
 export default async function NewPage({

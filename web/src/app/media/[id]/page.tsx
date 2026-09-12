@@ -9,7 +9,7 @@ import When from "@/components/When";
 import { ArrowLeftIcon, DownloadIcon, EyeIcon, FilmIcon, LockIcon, StarIcon } from "@/components/icons";
 import { ApiError } from "@/lib/api";
 import { getBoards, getMediaDetail } from "@/lib/data";
-import { mediaUrl } from "@/lib/env";
+import { absoluteUrl, mediaUrl } from "@/lib/env";
 import { formatBytes, formatNumber } from "@/lib/format";
 import { isLocked, premiumState } from "@/lib/media";
 import type { MediaDetail } from "@/lib/types";
@@ -22,16 +22,34 @@ interface DetailProps {
 
 export async function generateMetadata({ params }: DetailProps): Promise<Metadata> {
   const numericId = Number(params.id);
-  if (!Number.isFinite(numericId)) return { title: "Файл не найден" };
+  const notFoundMeta: Metadata = { title: "Файл не найден", robots: { index: false, follow: false } };
+  if (!Number.isFinite(numericId)) return notFoundMeta;
 
   let media;
   try {
     media = await getMediaDetail(numericId);
   } catch {
-    return { title: "Файл не найден" };
+    return notFoundMeta;
   }
-  if (!media) return { title: "Файл не найден" };
-  return { title: media.original_name };
+  if (!media) return notFoundMeta;
+
+  const kind = media.media_type === "video" ? "видео" : "изображение";
+  const size = media.file_size ? `${formatBytes(media.file_size)}, ` : "";
+  const dims = media.width && media.height ? `${media.width}×${media.height}` : "";
+  const description = `${media.original_name} — ${kind} из архива: ${size}${dims}. Превью, просмотры и скачивание оригинала.`;
+
+  return {
+    title: media.original_name,
+    description,
+    alternates: { canonical: `/media/${numericId}` },
+    openGraph: {
+      title: media.original_name,
+      description,
+      type: media.media_type === "video" ? "video.other" : "website",
+      // metadataBase в корневом layout превращает относительный путь в абсолютный
+      images: media.thumb_url ? [media.thumb_url] : undefined,
+    },
+  };
 }
 
 export default async function MediaDetailPage({ params }: DetailProps) {
@@ -52,8 +70,27 @@ export default async function MediaDetailPage({ params }: DetailProps) {
   const premium = premiumState(media);
   const locked = isLocked(media);
 
+  // Микроразметка для поисковых роботов: фото/видео с превью и датой.
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": media.media_type === "video" ? "VideoObject" : "ImageObject",
+    name: media.original_name,
+    contentUrl: absoluteUrl(media.url),
+    thumbnailUrl: absoluteUrl(media.thumb_url),
+    uploadDate: media.created_at,
+    ...(media.width && media.height ? { width: media.width, height: media.height } : {}),
+    ...(media.media_type === "video" && media.duration_seconds
+      ? { duration: `PT${Math.round(media.duration_seconds)}S` }
+      : {}),
+  };
+
   return (
     <div className="container-site max-w-5xl py-6 sm:py-8">
+      <script
+        type="application/ld+json"
+        // JSON-LD: сериализуем объект, экранируя «<», чтобы нельзя было вставить тег
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
+      />
       <TrackView mediaId={media.id} />
       <Link
         href={board ? `/board/${board.slug}` : "/"}

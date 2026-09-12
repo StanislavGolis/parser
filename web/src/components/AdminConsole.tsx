@@ -409,7 +409,7 @@ export default function AdminConsole() {
           {loginMode === "forgot"
             ? "Укажите админский email — пришлём ссылку для смены пароля."
             : loginMode === "token"
-              ? "Резервный вход: admin-токен (ADMIN_TOKEN из .env)."
+              ? "Резервный вход: admin-токен (выдаётся на сервере)."
               : "Войдите по админскому email и паролю."}
         </p>
 

@@ -3,6 +3,9 @@ const nextConfig = {
   // Standalone-сборка: минимальный runtime-образ для Docker (этап 7).
   output: "standalone",
   reactStrictMode: true,
+  // Не раскрываем стек: без заголовка X-Powered-By: Next.js (лишняя
+  // подсказка для сканеров и поисковых роботов).
+  poweredByHeader: false,
   eslint: {
     // ESLint в проект не подключён (нет зависимости/конфига), поэтому
     // сборка не должна падать из-за отсутствия линтера.
