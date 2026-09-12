@@ -52,6 +52,33 @@ def stale_clause():
     )
 
 
+def lagging_clause():
+    """«Недокачано»: на форуме файлов больше, чем записей у нас по треду.
+
+    `files_detected` — число файлов из `res/{id}.json` (обновляется при каждом
+    скане и в режиме «считать файлы»), а `media` — то, что реально сохранено
+    (учитывая дубли-ссылки: они тоже строки треда). Разница — файлы, которых у
+    нас нет: битые/недоступные или не дошедшие из-за сбоя.
+
+    Считаем только треды «в работе» (`parse_enabled`): у выключенных тредов
+    разница ожидаема и не требует действий.
+    """
+    seen = (
+        select(func.count())
+        .select_from(Media)
+        .where(
+            Media.board_id == ThreadState.board_id,
+            Media.thread_id == ThreadState.thread_id,
+        )
+        .scalar_subquery()
+    )
+    return and_(
+        ThreadState.is_active.is_(True),
+        ThreadState.parse_enabled.is_(True),
+        ThreadState.files_detected > seen,
+    )
+
+
 def _state_filters(state: str):
     """Условия фильтра по состоянию треда (для чипов в админке)."""
     work = or_(
@@ -74,6 +101,12 @@ def _state_filters(state: str):
         return [ThreadState.is_active.is_(False)]
     if state == "stale":
         return [stale_clause()]
+    if state == "queued":
+        # Стоят в очереди на докачку (фаза B двухфазного цикла)
+        return [ThreadState.pending_scan.is_(True)]
+    if state == "lagging":
+        # Недокачано: на форуме файлов больше, чем сохранено у нас
+        return [lagging_clause()]
     return []
 
 
@@ -100,6 +133,8 @@ async def thread_state_counts(session: AsyncSession, board_id: int) -> Dict[str,
                 func.count().filter(and_(active, ~work)),
                 func.count().filter(ThreadState.is_active.is_(False)),
                 func.count().filter(stale_clause()),
+                func.count().filter(and_(active, ThreadState.pending_scan.is_(True))),
+                func.count().filter(lagging_clause()),
             ).where(ThreadState.board_id == board_id)
         )
     ).one()
@@ -112,6 +147,8 @@ async def thread_state_counts(session: AsyncSession, board_id: int) -> Dict[str,
         "off": int(row[5] or 0),
         "dead": int(row[6] or 0),       # нет в каталоге доски
         "stale": int(row[7] or 0),      # давно не сканировались
+        "pending": int(row[8] or 0),    # стоят в очереди на докачку
+        "lagging": int(row[9] or 0),    # недокачано (файлов на форуме больше)
     }
 
 
@@ -325,6 +362,9 @@ async def build_thread_outs(
             is_active=t.is_active,
             misses=int(t.misses or 0),
             missing_since=t.missing_since,
+            pending_scan=bool(t.pending_scan),
+            pending_reason=t.pending_reason,
+            last_scan_attempt_at=t.last_scan_attempt_at,
             # «Просрочен» считаем только для тредов в работе: остальные не парсим
             is_stale=bool(
                 t.is_active

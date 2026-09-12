@@ -1,10 +1,14 @@
 # src/repositories/thread_state_repo.py
-from typing import Optional
+from typing import List, Optional, Tuple
 
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 
-from src.core.models import ThreadState
+from src.core.models import Board, ThreadState
 from src.repositories.base import BaseRepository
+
+# Причины очереди, которые считаются «свежими» (новые файлы уже на форуме):
+# они уходят в начало очереди, плановый догон («просрочен», «не скачивался») — после.
+FRESH_REASONS = ("новый", "изменения", "файлы", "вручную")
 
 
 class ThreadStateRepository(BaseRepository[ThreadState]):
@@ -38,3 +42,53 @@ class ThreadStateRepository(BaseRepository[ThreadState]):
         query = select(ThreadState).where(ThreadState.board_id == board_id)
         result = await self.session.execute(query)
         return result.scalars().all()
+
+    async def get_scan_queue(self, limit: Optional[int] = None) -> List[Tuple[str, int, str]]:
+        """Очередь докачки (фаза B): треды, помеченные фазой A (`pending_scan`).
+
+        Порядок:
+        1) свежие изменения/новые («новый», «изменения», «файлы») — вперёд;
+        2) плановый догон («просрочен», «не скачивался»);
+        3) внутри каждой группы — по «давности» сканирования (LRU, NULL первыми),
+           поэтому «забытых» тредов не остаётся: очередь всегда разбирается до конца.
+
+        Доски без `parse_enabled` в очередь не попадают: парсер по ним не ходит.
+        """
+        fresh = case(
+            (ThreadState.pending_reason.in_(FRESH_REASONS), 0),
+            else_=1,
+        )
+        query = (
+            select(Board.slug, ThreadState.thread_id, ThreadState.pending_reason)
+            .join(Board, Board.id == ThreadState.board_id)
+            .where(
+                Board.parse_enabled.is_(True),
+                ThreadState.is_active.is_(True),
+                ThreadState.parse_enabled.is_(True),
+                ThreadState.pending_scan.is_(True),
+            )
+            .order_by(
+                fresh,
+                ThreadState.last_scanned_at.asc().nullsfirst(),
+                ThreadState.thread_id.asc(),
+            )
+        )
+        if limit is not None:
+            query = query.limit(limit)
+        rows = await self.session.execute(query)
+        return [(row[0], int(row[1]), row[2] or "") for row in rows.all()]
+
+    async def scan_queue_size(self) -> int:
+        """Сколько тредов сейчас в очереди (для сводки в логе/админке)."""
+        query = (
+            select(func.count())
+            .select_from(ThreadState)
+            .join(Board, Board.id == ThreadState.board_id)
+            .where(
+                Board.parse_enabled.is_(True),
+                ThreadState.is_active.is_(True),
+                ThreadState.parse_enabled.is_(True),
+                ThreadState.pending_scan.is_(True),
+            )
+        )
+        return int((await self.session.execute(query)).scalar() or 0)

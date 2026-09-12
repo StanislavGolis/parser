@@ -10,9 +10,9 @@ import asyncio
 import json
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import aiohttp
 from sqlalchemy import func, select
@@ -23,7 +23,7 @@ from src.core.models import Board, Media, ThreadState
 from src.core.redis_client import redis_client
 from src.repositories.board_repo import BoardRepository
 from src.repositories.media_repo import MediaRepository
-from src.repositories.thread_state_repo import ThreadStateRepository
+from src.repositories.thread_state_repo import FRESH_REASONS, ThreadStateRepository
 from src.services.s3_storage import S3Storage
 from src.services.downloader import DownloaderService
 from src.services.derivatives import generate_and_upload
@@ -136,12 +136,17 @@ class DvachParser:
             "height": file.get("height"),
         }
 
-    async def fetch_thread_files(self, board_slug: str, thread_id: int) -> List[dict]:
-        """Возвращает метаданные файлов треда (без скачивания файлов)."""
+    async def fetch_thread_files(self, board_slug: str, thread_id: int) -> Optional[List[dict]]:
+        """Возвращает метаданные файлов треда (без скачивания файлов).
+
+        `None` — не удалось прочитать `res/{id}.json` (сеть/ошибка): вызывающий
+        оставляет тред в очереди, а не считает его просканированным. Пустой
+        список — в треде действительно нет «наших» файлов.
+        """
         url = f"{self.BASE_URL}/{board_slug}/res/{thread_id}.json"
         data = await self._get_json(url)
-        if not data:
-            return []
+        if data is None:
+            return None
 
         files: List[dict] = []
         for post in self._extract_posts(data):
@@ -226,15 +231,20 @@ class DvachParser:
         except Exception:
             pass
 
-    async def process_board(self, board_slug: str):
-        """Полный цикл обработки одной доски."""
-        print(f"[info] Начинаем парсинг доски /{board_slug}")
+    async def sync_board_catalog(self, board_slug: str) -> Optional[int]:
+        """Фаза A: каталог доски → метаданные тредов и очередь на докачку.
+
+        Скачивается только `catalog.json` (1 запрос на доску), файлы — нет,
+        поэтому все доски обходятся за минуты. Возвращает число тредов в
+        каталоге (None — каталог недоступен).
+        """
+        print(f"[info] Каталог доски /{board_slug}")
         await self._progress(board_slug=board_slug, phase="catalog")
         catalog = await self._get_json(f"{self.BASE_URL}/{board_slug}/catalog.json")
         if not catalog:
             print(f"   [err] Не удалось получить каталог /{board_slug}")
             await self._clear_progress()
-            return
+            return None
 
         board_info = catalog.get("board", {})
 
@@ -257,7 +267,8 @@ class DvachParser:
         current_ids = {int(t["num"]) for t in catalog_threads}
         print(f"   В каталоге /{board_slug}: {len(catalog_threads)} тредов")
 
-        scanned = 0
+        stale_before = datetime.utcnow() - timedelta(hours=settings.STALE_SCAN_HOURS)
+        queued = 0
         for t in catalog_threads:
             thread_id = int(t["num"])
             posts_count = int(t.get("posts_count") or 0)
@@ -267,14 +278,17 @@ class DvachParser:
             state = await self.thread_state_repo.get_by_board_thread(board.id, thread_id)
             is_new = state is None
             if is_new:
+                # Режим доски: all — новые треды парсим, selected — только включённые вручную
+                parse_new = board.parse_mode == "all"
                 state = ThreadState(
                     board_id=board.id,
                     thread_id=thread_id,
                     posts_count=posts_count,
                     files_count=files_count,
                     is_active=True,
-                    # Режим доски: all — новые треды парсим, selected — только включённые вручную
-                    parse_enabled=(board.parse_mode == "all"),
+                    parse_enabled=parse_new,
+                    pending_scan=parse_new,
+                    pending_reason="новый" if parse_new else None,
                     subject=meta["subject"],
                     comment=meta["comment"],
                     thread_timestamp=meta["thread_timestamp"],
@@ -300,85 +314,31 @@ class DvachParser:
             state.missing_since = None
 
             if not state.parse_enabled:
-                # Тред отключён в админке: счётчики не трогаем, чтобы при включении
-                # он снова попал в сканирование.
-                print(f"   [skip]  Тред {thread_id} — парсинг отключён в админке")
-            else:
-                need_scan = (
-                    is_new
-                    or (state.posts_count != posts_count)
-                    or (state.files_count != files_count)
-                    or (state.last_scanned_at is None)  # ещё не скачивали (например, после discovery)
-                )
-                if is_new:
-                    reason = "новый тред"
-                else:
-                    reason = "изменения" if need_scan else \
-                        f"без изменений (постов: {state.posts_count}, файлов: {state.files_count})"
+                # Тред отключён в админке: счётчики каталога не переносим, чтобы
+                # при включении парсинга он снова попал в очередь (появившиеся
+                # файлы), и не тратим на него каталог второй раз.
+                continue
 
-                if need_scan:
-                    files = await self.fetch_thread_files(board_slug, thread_id)
-                    files_total = len(files)
-                    print(f"   [thread] Тред {thread_id} — {reason}: {files_total} файлов")
-                    await self._progress(
-                        board_slug=board_slug,
-                        phase="files",
-                        thread_id=thread_id,
-                        files_total=files_total,
-                        files_done=0,
-                    )
-                    files_done = 0
-                    for meta in files:
-                        # Быстрая реакция на «Остановить» — проверяем между файлами
-                        if self.stop_check is not None and await self.stop_check():
-                            await self.session.commit()  # сохраняем уже скачанное
-                            print("   [stop] Обработка доски прервана командой из админки")
-                            await self._clear_progress()
-                            return
-                        await self.process_file(board, state, meta)
-                        files_done += 1
-                        await self._progress(
-                            board_slug=board_slug,
-                            phase="files",
-                            thread_id=thread_id,
-                            files_total=files_total,
-                            files_done=files_done,
-                        )
+            # Очередь на докачку. Приоритет задаёт фаза B: «новый»/«изменения»/
+            # «файлы» — свежие, «просрочен»/«не скачивался» — плановый догон.
+            # Уже помеченную свежую причину не перебиваем.
+            if is_new:
+                pass  # помечен как «новый» при создании
+            elif state.posts_count != posts_count or state.files_count != files_count:
+                state.pending_scan = True
+                state.pending_reason = "изменения"
+            elif state.last_scanned_at is None:
+                state.pending_scan = True
+                state.pending_reason = state.pending_reason or "не скачивался"
+            elif state.last_scanned_at < stale_before:
+                state.pending_scan = True
+                state.pending_reason = state.pending_reason or "просрочен"
 
-                        # Периодический коммит: файлы становятся видны сайту сразу,
-                        # а сбой теряет максимум DB_COMMIT_EVERY_FILES файлов.
-                        # last_scanned_at ставится только после полного прохода треда,
-                        # поэтому незавершённый тред докачается в следующий цикл,
-                        # а уже сохранённые файлы отсеются по md5 без скачивания.
-                        every = settings.DB_COMMIT_EVERY_FILES
-                        if every > 0 and files_done % every == 0:
-                            await self.session.commit()
-                            print(
-                                f"   [db]   Коммит: сохранено {files_done}/{files_total} "
-                                f"файлов треда {thread_id}"
-                            )
-
-                        await asyncio.sleep(settings.REQUEST_DELAY * 0.5)
-
-                    state.posts_count = posts_count
-                    state.files_count = files_count
-                    state.last_scanned_at = datetime.utcnow()
-                    scanned += 1
-                else:
-                    print(f"   [skip]  Тред {thread_id} — {reason}")
-
-            await asyncio.sleep(settings.REQUEST_DELAY)
-
-            # Коммитим после каждого треда (плюс периодически внутри треда —
-            # см. DB_COMMIT_EVERY_FILES): доска может содержать сотни тредов,
-            # а большая транзакция держала бы файлы невидимыми для сайта и
-            # обнуляла бы прогресс при сбое.
-            await self.session.commit()
-
-            # Админ нажал «Остановить» — прерываем доску на границе треда.
-            if self.stop_check is not None and await self.stop_check():
-                print("   [stop] Обработка доски прервана командой из админки")
-                return
+            # Счётчики каталога — источник истины для «есть ли новые файлы»
+            state.posts_count = posts_count
+            state.files_count = files_count
+            if state.pending_scan:
+                queued += 1
 
         # Треды, исчезнувшие из каталога: считаем промахи и гасим не сразу.
         # Каталог 2ch иногда отдаётся обрезанным — мгновенное is_active=False
@@ -406,7 +366,117 @@ class DvachParser:
 
         await self.session.commit()
         await self._clear_progress()
-        print(f"[ok] Парсинг доски /{board_slug} завершён (просканировано тредов: {scanned})")
+        print(
+            f"[ok] Каталог /{board_slug}: тредов {len(catalog_threads)}, "
+            f"в очереди {queued}"
+        )
+        return len(catalog_threads)
+
+    async def build_scan_plan(self) -> List[Tuple[str, int, str]]:
+        """Фаза A по всем доскам + очередь докачки из БД.
+
+        Сначала дёшево обновляются каталоги всех парсируемых досок (1 запрос на
+        доску), затем строится очередь: свежие изменения и новые треды вперёд,
+        дальше — по «давности» сканирования (LRU). Очередь хранится в БД
+        (`pending_scan`), поэтому перезапуск процесса её не теряет.
+        """
+        board_slugs = await self.board_repo.get_parsable_slugs()
+        print(f"[list] Доски для парсинга: {', '.join(board_slugs) or '— (нет)'}")
+        for board_slug in board_slugs:
+            if self.stop_check is not None and await self.stop_check():
+                print("[stop] Остановка по команде из админки")
+                return []
+            await self.sync_board_catalog(board_slug)
+            await asyncio.sleep(settings.REQUEST_DELAY)
+
+        queue = await self.thread_state_repo.get_scan_queue()
+        fresh = sum(1 for _, _, reason in queue if reason in FRESH_REASONS)
+        print(f"[plan] Очередь на докачку: {len(queue)} тредов (свежих: {fresh})")
+        return queue
+
+    async def scan_thread(self, board_slug: str, thread_id: int, reason: str = "") -> bool:
+        """Фаза B: докачивает новые файлы одного треда.
+
+        Возвращает True, если проход завершён полностью (тред снят с очереди).
+        При остановке из админки или ошибке загрузки списка файлов флаг
+        `pending_scan` остаётся — тред докачается в следующем цикле, а уже
+        сохранённые файлы отсеются по md5 без повторного скачивания.
+        """
+        board = await self.board_repo.get_by_slug(board_slug)
+        if board is None:
+            print(f"   [err] Доска /{board_slug} не найдена в БД")
+            return False
+        state = await self.thread_state_repo.get_by_board_thread(board.id, thread_id)
+        if state is None:
+            print(f"   [err] Тред {thread_id} не найден в БД")
+            return False
+        if not state.parse_enabled or not state.is_active:
+            # Пока тред ждал очереди, его выключили в админке
+            print(f"   [skip]  Тред {thread_id} — снят с парсинга, пропускаю")
+            return False
+
+        # Попытку фиксируем сразу: видно в админке и не теряется при сбое
+        state.last_scan_attempt_at = datetime.utcnow()
+        await self.session.commit()
+
+        files = await self.fetch_thread_files(board_slug, thread_id)
+        if files is None:
+            # Список файлов не получен — тред остаётся в очереди
+            print(f"   [err] Тред {thread_id}: не удалось получить список файлов")
+            await self._clear_progress()
+            return False
+
+        files_total = len(files)
+        # Обновляем «файлов на форуме»: список уже получен, лишних запросов нет
+        state.files_detected = files_total
+        print(f"   [thread] Тред {thread_id} ({reason or 'очередь'}): {files_total} файлов")
+        await self._progress(
+            board_slug=board_slug,
+            phase="files",
+            thread_id=thread_id,
+            files_total=files_total,
+            files_done=0,
+        )
+
+        files_done = 0
+        for meta in files:
+            # Быстрая реакция на «Остановить» — проверяем между файлами
+            if self.stop_check is not None and await self.stop_check():
+                await self.session.commit()  # сохраняем уже скачанное
+                print("   [stop] Докачка прервана командой из админки")
+                await self._clear_progress()
+                return False
+            await self.process_file(board, state, meta)
+            files_done += 1
+            await self._progress(
+                board_slug=board_slug,
+                phase="files",
+                thread_id=thread_id,
+                files_total=files_total,
+                files_done=files_done,
+            )
+
+            # Периодический коммит: файлы становятся видны сайту сразу,
+            # а сбой теряет максимум DB_COMMIT_EVERY_FILES файлов.
+            # last_scanned_at ставится только после полного прохода треда,
+            # поэтому незавершённый тред докачается в следующий цикл,
+            # а уже сохранённые файлы отсеются по md5 без скачивания.
+            every = settings.DB_COMMIT_EVERY_FILES
+            if every > 0 and files_done % every == 0:
+                await self.session.commit()
+                print(
+                    f"   [db]   Коммит: сохранено {files_done}/{files_total} "
+                    f"файлов треда {thread_id}"
+                )
+
+            await asyncio.sleep(settings.REQUEST_DELAY * 0.5)
+
+        # Проход завершён — снимаем тред с очереди
+        state.pending_scan = False
+        state.pending_reason = None
+        state.last_scanned_at = datetime.utcnow()
+        await self.session.commit()
+        return True
 
     # ───────────────────── Обработка файла ─────────────────────
 

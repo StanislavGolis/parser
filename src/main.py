@@ -89,27 +89,30 @@ async def main():
                             await parser.run_reconciliation()
                             last_reconcile = datetime.utcnow()
 
-                        # Доски для парсинга берём из БД (parse_enabled): админка
-                        # управляет ими без перезапуска процесса.
-                        board_slugs = await parser.board_repo.get_parsable_slugs()
-                        print(f"[list] Доски для парсинга: {', '.join(board_slugs) or '— (нет)'}")
+                        # Проверка остановки между тредами (кнопка в админке)
+                        async def _check_stop() -> bool:
+                            return not await parser_is_enabled()
 
-                        for board_slug in board_slugs:
-                            if not await parser_is_enabled():
+                        parser.stop_check = _check_stop
+
+                        # Фаза A: каталоги всех парсируемых досок (дёшево,
+                        # 1 запрос на доску) → очередь докачки в БД
+                        plan = await parser.build_scan_plan()
+
+                        # Фаза B: докачка по очереди — сначала свежие изменения,
+                        # затем давно не сканировавшиеся (LRU). Очередь живёт в БД,
+                        # поэтому перезапуск процесса её не теряет.
+                        for board_slug, thread_id, reason in plan:
+                            if await _check_stop():
                                 print("[stop] Парсинг остановлен командой из админки")
                                 break
 
                             global CURRENT_BOARD
                             CURRENT_BOARD = board_slug
 
-                            # Проверка остановки между тредами (внутри process_board)
-                            async def _check_stop() -> bool:
-                                return not await parser_is_enabled()
-
-                            parser.stop_check = _check_stop
-                            await parser.process_board(board_slug)
-                            parser.stop_check = None
+                            await parser.scan_thread(board_slug, thread_id, reason)
                     finally:
+                        parser.stop_check = None
                         await parser.__aexit__(None, None, None)
                 CURRENT_BOARD = None
 

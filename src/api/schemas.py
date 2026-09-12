@@ -104,6 +104,8 @@ class ThreadUpdate(BaseModel):
     # «Вернуть в обход»: тред выпал из каталога доски, вернуть его в работу
     # (is_active=True, сброс промахов каталога)
     restore: Optional[bool] = None
+    # «В очередь»: вручную поставить тред в очередь докачки (pending_scan)
+    requeue: Optional[bool] = None
 
 
 class ThreadBulkUpdate(BaseModel):
@@ -113,6 +115,7 @@ class ThreadBulkUpdate(BaseModel):
     is_visible: Optional[bool] = None
     is_premium: Optional[bool] = None
     restore: Optional[bool] = None  # вернуть в обход (is_active=True, misses=0)
+    requeue: Optional[bool] = None  # поставить в очередь докачки (pending_scan)
 
 
 class BoardReorder(BaseModel):
@@ -202,6 +205,10 @@ class ThreadOut(BaseModel):
     misses: int = 0                            # проходов каталога подряд без треда
     missing_since: Optional[datetime] = None   # когда тред впервые выпал из каталога
     is_stale: bool = False                     # «Парсить» включён, но давно не сканировался
+    # Очередь докачки: тред ждёт скана, причина («новый»/«изменения»/«просрочен»/…)
+    pending_scan: bool = False
+    pending_reason: Optional[str] = None
+    last_scan_attempt_at: Optional[datetime] = None
 
     # Управление (админка) и премиум-доступ
     parse_enabled: bool = True

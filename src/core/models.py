@@ -72,6 +72,13 @@ class ThreadState(Base):
     misses = Column(Integer, nullable=False, default=0)
     missing_since = Column(DateTime, nullable=True)
 
+    # Очередь докачки (двухфазный цикл: каталог всех досок → загрузка по очереди).
+    # Фаза A помечает тред `pending_scan` (+причина), фаза B снимает флаг после
+    # полного прохода. Очередь живёт в БД и переживает перезапуск процесса.
+    pending_scan = Column(Boolean, nullable=False, default=False)
+    pending_reason = Column(String(32), nullable=True)   # новый/изменения/просрочен/не скачивался/файлы
+    last_scan_attempt_at = Column(DateTime, nullable=True)  # время последней попытки скана
+
     # Управление из админки (этап: управление контентом)
     parse_enabled = Column(Boolean, nullable=False, default=False)  # тред участвует в скачивании
     is_visible = Column(Boolean, nullable=False, default=False)     # показывать публично

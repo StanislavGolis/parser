@@ -16,10 +16,22 @@ const FILTERS: Array<{ key: string; label: string }> = [
   { key: "parsing", label: "Парсить" },
   { key: "visible", label: "published" },
   { key: "premium", label: "PREMIUM" },
+  { key: "queued", label: "В очереди" },
+  { key: "lagging", label: "Недокачано" },
   { key: "stale", label: "Просроченные" },
   { key: "dead", label: "Мёртвые" },
   { key: "off", label: "Без настроек" },
 ];
+
+/** Человекочитаемые причины очереди докачки (`pending_reason` с бэкенда). */
+const PENDING_LABELS: Record<string, string> = {
+  "новый": "новый тред",
+  "изменения": "новые файлы",
+  "просрочен": "плановый догон",
+  "не скачивался": "не скачивался",
+  "файлы": "сверка файлов",
+  "вручную": "вручную",
+};
 
 function readToken(): string {
   if (typeof window === "undefined") return "";
@@ -231,7 +243,9 @@ export default function AdminBoardThreads({
           {threads
             ? `тредов: ${formatNumber(total)} · постов: ${formatNumber(totals.posts_total)} · просмотров: ${formatNumber(totals.views_total)} · файлов на форуме: ${formatNumber(totals.files_detected_total)} · скачано: ${formatNumber(totals.files_downloaded_total)}${
                 (counts?.dead ?? 0) > 0 ? ` · мёртвых: ${formatNumber(counts?.dead ?? 0)}` : ""
-              }${(counts?.stale ?? 0) > 0 ? ` · просрочено: ${formatNumber(counts?.stale ?? 0)}` : ""}`
+              }${(counts?.stale ?? 0) > 0 ? ` · просрочено: ${formatNumber(counts?.stale ?? 0)}` : ""}${
+                (counts?.pending ?? 0) > 0 ? ` · в очереди: ${formatNumber(counts?.pending ?? 0)}` : ""
+              }${(counts?.lagging ?? 0) > 0 ? ` · недокачано: ${formatNumber(counts?.lagging ?? 0)}` : ""}`
             : "загрузка…"}
         </span>
         <div className="flex flex-wrap items-center gap-2">
@@ -388,6 +402,15 @@ export default function AdminBoardThreads({
           >
             Вернуть в обход
           </button>
+          <button
+            type="button"
+            disabled={disabled}
+            title="Поставить выбранные треды в очередь докачки (работает при включённом «Парсить»)"
+            onClick={() => void bulk({ requeue: true })}
+            className="btn-ghost px-2.5 py-1 text-xs"
+          >
+            В очередь
+          </button>
         </div>
       ) : null}
       {threads === null ? (
@@ -426,6 +449,14 @@ export default function AdminBoardThreads({
                       <span className="badge badge-warn">premium</span>
                     ) : null}
                     <span className="font-mono text-xs text-text-muted">№{t.thread_id}</span>
+                    {t.pending_scan ? (
+                      <span
+                        className="badge badge-ok"
+                        title="Тред в очереди на докачку (фаза B): свежие файлы идут раньше планового догона"
+                      >
+                        очередь: {PENDING_LABELS[t.pending_reason ?? ""] ?? t.pending_reason ?? "скан"}
+                      </span>
+                    ) : null}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <Switch
@@ -491,6 +522,7 @@ export default function AdminBoardThreads({
                   <div className="mt-2 rounded border border-accent-warning/40 bg-accent-warning/10 px-2 py-1.5 text-[11px] text-accent-warning">
                     просрочен: парсинг включён, но тред не сканировался
                     {t.last_scanned_at ? ` с ${formatUtc(t.last_scanned_at)}` : " ни разу"}
+                    {t.last_scan_attempt_at ? ` · попытка: ${formatUtc(t.last_scan_attempt_at)}` : ""}
                   </div>
                 ) : null}
 

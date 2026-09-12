@@ -423,7 +423,7 @@ async def admin_board_threads(
     slug: str,
     page: int = Query(1, ge=1),
     per_page: int = Query(30, ge=1, le=100),
-    state: str = Query("all", pattern="^(all|active|parsing|visible|premium|off|dead|stale)$"),
+    state: str = Query("all", pattern="^(all|active|parsing|visible|premium|off|dead|stale|queued|lagging)$"),
     q: Optional[str] = Query(None, max_length=120),
     _=Depends(verify_admin),
     session: AsyncSession = Depends(get_session),
@@ -517,6 +517,11 @@ async def update_thread(
         thread.is_active = True
         thread.misses = 0
         thread.missing_since = None
+    if payload.requeue:
+        # «В очередь»: ручная постановка на докачку (приоритет — как у свежих).
+        # Сработает, если у треда включён «Парсить» — иначе парсер в тред не пойдёт.
+        thread.pending_scan = True
+        thread.pending_reason = "вручную"
 
     await session.commit()
     items = await build_thread_outs(session, board.id, [thread], with_preview=False)
@@ -553,6 +558,9 @@ async def bulk_update_threads(
             thread.is_active = True
             thread.misses = 0
             thread.missing_since = None
+        if payload.requeue:
+            thread.pending_scan = True
+            thread.pending_reason = "вручную"
     if payload.is_premium is not None:
         await sync_threads_media_premium(session, board, payload.thread_ids)
     await session.commit()

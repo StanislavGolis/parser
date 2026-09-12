@@ -95,6 +95,10 @@ export interface BoardThread {
   missing_since: string | null;
   /** «Парсить» включён, но тред давно не сканировался. */
   is_stale: boolean;
+  /** Очередь докачки (двухфазный цикл): причина и время попытки. */
+  pending_scan: boolean;
+  pending_reason: string | null;
+  last_scan_attempt_at: string | null;
   /** Управление из админки. */
   parse_enabled: boolean;
   is_visible: boolean;
