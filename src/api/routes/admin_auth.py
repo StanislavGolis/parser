@@ -97,6 +97,10 @@ async def admin_forgot(
         subject=admin_auth.RESET_SUBJECT,
         text=admin_auth.reset_email_text(link, settings.ADMIN_RESET_TTL_MINUTES),
     )
+    if not sent:
+        # Письмо не ушло (SMTP отклонил вход, сеть и т.п.) — не оставляем
+        # в БД неиспользуемый токен: пользователь запросит новый.
+        await admin_auth.discard_reset_token(session, token)
     return AdminForgotOut(sent=sent, smtp_configured=True, detail=GENERIC_FORGOT_DETAIL)
 
 

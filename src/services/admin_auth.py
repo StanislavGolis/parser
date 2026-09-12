@@ -129,6 +129,16 @@ async def consume_reset_token(
     return user
 
 
+async def discard_reset_token(session: AsyncSession, raw_token: str) -> None:
+    """Удаляет токен восстановления (например, если письмо не удалось отправить)."""
+    await session.execute(
+        delete(AdminPasswordReset).where(
+            AdminPasswordReset.token_hash == auth_service.token_hash(raw_token or "")
+        )
+    )
+    await session.commit()
+
+
 def new_password(length: int = 16) -> str:
     """Случайный пароль без неоднозначных символов (для CLI)."""
     alphabet = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#%^*"
