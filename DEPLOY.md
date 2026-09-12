@@ -273,6 +273,54 @@ python3-certbot-nginx`; конфиг из шага 6 (`server_name <домен>`
 | Просмотр | `docker compose -f docker-compose.prod.yml logs -f api\|parser` | `tail -f /var/log/dredge-health.log` — журнал проверок |
 | Обновление кода | `cd /opt/dredge && git pull && docker compose -f docker-compose.prod.yml up -d --build` | не забыть про общий образ `parser-backend` (см. «Примечания») |
 
+### 11. Доступ в админку и восстановление пароля
+
+Админка открывается двумя равноправными способами:
+
+1. **email + пароль** — админ-аккаунты из `ADMIN_EMAILS` (форма входа на `/admin`);
+   после входа панель получает тот же `ADMIN_TOKEN`, поэтому вся остальная
+   механика админки не меняется;
+2. **admin-токен** (`ADMIN_TOKEN` из `.env`) — резервный вход и для скриптов
+   (`Authorization: Bearer …`), ссылка «вход по токену» на странице входа.
+
+Восстановление пароля — три независимых пути, любого достаточно:
+
+- **Ссылка на почту**: `/admin` → «Забыли пароль?» → письмо на разрешённый адрес.
+  Требуется настроенный SMTP (переменные ниже). Ссылка живёт
+  `ADMIN_RESET_TTL_MINUTES`, срабатывает **один раз**, после смены пароля все
+  сессии аккаунта сбрасываются.
+- **Команда на сервере** (работает даже без почты — достаточно SSH):
+  ```bash
+  cd /opt/dredge
+  docker compose -f docker-compose.prod.yml exec -T api python -m src.cli.admin list
+  docker compose -f docker-compose.prod.yml exec -T api \
+    python -m src.cli.admin set-password --email shksns35@gmail.com
+  # без --password команда сгенерирует пароль и покажет его один раз
+  docker compose -f docker-compose.prod.yml exec -T api python -m src.cli.admin ensure
+  ```
+- **Токен из `.env`**: `grep ADMIN_TOKEN /opt/dredge/.env` (нужен SSH).
+
+Защита: вход только для адресов из `ADMIN_EMAILS`; ответы «Забыли пароль?»
+нейтральны (нельзя выяснить, какие адреса админские); токены восстановления
+хранятся в БД только хешем и одноразовые; попытки входа ограничены rate-limit'ом
+и пишутся в лог (`docker compose logs api`).
+
+SMTP (пример для Яндекса; пароль — **пароль приложения**, не от аккаунта):
+
+```env
+SMTP_HOST=smtp.yandex.ru
+SMTP_PORT=465
+SMTP_TLS=ssl
+SMTP_USER=stanislav.golis@yandex.ru
+SMTP_PASSWORD=<пароль-приложения>
+SMTP_FROM=stanislav.golis@yandex.ru
+```
+
+Для Gmail: `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=465`, `SMTP_TLS=ssl`, а в
+качестве пароля — «пароль приложения» (создаётся в аккаунте Google при
+включённой двухфакторной аутентификации). Письмо уходит на тот адрес, который
+запросил восстановление, поэтому оба админа восстанавливают доступ независимо.
+
 ## Примечания
 
 - Наружу открыт только `nginx` (порт `HTTP_PORT`). PostgreSQL/Redis наружу
@@ -474,6 +522,11 @@ git push --force --tags
 | `ADMIN_TOKEN` | — | токен админ-эндпоинтов (`Authorization: Bearer …`); **сменить на случайный** (`openssl rand -hex 32`) |
 | `SQL_ECHO` | `0` | логировать SQL-запросы (в проде держать `0`: с `1` логи растут гигабайтами) |
 | `SESSION_COOKIE_SECURE` | `0` | cookie сессии только по HTTPS: на VPS с SSL → `1`, локально без сертификата → `0` |
+| `ADMIN_EMAILS` | — | адреса, которым разрешён вход в админку и восстановление пароля (через запятую); для них заводятся админ-аккаунты |
+| `ADMIN_RESET_TTL_MINUTES` | `30` | срок жизни ссылки восстановления пароля, мин |
+| `PUBLIC_BASE_URL` | — | домен для ссылок в письмах (`https://example.com`); пусто — берётся адрес запроса |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_TLS` | — / `465` / `ssl` | SMTP для писем восстановления (`ssl`, `starttls` или `none`) |
+| `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` | — | креды отправки: логин, «пароль приложения», адрес отправителя |
 | `API_RATE_LIMIT` | `60` | лимит публичных запросов в минуту на IP (0 — выключить) |
 | `API_CORS_ORIGINS` | `http://localhost` | CORS (фронт ходит через тот же origin, поэтому не критично) |
 | `POPULARITY_RECALC_MINUTES` | `5` | период пересчёта `popularity_score` |

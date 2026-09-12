@@ -58,6 +58,28 @@ class Settings(BaseSettings):
     # сертификата оставить false, иначе браузер не сохранит cookie.
     SESSION_COOKIE_SECURE: bool = False
 
+    # ── Вход в админку по email+паролю и восстановление пароля ────
+    # Кому разрешён вход в админку и восстановление (через запятую). Для этих
+    # адресов автоматически заводятся админ-аккаунты.
+    ADMIN_EMAILS: str = ""
+    # Срок жизни ссылки восстановления, минуты
+    ADMIN_RESET_TTL_MINUTES: int = 30
+    # База для ссылок в письмах, например https://example.com (пусто — из запроса)
+    PUBLIC_BASE_URL: str = ""
+    # SMTP для писем восстановления. Пусто — почта выключена, останется
+    # восстановление через CLI на сервере (см. DEPLOY.md).
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 465
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = ""
+    SMTP_TLS: str = "ssl"  # ssl | starttls | none
+
+    @property
+    def admin_emails(self) -> list[str]:
+        """Список админских email'ов (нормализованный, без пустых)."""
+        return [e.strip().lower() for e in self.ADMIN_EMAILS.split(",") if e.strip()]
+
     # API сайта
     ADMIN_TOKEN: str = ""                     # токен для админ-эндпоинтов
     API_RATE_LIMIT: int = 30                  # запросов в минуту на IP (публичные API)

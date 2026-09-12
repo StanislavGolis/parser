@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class BoardOut(BaseModel):
@@ -87,6 +87,40 @@ class ForumBoardOut(BaseModel):
     media_total: int = 0
     media_in_s3: int = 0
     threads_active: int = 0
+
+
+class AdminLoginIn(BaseModel):
+    """Вход в админку по email+паролю (админ-аккаунт)."""
+    email: str
+    password: str
+
+
+class AdminLoginOut(BaseModel):
+    """Успешный вход: панель получает тот же токен, что лежит в .env."""
+    email: str
+    token: str
+
+
+class AdminForgotIn(BaseModel):
+    """Запрос ссылки восстановления пароля."""
+    email: str
+
+
+class AdminForgotOut(BaseModel):
+    sent: bool              # попытка отправки сделана (SMTP настроен)
+    smtp_configured: bool   # настроена ли почта вообще
+    detail: str = ""        # текст для интерфейса
+
+
+class AdminResetIn(BaseModel):
+    """Сброс пароля по одноразовой ссылке из письма."""
+    token: str
+    password: str = Field(min_length=10, max_length=128)
+
+
+class AdminResetOut(BaseModel):
+    email: str
+    ok: bool = True
 
 
 class BoardCreate(BaseModel):

@@ -34,6 +34,11 @@ function errText(err: unknown): string {
 export default function AdminConsole() {
   const [token, setToken] = useState<string>(readToken);
   const [loginInput, setLoginInput] = useState("");
+  const [loginMode, setLoginMode] = useState<"password" | "forgot" | "token">("password");
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginMessage, setLoginMessage] = useState<string | null>(null);
+  const [loginBusy, setLoginBusy] = useState(false);
   const [tab, setTab] = useState<Tab>("boards");
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [forum, setForum] = useState<ForumBoard[] | null>(null);
@@ -130,6 +135,50 @@ export default function AdminConsole() {
     if (!t) return;
     window.sessionStorage.setItem(TOKEN_KEY, t);
     setToken(t);
+  }
+
+  /** Вход админа по email+паролю: в ответе приходит ADMIN_TOKEN для панели. */
+  async function submitPasswordLogin(e: React.FormEvent) {
+    e.preventDefault();
+    const email = loginEmail.trim();
+    if (!email || !loginPassword) return;
+    setLoginBusy(true);
+    setLoginMessage(null);
+    setGlobalError(null);
+    try {
+      const out = await apiPost<{ email: string; token: string }>(
+        "/api/v1/admin/auth/login",
+        { email, password: loginPassword },
+      );
+      window.sessionStorage.setItem(TOKEN_KEY, out.token);
+      setLoginPassword("");
+      setToken(out.token);
+    } catch (err) {
+      setGlobalError(errText(err));
+    } finally {
+      setLoginBusy(false);
+    }
+  }
+
+  /** Запрос ссылки восстановления пароля на админский адрес. */
+  async function submitForgot(e: React.FormEvent) {
+    e.preventDefault();
+    const email = loginEmail.trim();
+    if (!email) return;
+    setLoginBusy(true);
+    setLoginMessage(null);
+    setGlobalError(null);
+    try {
+      const out = await apiPost<{ sent: boolean; smtp_configured: boolean; detail: string }>(
+        "/api/v1/admin/auth/forgot",
+        { email },
+      );
+      setLoginMessage(out.detail || "Проверьте почту.");
+    } catch (err) {
+      setGlobalError(errText(err));
+    } finally {
+      setLoginBusy(false);
+    }
   }
 
   function replaceBoard(updated: AdminBoard) {
@@ -299,21 +348,117 @@ export default function AdminConsole() {
     return (
       <div className="mx-auto max-w-md py-10">
         <h2 className="text-xl font-bold">Вход в админ-панель</h2>
-        <p className="mt-1 text-sm text-text-secondary">Введите admin-токен (ADMIN_TOKEN из .env).</p>
-        <form onSubmit={login} className="mt-5 flex flex-col gap-3">
-          <input
-            type="password"
-            value={loginInput}
-            onChange={(e) => setLoginInput(e.target.value)}
-            placeholder="Admin-токен"
-            autoFocus
-            className="rounded border border-line bg-ink-secondary px-3 py-2 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-accent-primary"
-          />
-          <button type="submit" disabled={!loginInput.trim()} className="btn-primary">
-            Войти
-          </button>
-          {globalError ? <p className="text-sm text-accent-danger">{globalError}</p> : null}
-        </form>
+        <p className="mt-1 text-sm text-text-secondary">
+          {loginMode === "forgot"
+            ? "Укажите админский email — пришлём ссылку для смены пароля."
+            : loginMode === "token"
+              ? "Резервный вход: admin-токен (ADMIN_TOKEN из .env)."
+              : "Войдите по админскому email и паролю."}
+        </p>
+
+        {loginMode === "forgot" ? (
+          <form onSubmit={submitForgot} className="mt-5 flex flex-col gap-3">
+            <input
+              type="email"
+              value={loginEmail}
+              onChange={(e) => setLoginEmail(e.target.value)}
+              placeholder="Админский email"
+              autoFocus
+              className="rounded border border-line bg-ink-secondary px-3 py-2 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-accent-primary"
+            />
+            <button type="submit" disabled={loginBusy || !loginEmail.trim()} className="btn-primary">
+              {loginBusy ? "Отправляем…" : "Прислать ссылку"}
+            </button>
+            {loginMessage ? (
+              <p className="text-sm text-accent-secondary">{loginMessage}</p>
+            ) : null}
+            {globalError ? <p className="text-sm text-accent-danger">{globalError}</p> : null}
+            <button
+              type="button"
+              onClick={() => {
+                setLoginMode("password");
+                setLoginMessage(null);
+                setGlobalError(null);
+              }}
+              className="text-xs text-text-secondary transition-colors hover:text-text-primary"
+            >
+              ← назад ко входу
+            </button>
+          </form>
+        ) : loginMode === "token" ? (
+          <form onSubmit={login} className="mt-5 flex flex-col gap-3">
+            <input
+              type="password"
+              value={loginInput}
+              onChange={(e) => setLoginInput(e.target.value)}
+              placeholder="Admin-токен"
+              autoFocus
+              className="rounded border border-line bg-ink-secondary px-3 py-2 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-accent-primary"
+            />
+            <button type="submit" disabled={!loginInput.trim()} className="btn-primary">
+              Войти по токену
+            </button>
+            {globalError ? <p className="text-sm text-accent-danger">{globalError}</p> : null}
+            <button
+              type="button"
+              onClick={() => {
+                setLoginMode("password");
+                setGlobalError(null);
+              }}
+              className="text-xs text-text-secondary transition-colors hover:text-text-primary"
+            >
+              ← вход по email и паролю
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={submitPasswordLogin} className="mt-5 flex flex-col gap-3">
+            <input
+              type="email"
+              value={loginEmail}
+              onChange={(e) => setLoginEmail(e.target.value)}
+              placeholder="Админский email"
+              autoFocus
+              className="rounded border border-line bg-ink-secondary px-3 py-2 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-accent-primary"
+            />
+            <input
+              type="password"
+              value={loginPassword}
+              onChange={(e) => setLoginPassword(e.target.value)}
+              placeholder="Пароль"
+              className="rounded border border-line bg-ink-secondary px-3 py-2 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-accent-primary"
+            />
+            <button
+              type="submit"
+              disabled={loginBusy || !loginEmail.trim() || !loginPassword}
+              className="btn-primary"
+            >
+              {loginBusy ? "Проверяем…" : "Войти"}
+            </button>
+            {globalError ? <p className="text-sm text-accent-danger">{globalError}</p> : null}
+            <div className="flex items-center justify-between text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setLoginMode("forgot");
+                  setGlobalError(null);
+                }}
+                className="text-text-secondary transition-colors hover:text-text-primary"
+              >
+                Забыли пароль?
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLoginMode("token");
+                  setGlobalError(null);
+                }}
+                className="text-text-muted transition-colors hover:text-text-primary"
+              >
+                вход по токену
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     );
   }

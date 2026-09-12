@@ -111,6 +111,9 @@ docker compose -f docker-compose.prod.yml up -d --build
 - [x] «Мои разделы»: кнопка «Треды» перед «Парсить», переключатели `Парсить` /
       `published|unpublished` / `FREE|PREMIUM`, переименование, удаление (БД + S3),
       статистика, ▲/▼ очередь, прогресс парсера (опрос 1 с).
+- [x] **Вход в админку**: по email+паролю (админ-аккаунты из `ADMIN_EMAILS`) или по
+      `ADMIN_TOKEN`; восстановление пароля — ссылкой из письма (SMTP), командой на
+      сервере (`python -m src.cli.admin set-password`) либо токеном из `.env`.
 - [x] Управление тредами: чипы-фильтры (Все / В работе / Парсить / published /
       PREMIUM / **В очереди** / **Недокачано** / **Просроченные** / **Мёртвые** /
       Без настроек), поиск, массовые операции (вкл/выкл парсинга, показа, PREMIUM,
@@ -498,6 +501,9 @@ GET   /api/v1/auth/me                      профиль + премиум + с�
 POST  /api/v1/auth/premium/activate        промо-активация премиума (1 день)
 
 # админ (Authorization: Bearer <ADMIN_TOKEN>):
+POST  /api/v1/admin/auth/login               вход админа по email+паролю → ADMIN_TOKEN
+POST  /api/v1/admin/auth/forgot              письмо со ссылкой восстановления пароля
+POST  /api/v1/admin/auth/reset               смена пароля по одноразовой ссылке
 GET   /api/v1/admin/overview               доски + статистика + статус парсера
 GET   /api/v1/admin/parser/status          лёгкий статус: жив, текущая доска, прогресс
 POST  /api/v1/admin/parser/start | /stop   включить/остановить парсинг
