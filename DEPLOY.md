@@ -317,5 +317,6 @@ git push --force --tags
 | `PARSE_CYCLE_BUDGET_MINUTES` | `30` | бюджет фазы B цикла парсинга, мин (`0` — без лимита) |
 | `MAX_PARALLEL_DOWNLOADS` | `2` | сколько файлов качать одновременно внутри треда (`1` — последовательно) |
 | `PREFETCH_MAX_BYTES` | `67108864` | ограничение памяти под предзагрузку пачки файлов (64 МБ) |
+| `MAX_PARALLEL_UPLOADS` | `1` | параллельные выгрузки в S3 внутри треда; `>1` проверять замером — Timeweb-эндпоинт троттлит одновременные загрузки (10.9 → 3.0 МБ/с) |
 | `NEXT_PUBLIC_API_BASE` (web) | пусто | URL API для браузера; пусто = same-origin (в compose не задаётся) |
 | `API_BASE_SERVER` (web) | `http://api:8000` | URL API для SSR внутри docker-сети (задан в compose) |

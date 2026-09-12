@@ -6,6 +6,9 @@ from sqlalchemy import select
 from src.core.models import Media
 from src.repositories.base import BaseRepository
 
+# Статусы, при которых файл уже лежит в объектном хранилище
+UPLOADED_STATUSES = ("uploaded", "verified")
+
 
 class MediaRepository(BaseRepository[Media]):
     def __init__(self, session):
@@ -51,6 +54,24 @@ class MediaRepository(BaseRepository[Media]):
                 Media.source_md5 == source_md5,
             )
         )
+
+    async def saved_md5_in_thread(self, board_id: int, thread_id: int) -> set:
+        """md5 файлов треда, уже сохранённых вместе с объектом в S3.
+
+        Для точечной сверки: один запрос вместо проверки каждого файла — полный
+        проход по большому треду перебирает только отсутствующие файлы, а не
+        сотни уже сохранённых. Условие совпадает с веткой `[have]` в парсере
+        (есть `s3_key` и статус загрузки), иначе файл будет обработан заново.
+        """
+        query = select(Media.source_md5).where(
+            Media.board_id == board_id,
+            Media.thread_id == thread_id,
+            Media.source_md5.isnot(None),
+            Media.s3_key.isnot(None),
+            Media.download_status.in_(UPLOADED_STATUSES),
+        )
+        rows = await self.session.execute(query)
+        return {md5 for md5 in rows.scalars().all() if md5}
 
     async def get_downloaded_local(self, board_id: int, limit: int = 200):
         """Записи со статусом downloaded — кандидаты на перезаливку в S3."""

@@ -10,6 +10,7 @@ import asyncio
 import json
 import os
 import re
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -46,6 +47,23 @@ MIME_BY_EXT = {
 
 # Статусы, при которых файл лежит в объектном хранилище
 UPLOADED_STATUSES = ("uploaded", "verified")
+
+
+@dataclass
+class PreparedFile:
+    """Файл, прошедший фильтр/дедупликацию/валидацию и сохранённый локально.
+
+    Разделение обработки на стадии нужно, чтобы тяжёлая часть (загрузка в S3 и
+    построение деривативов) шла параллельно для нескольких файлов, пока для
+    следующих файлов выполняется подготовка. Запись в БД остаётся
+    последовательной: сессия одна, конкурентные `flush` недопустимы.
+    """
+    meta: dict
+    file_data: bytes
+    file_sha256: str
+    storage_path: str
+    local_path: Path
+    same_thread: Optional[Media] = None
 
 
 class DvachParser:
@@ -500,6 +518,21 @@ class DvachParser:
             ]
             skipped_old = len(all_files) - len(files)
 
+        # Точечная сверка: файлы, уже сохранённые в этом треде с объектом в S3,
+        # отсеиваем **одним** запросом (условие совпадает с веткой `[have]`), иначе
+        # полный проход по треду на 800+ файлов делает по запросу на каждый файл.
+        saved_md5 = await self.media_repo.saved_md5_in_thread(board.id, thread_id)
+        already_saved = sum(1 for meta in files if meta["md5"] in saved_md5)
+        if already_saved:
+            files = [meta for meta in files if meta["md5"] not in saved_md5]
+            statuses_initial = {"have": already_saved}
+            print(
+                f"   [skip] Уже сохранено в треде: {already_saved} файлов "
+                f"(сверка одним запросом, повторно не проверяем)"
+            )
+        else:
+            statuses_initial = {}
+
         files_total = len(files)
         print(
             f"   [thread] Тред {thread_id} ({reason or 'очередь'}): {files_total} файлов"
@@ -518,11 +551,44 @@ class DvachParser:
         )
 
         files_done = 0
-        statuses: Dict[str, int] = {}
+        statuses: Dict[str, int] = dict(statuses_initial)
         # Пачки файлов: при MAX_PARALLEL_DOWNLOADS > 1 скачивание идёт параллельно
-        # (`_prefetch_batch`), а обработка остаётся последовательной — сессия БД
-        # одна, поэтому запись/S3/деривативы не могут идти в несколько корутин.
+        # (`_prefetch_batch`).
         batch_size = max(1, int(settings.MAX_PARALLEL_DOWNLOADS))
+        # Окно тяжёлой стадии: пока для следующих файлов идёт подготовка, уже
+        # подготовленные выгружаются в S3 (и строятся деривативы) параллельно.
+        # Запись в БД делает только основной цикл — сессия одна, поэтому
+        # конкурентных flush не бывает (при MAX_PARALLEL_UPLOADS=1 поведение
+        # прежнее: подготовка → S3 → запись по одному файлу).
+        upload_workers = max(1, int(settings.MAX_PARALLEL_UPLOADS))
+        window: List[Tuple[PreparedFile, "asyncio.Task[Dict[str, object]]"]] = []
+
+        async def account(status: str) -> None:
+            """Учитывает результат файла: сводка, прогресс, периодический коммит."""
+            nonlocal files_done
+            statuses[status] = statuses.get(status, 0) + 1
+            files_done += 1
+            await self._progress(
+                board_slug=board_slug,
+                phase="files",
+                thread_id=thread_id,
+                files_total=files_total,
+                files_done=files_done,
+            )
+            every = settings.DB_COMMIT_EVERY_FILES
+            if every > 0 and files_done % every == 0:
+                await self.session.commit()
+                print(
+                    f"   [db]   Коммит: сохранено {files_done}/{files_total} "
+                    f"файлов треда {thread_id}"
+                )
+
+        async def drain_one() -> None:
+            """Дописывает в БД самый старый файл окна (его S3-стадия уже идёт)."""
+            prepared_item, task_item = window.pop(0)
+            payload = await task_item
+            await account(await self._write_media(board, state, prepared_item, payload))
+
         try:
             for start in range(0, len(files), batch_size):
                 batch = files[start : start + batch_size]
@@ -534,6 +600,8 @@ class DvachParser:
                 for meta in batch:
                     # Быстрая реакция на «Остановить» — проверяем между файлами
                     if self.stop_check is not None and await self.stop_check():
+                        while window:  # докачиваем уже начатые выгрузки
+                            await drain_one()
                         await self.session.commit()  # сохраняем уже скачанное
                         print("   [stop] Докачка прервана командой из админки")
                         fresh = await self.thread_state_repo.get_by_board_thread(
@@ -547,36 +615,32 @@ class DvachParser:
                             await self.session.commit()
                         await self._clear_progress()
                         return False
-                    status = await self.process_file(
+
+                    prepared = await self._prepare_file(
                         board, state, meta, file_data=prefetched.get(meta["md5"])
                     )
-                    statuses[status] = statuses.get(status, 0) + 1
-                    files_done += 1
-                    await self._progress(
-                        board_slug=board_slug,
-                        phase="files",
-                        thread_id=thread_id,
-                        files_total=files_total,
-                        files_done=files_done,
-                    )
-
-                    # Периодический коммит: файлы становятся видны сайту сразу,
-                    # а сбой теряет максимум DB_COMMIT_EVERY_FILES файлов.
-                    # last_scanned_at ставится только после полного прохода треда,
-                    # поэтому незавершённый тред докачается в следующий цикл,
-                    # а уже сохранённые файлы отсеются по md5 без скачивания.
-                    every = settings.DB_COMMIT_EVERY_FILES
-                    if every > 0 and files_done % every == 0:
-                        await self.session.commit()
-                        print(
-                            f"   [db]   Коммит: сохранено {files_done}/{files_total} "
-                            f"файлов треда {thread_id}"
+                    if isinstance(prepared, str):
+                        # Файл обрабатывать не нужно (have/dup/invalid/filtered/err)
+                        await account(prepared)
+                    else:
+                        window.append(
+                            (
+                                prepared,
+                                asyncio.create_task(
+                                    self._run_upload(board, state, prepared)
+                                ),
+                            )
                         )
+                        while len(window) >= upload_workers:
+                            await drain_one()
 
                     # В последовательном режиме паузим между файлами (в параллельном
                     # темп задаёт `_prefetch_batch`: `REQUEST_DELAY` перед запросом)
-                    if batch_size == 1:
+                    if batch_size == 1 and upload_workers == 1:
                         await asyncio.sleep(settings.REQUEST_DELAY * 0.5)
+
+            while window:  # добираем хвост окна
+                await drain_one()
 
             # Проход завершён — снимаем тред с очереди и пишем итог для админки
             note = (
@@ -584,8 +648,13 @@ class DvachParser:
                 f"дублей {statuses.get('dup', 0)}, битых {statuses.get('invalid', 0)}, "
                 f"отфильтровано {statuses.get('filtered', 0)}, ошибок {statuses.get('err', 0)}"
             )
+            suffixes = []
             if skipped_old:
-                note += f" (пропущено старых: {skipped_old})"
+                suffixes.append(f"пропущено старых: {skipped_old}")
+            if already_saved:
+                suffixes.append(f"уже сохранено: {already_saved}")
+            if suffixes:
+                note += " (" + ", ".join(suffixes) + ")"
             print(f"   [done] Тред {thread_id}: {note}")
             state.last_scan_note = note[:255]
             state.last_scan_errors = int(statuses.get("err", 0))
@@ -634,11 +703,11 @@ class DvachParser:
         """Параллельно скачивает файлы пачки (дедупликация — до загрузки).
 
         Проверки «уже сохранён в треде» / «дубль по md5» и фильтр по метаданным
-        выполняются здесь **до** скачивания — ровно те же, что в `process_file`,
+        выполняются здесь **до** скачивания — ровно те же, что в `_prepare_file`,
         поэтому в сеть уходят только файлы, которых у нас ещё нет, и повторных
         вставок не будет. Ограничения: `MAX_PARALLEL_DOWNLOADS` (сколько запросов
         одновременно) и `PREFETCH_MAX_BYTES` (суммарный объём пачки; крупные файлы
-        пропускаются и качаются по одному в `process_file`).
+        пропускаются и качаются по одному в `_prepare_file`).
 
         Возвращает {source_md5: байты} — только успешно скачанное.
         """
@@ -708,22 +777,22 @@ class DvachParser:
                 fetched[md5] = data
         return fetched
 
-    async def process_file(
+    async def _prepare_file(
         self,
         board: Board,
         thread_state: ThreadState,
         meta: dict,
         file_data: Optional[bytes] = None,
-    ) -> str:
-        """Скачивание, валидация, загрузка в S3 и запись в БД одного файла.
+    ) -> "PreparedFile | str":
+        """Стадия 1: фильтр → дедупликация → скачивание → валидация → локальный файл.
 
-        `file_data` — байты, уже скачанные параллельно (`_prefetch_batch`):
-        дедупликация и фильтр всё равно выполняются здесь, поэтому повторных
-        вставок не будет; если байтов нет — файл скачивается самостоятельно.
+        `file_data` — байты, уже скачанные параллельно (`_prefetch_batch`): фильтр
+        и дедупликация всё равно выполняются здесь, поэтому повторных вставок не
+        будет; если байтов нет — файл скачивается самостоятельно.
 
-        Возвращает статус обработки для итоговой сводки по треду:
-        `saved` (новый файл сохранён), `have` (уже был в этом треде),
-        `dup` (ссылка-дубль), `invalid` (битый на форуме), `filtered`
+        Возвращает `PreparedFile` (файл готов к выгрузке в S3 и записи в БД) либо
+        строковый статус, когда файл обрабатывать не нужно: `have` (уже был в этом
+        треде), `dup` (ссылка-дубль), `invalid` (битый на форуме), `filtered`
         (не прошёл правила размера/разрешения), `err` (наша ошибка).
         """
         try:
@@ -864,33 +933,95 @@ class DvachParser:
                 thread_id=thread_state.thread_id,
                 filename=meta["filename"],
             )
+            return PreparedFile(
+                meta=meta,
+                file_data=file_data,
+                file_sha256=file_sha256,
+                storage_path=storage_path,
+                local_path=self.storage.get_file_path(storage_path),
+                same_thread=same_thread,
+            )
 
-            # 6. Загрузка оригинала в S3 + деривативы (превью/оптимизация трафика)
-            s3_key = None
-            variants = None
-            duration_seconds = None
-            local_path = self.storage.get_file_path(storage_path)
-            if self.s3_storage.is_configured:
-                remote_key = f"board_{board.id}/thread_{thread_state.thread_id}/{meta['filename']}"
-                s3_key = await self.s3_storage.upload_file(
-                    local_path,
-                    remote_key,
-                    content_type=meta["mime_type"],
-                )
+        except Exception as e:
+            print(f"   [err] Ошибка при обработке {meta.get('original_name', '?')}: {e}")
+            return "err"
 
-            if s3_key:
-                variants, duration_seconds = await self._build_variants(
-                    board, thread_state, meta, file_data, file_sha256, local_path
-                )
-                if local_path.exists():
-                    os.remove(local_path)
-                    print(f"   [del]  Локальный файл удалён: {meta['filename']}")
+    async def _upload_file(
+        self, board: Board, thread_state: ThreadState, prepared: PreparedFile
+    ) -> Dict[str, object]:
+        """Стадия 2 (без БД): оригинал в S3 + деривативы (превью/оптимизация).
 
-            # 7. Запись в БД: новую строку создаём только для новых файлов,
-            #    а запись без объекта в S3 (например, прошлый раз не докачали)
-            #    обновляем — так повторные проходы не размножают строки.
-            #    В SAVEPOINT: ошибка одного файла (например, конфликт
-            #    UNIQUE(media.file_hash)) не «травит» транзакцию всего треда.
+        Держит только сетевую и CPU-работу, поэтому может идти параллельно для
+        нескольких файлов, пока для следующих файлов выполняется подготовка.
+        """
+        meta = prepared.meta
+        s3_key = None
+        variants = None
+        duration_seconds = None
+        if self.s3_storage.is_configured:
+            remote_key = (
+                f"board_{board.id}/thread_{thread_state.thread_id}/{meta['filename']}"
+            )
+            s3_key = await self.s3_storage.upload_file(
+                prepared.local_path,
+                remote_key,
+                content_type=meta["mime_type"],
+            )
+
+        if s3_key:
+            variants, duration_seconds = await self._build_variants(
+                board,
+                thread_state,
+                meta,
+                prepared.file_data,
+                prepared.file_sha256,
+                prepared.local_path,
+            )
+            if prepared.local_path.exists():
+                os.remove(prepared.local_path)
+                print(f"   [del]  Локальный файл удалён: {meta['filename']}")
+
+        return {
+            "s3_key": s3_key,
+            "variants": variants,
+            "duration_seconds": duration_seconds,
+        }
+
+    async def _run_upload(
+        self, board: Board, thread_state: ThreadState, prepared: PreparedFile
+    ) -> Dict[str, object]:
+        """Обёртка стадии 2 для параллельного окна: ошибка не роняет тред."""
+        try:
+            return await self._upload_file(board, thread_state, prepared)
+        except Exception as e:  # noqa: BLE001
+            print(
+                f"   [err] Ошибка выгрузки {prepared.meta.get('original_name', '?')}: {e}"
+            )
+            return {}
+
+    async def _write_media(
+        self,
+        board: Board,
+        thread_state: ThreadState,
+        prepared: PreparedFile,
+        payload: Dict[str, object],
+    ) -> str:
+        """Стадия 3 (в БД, последовательно): строка `media` в SAVEPOINT.
+
+        Запись идёт в savepoint, поэтому ошибка одного файла (например, конфликт
+        `UNIQUE(media.file_hash)`) не «травит» транзакцию всего треда.
+        """
+        meta = prepared.meta
+        same_thread = prepared.same_thread
+        storage_path = prepared.storage_path
+        file_sha256 = prepared.file_sha256
+        s3_key = payload.get("s3_key")
+        variants = payload.get("variants")
+        duration_seconds = payload.get("duration_seconds")
+        try:
+            # Новую строку создаём только для новых файлов, а запись без объекта в
+            # S3 (например, прошлый раз не докачали) обновляем — так повторные
+            # проходы не размножают строки.
             async with self.session.begin_nested():
                 if same_thread is not None:
                     media = same_thread
@@ -938,16 +1069,39 @@ class DvachParser:
                         is_premium=bool(board.is_premium or thread_state.is_premium),
                     )
                     await self.session.flush()
-
-            if s3_key:
-                print(f"   [ok] Загружен в S3: {meta['original_name']} (ID: {media.id})")
-            else:
-                print(f"   [warn] Сохранён локально: {meta['original_name']} (ID: {media.id}, статус: downloaded)")
-            return "saved"
-
-        except Exception as e:
-            print(f"   [err] Ошибка при обработке {meta.get('original_name', '?')}: {e}")
+        except Exception as e:  # noqa: BLE001
+            print(f"   [err] Ошибка записи {meta.get('original_name', '?')}: {e}")
             return "err"
+
+        if self.s3_storage.is_configured and not s3_key:
+            # Не выгрузилось в S3: строка осталась «локальной», повторим в следующий
+            # проход (условие `[have]` требует объект в S3, файл будет дозакачан)
+            print(f"   [warn] Не выгружено в S3: {meta['original_name']} (ID: {media.id})")
+            return "err"
+        if s3_key:
+            print(f"   [ok] Загружен в S3: {meta['original_name']} (ID: {media.id})")
+        else:
+            print(f"   [warn] Сохранён локально: {meta['original_name']} (ID: {media.id}, статус: downloaded)")
+        return "saved"
+
+    async def process_file(
+        self,
+        board: Board,
+        thread_state: ThreadState,
+        meta: dict,
+        file_data: Optional[bytes] = None,
+    ) -> str:
+        """Последовательная обработка файла: подготовка → S3 → запись в БД.
+
+        Используется, когда параллельное окно выключено (`MAX_PARALLEL_UPLOADS=1`).
+        При большем значении `scan_thread` запускает стадии 2–3 конвейером, чтобы
+        тяжёлая часть (S3 + деривативы) шла параллельно подготовке следующих файлов.
+        """
+        prepared = await self._prepare_file(board, thread_state, meta, file_data)
+        if isinstance(prepared, str):
+            return prepared
+        payload = await self._run_upload(board, thread_state, prepared)
+        return await self._write_media(board, thread_state, prepared, payload)
 
     async def _build_variants(
         self,
