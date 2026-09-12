@@ -14,6 +14,7 @@ from src.core.db import get_session
 from src.core.models import User, UserSession
 from src.core.redis_client import redis_client
 from src.services import auth as auth_service
+from src.services.premium import premium_active
 from src.services.s3_storage import S3Storage
 
 
@@ -93,7 +94,20 @@ async def get_current_user(
 
 
 async def require_user(user: Optional[User] = Depends(get_current_user)) -> User:
-    """Требует авторизацию (для оригиналов и скачивания)."""
+    """Требует авторизацию (метки, избранное, профиль)."""
     if user is None:
         raise HTTPException(status_code=401, detail="Требуется вход")
+    return user
+
+
+async def require_premium(user: Optional[User] = Depends(get_current_user)) -> User:
+    """Требует активную премиум-подписку (скачивание и оригиналы).
+
+    Порядок проверок важен для UX: аноним получает 401 («войти»),
+    зарегистрированный без подписки — 403 («нужна подписка»).
+    """
+    if user is None:
+        raise HTTPException(status_code=401, detail="Требуется вход")
+    if not premium_active(user):
+        raise HTTPException(status_code=403, detail="Нужна премиум-подписка")
     return user

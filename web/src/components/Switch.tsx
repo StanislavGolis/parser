@@ -1,6 +1,6 @@
 "use client";
 
-/** Компактный переключатель в стиле админки SLUICE. */
+/** Компактный переключатель в стиле админки DREDGE. */
 export function Switch({
   checked,
   onChange,

@@ -8,13 +8,13 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import check_rate_limit, client_ip, require_user
 from src.api.schemas import AuthCredentials, UserOut
 from src.core.db import get_session
-from src.core.models import User, UserSession
+from src.core.models import Favorite, MediaMark, User, UserSession
 from src.services import auth as auth_service
 from src.services.premium import PROMO_PREMIUM_DAYS, grant_premium, premium_active
 
@@ -31,6 +31,24 @@ def user_out(user: User) -> UserOut:
         premium_until=user.premium_until,
         is_premium=premium_active(user),
     )
+
+
+async def user_out_with_counts(session: AsyncSession, user: User) -> UserOut:
+    """Схема пользователя + счётчики его меток и избранного (для профиля)."""
+    marks = (
+        await session.execute(
+            select(func.count()).select_from(MediaMark).where(MediaMark.user_id == user.id)
+        )
+    ).scalar()
+    favorites = (
+        await session.execute(
+            select(func.count()).select_from(Favorite).where(Favorite.user_id == user.id)
+        )
+    ).scalar()
+    data = user_out(user)
+    data.marks_count = int(marks or 0)
+    data.favorites_count = int(favorites or 0)
+    return data
 
 
 async def _issue_session(session: AsyncSession, response: Response, user: User) -> None:
@@ -80,7 +98,7 @@ async def register(
     await session.refresh(user)
 
     await _issue_session(session, response, user)
-    return user_out(user)
+    return await user_out_with_counts(session, user)
 
 
 @router.post("/login", response_model=UserOut)
@@ -103,7 +121,7 @@ async def login(
         raise HTTPException(status_code=401, detail="Неверный email или пароль")
 
     await _issue_session(session, response, user)
-    return user_out(user)
+    return await user_out_with_counts(session, user)
 
 
 @router.post("/logout")
@@ -124,9 +142,12 @@ async def logout(
 
 
 @router.get("/me", response_model=UserOut)
-async def me(user: User = Depends(require_user)):
-    """Текущий пользователь (401, если не вошёл)."""
-    return user_out(user)
+async def me(
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(require_user),
+):
+    """Текущий пользователь + счётчики меток и избранного (401, если не вошёл)."""
+    return await user_out_with_counts(session, user)
 
 
 @router.post("/premium/activate", response_model=UserOut)
@@ -145,4 +166,4 @@ async def activate_premium(
     grant_premium(user, PROMO_PREMIUM_DAYS)
     await session.commit()
     await session.refresh(user)
-    return user_out(user)
+    return await user_out_with_counts(session, user)

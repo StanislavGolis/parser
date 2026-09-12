@@ -18,7 +18,7 @@ export default async function HomePage() {
     <div className="py-6 sm:py-8">
       {/* Заголовок-раздел */}
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-3">
-        <h1 className="sluice-title">архив // доски</h1>
+        <h1 className="dredge-title">архив // доски</h1>
         <span className="font-mono text-[11px] text-text-muted">
           {formatNumber(boards.length)} досок · {formatNumber(totalFiles)} файлов
         </span>

@@ -51,7 +51,7 @@ docker compose -f docker-compose.prod.yml down -v      # остановить + 
    apt install -y nginx certbot python3-certbot-nginx
    # HTTP_PORT=8080 в .env, чтобы контейнер не занимал 80/443
    docker compose -f docker-compose.prod.yml up -d
-   cat >/etc/nginx/sites-available/sluice <<'EOF'
+   cat >/etc/nginx/sites-available/dredge <<'EOF'
    server {
        listen 80;
        server_name example.com;
@@ -62,7 +62,7 @@ docker compose -f docker-compose.prod.yml down -v      # остановить + 
                     client_max_body_size 0; }
    }
    EOF
-   ln -s /etc/nginx/sites-available/sluice /etc/nginx/sites-enabled/sluice
+   ln -s /etc/nginx/sites-available/dredge /etc/nginx/sites-enabled/dredge
    nginx -t && systemctl reload nginx
    certbot --nginx -d example.com        # сам впишет 443 и редирект с 80
    ```
@@ -147,7 +147,9 @@ curl -s -o /dev/null -w '%{http_code}\n' "$BASE/api/v1/media/<id>/raw"          
 - [ ] каталог досок и админский `/overview` отдают данные (миграции применены);
 - [ ] `thumb_blur` кэшируется (`MISS → HIT`), премиум-`web` — всегда `MISS` (или 403),
       у `/view` и `/download` заголовка `X-Cache-Status` нет;
-- [ ] `/raw` без сессии → 401, после входа — 200;
+- [ ] `/raw` без сессии → 401, зарегистрированному без подписки → 403,
+      премиум-подписчику → 200/206 (скачивание и оригиналы — только премиум);
+- [ ] метка/избранное: анониму 401, после входа 200 и файл появляется на `/favorites`;
 - [ ] регистрация → «Активировать премиум» в `/profile` → премиум-файл открывается;
 - [ ] парсер запускается из админки, в треде появляются записи (и на сайте).
 

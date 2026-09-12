@@ -33,15 +33,15 @@ export default function DownloadButton({
     } catch (err) {
       const status = err instanceof ApiError ? err.status : 0;
       if (status === 401) {
-        // Оригиналы доступны только авторизованным
+        // Оригиналы и скачивание доступны только с аккаунтом и подпиской
         setState("idle");
-        if (window.confirm("Оригиналы доступны зарегистрированным пользователям. Войти?")) {
+        if (window.confirm("Скачивание доступно премиум-подписчикам. Войти?")) {
           window.location.assign("/login");
         }
       } else if (status === 403) {
-        // Премиум-контент: нужна подписка
+        // Скачивание и оригиналы доступны по премиум-подписке
         setState("idle");
-        if (window.confirm("Файл доступен по премиум-подписке. Открыть профиль?")) {
+        if (window.confirm("Скачивание доступно по премиум-подписке. Открыть профиль?")) {
           window.location.assign("/profile");
         }
       } else if (status === 409 || status === 503) {

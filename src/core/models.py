@@ -119,6 +119,8 @@ class Media(Base):
 
     views_count = Column(Integer, nullable=False, default=0)
     downloads_count = Column(Integer, nullable=False, default=0)
+    # Метки пользователей («отличный контент», наш аналог лайка) — денормализованный счётчик
+    marks_count = Column(Integer, nullable=False, default=0)
     popularity_score = Column(Float, nullable=False, default=0.0)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
@@ -174,3 +176,35 @@ class UserSession(Base):
     token_hash = Column(String(64), unique=True, nullable=False, index=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     expires_at = Column(DateTime, nullable=False)
+
+
+class MediaMark(Base):
+    """Метка пользователя на файле — «отличный контент» (наш аналог лайка).
+
+    Метка требует аккаунта, ставится/снимается как переключатель; счётчик
+    дублируется в `media.marks_count` для отображения и сортировки.
+    """
+    __tablename__ = "media_marks"
+    __table_args__ = (
+        UniqueConstraint("user_id", "media_id", name="uq_media_marks_user_media"),
+        Index("ix_media_marks_media", "media_id"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    media_id = Column(Integer, ForeignKey("media.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class Favorite(Base):
+    """Избранное пользователя (личная подборка файлов, требует аккаунта)."""
+    __tablename__ = "favorites"
+    __table_args__ = (
+        UniqueConstraint("user_id", "media_id", name="uq_favorites_user_media"),
+        Index("ix_favorites_media", "media_id"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    media_id = Column(Integer, ForeignKey("media.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

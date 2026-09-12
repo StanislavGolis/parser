@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { ImageIcon, LayersIcon, SearchIcon, StarIcon } from "@/components/icons";
+import { BookmarkIcon, ImageIcon, LayersIcon, SearchIcon, StarIcon } from "@/components/icons";
 
 const ITEMS = [
   {
@@ -14,6 +14,12 @@ const ITEMS = [
   },
   { href: "/new", label: "Новинки", Icon: ImageIcon, match: (p: string) => p === "/new" },
   { href: "/top", label: "Топ", Icon: StarIcon, match: (p: string) => p === "/top" },
+  {
+    href: "/favorites",
+    label: "Избранное",
+    Icon: BookmarkIcon,
+    match: (p: string) => p.startsWith("/favorites"),
+  },
   { href: "/search", label: "Поиск", Icon: SearchIcon, match: (p: string) => p.startsWith("/search") },
 ];
 
@@ -23,7 +29,7 @@ export default function MobileNav() {
 
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-40 grid h-14 grid-cols-4 border-t border-line bg-ink-secondary/95 backdrop-blur md:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 grid h-14 grid-cols-5 border-t border-line bg-ink-secondary/95 backdrop-blur md:hidden"
       aria-label="Мобильная навигация"
     >
       {ITEMS.map(({ href, label, Icon, match }) => {

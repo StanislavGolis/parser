@@ -20,8 +20,8 @@ const jetbrains = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "SLUICE — архив / галерея / доступ",
-    template: "%s · SLUICE",
+    default: "DREDGE — архив // отбор // доступ",
+    template: "%s · DREDGE",
   },
   description: "Медиа-архив: фото и видео с разделов, треды, топ.",
   icons: {

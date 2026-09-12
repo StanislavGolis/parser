@@ -25,7 +25,7 @@ export default function SearchBox({ initial = "" }: { initial?: string }) {
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder="имя файла, md5, sha-256…"
-          className="input-sluice w-full pl-9"
+          className="input-dredge w-full pl-9"
           autoFocus
         />
       </div>

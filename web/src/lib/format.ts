@@ -12,7 +12,7 @@ export function formatNumber(n: number): string {
   return new Intl.NumberFormat("ru-RU").format(n);
 }
 
-/** Компактные счётчики в стиле SLUICE: 340 / 1.2к / 15.3к / 1.1М. */
+/** Компактные счётчики в стиле DREDGE: 340 / 1.2к / 15.3к / 1.1М. */
 export function formatCompact(n: number): string {
   if (!Number.isFinite(n)) return "0";
   const abs = Math.abs(n);

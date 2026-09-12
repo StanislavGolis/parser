@@ -41,7 +41,7 @@ export default async function NewPage({
   return (
     <div className="py-6 sm:py-8">
       <div className="mb-2 flex flex-wrap items-end justify-between gap-3">
-        <h1 className="sluice-title">новое // {heading}</h1>
+        <h1 className="dredge-title">новое // {heading}</h1>
         <span className="font-mono text-[11px] text-text-muted">
           {formatNumber(feed.total)} {plural(feed.total, ["файл", "файла", "файлов"])}
         </span>

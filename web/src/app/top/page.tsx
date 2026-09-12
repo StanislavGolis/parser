@@ -60,7 +60,7 @@ export default async function TopPage({
   return (
     <div className="py-6 sm:py-8">
       <div className="mb-2 flex flex-wrap items-end justify-between gap-3">
-        <h1 className="sluice-title">топ // {periodLabel[p]}</h1>
+        <h1 className="dredge-title">топ // {periodLabel[p]}</h1>
         <div className="flex flex-wrap items-center gap-2">
           <QueryTabs param="period" options={PERIOD_OPTIONS} defaultValue="day" ariaLabel="Период" />
           <QueryTabs param="type" options={TYPE_OPTIONS} defaultValue="" ariaLabel="Тип контента" />

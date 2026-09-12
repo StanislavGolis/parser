@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.common import (
     VISIBLE_FILTER,
     apply_media_urls,
+    apply_user_flags,
     build_media_url,
     media_locked,
     sign_media_urls,
@@ -24,11 +25,29 @@ from src.api.deps import (
     get_current_user,
     get_s3,
     ip_hash,
+    require_premium,
     require_user,
 )
-from src.api.schemas import DownloadResult, MediaDetailOut, MediaListOut, MediaOut, ViewResult
+from src.api.schemas import (
+    DownloadResult,
+    FavoriteResult,
+    MarkResult,
+    MediaDetailOut,
+    MediaListOut,
+    MediaOut,
+    ViewResult,
+)
 from src.core.db import get_session
-from src.core.models import Board, DownloadStat, Media, ThreadState, User, ViewStat
+from src.core.models import (
+    Board,
+    DownloadStat,
+    Favorite,
+    Media,
+    MediaMark,
+    ThreadState,
+    User,
+    ViewStat,
+)
 from src.services.s3_storage import S3Storage
 
 router = APIRouter(prefix="/api/v1", tags=["media"])
@@ -86,7 +105,7 @@ async def board_media(
     request: Request,
     page: int = Query(1, ge=1),
     per_page: int = Query(30, ge=1, le=300),
-    sort: str = Query("new", pattern="^(new|popular)$"),
+    sort: str = Query("new", pattern="^(new|popular|marks)$"),
     media_type: Optional[str] = Query(None, alias="type", pattern="^(image|video)$"),
     thread: Optional[int] = Query(None, description="Показать файлы только этого треда"),
     session: AsyncSession = Depends(get_session),
@@ -120,7 +139,13 @@ async def board_media(
         select(Media)
         .where(*filters)
         .order_by(
-            Media.popularity_score.desc() if sort == "popular" else Media.created_at.desc(),
+            (
+                Media.marks_count.desc()
+                if sort == "marks"
+                else Media.popularity_score.desc()
+                if sort == "popular"
+                else Media.created_at.desc()
+            ),
             Media.id.desc(),
         )
         .offset((page - 1) * per_page)
@@ -131,6 +156,7 @@ async def board_media(
 
     out = [MediaOut.model_validate(m) for m in items]
     sign_media_urls(out, items, s3, user)
+    await apply_user_flags(session, out, user)
     return MediaListOut(
         items=out,
         page=page,
@@ -156,7 +182,19 @@ async def media_detail(
     data = MediaDetailOut.model_validate(media)
     data.board_slug = board.slug if board else ""
     apply_media_urls(data, media, s3, user)
+    await apply_user_flags(session, [data], user)
     return data
+
+
+def _recalc_popularity(media: Media) -> None:
+    """Пересчёт индекса популярности: просмотры, скачивания и метки.
+
+    Метка («отличный контент») — наш аналог лайка, поэтому она тоже влияет
+    на «Популярное» (вес 1.5 — сильнее просмотра, слабее скачивания).
+    """
+    media.popularity_score = (
+        media.views_count * 0.3 + media.downloads_count * 0.7 + (media.marks_count or 0) * 1.5
+    )
 
 
 @router.get("/media/{media_id}/view", response_model=ViewResult)
@@ -185,7 +223,7 @@ async def media_view(
     if not already:
         session.add(ViewStat(media_id=media.id, ip_hash=iph))
         media.views_count += 1
-        media.popularity_score = media.views_count * 0.3 + media.downloads_count * 0.7
+        _recalc_popularity(media)
         await session.commit()
 
     return ViewResult(media_id=media.id, counted=not already)
@@ -197,9 +235,13 @@ async def media_download(
     request: Request,
     session: AsyncSession = Depends(get_session),
     s3: S3Storage = Depends(get_s3),
-    user: User = Depends(require_user),
+    user: User = Depends(require_premium),
 ):
-    """Отметить скачивание и вернуть URL оригинала. Только для авторизованных."""
+    """Отметить скачивание и вернуть URL оригинала. Только для премиум-подписки.
+
+    Аноним получает 401, зарегистрированный без подписки — 403
+    (скачивание и оригиналы входят в премиум по матрице ролей).
+    """
     await check_rate_limit(client_ip(request))
 
     media = await _get_visible_media(session, media_id)
@@ -227,10 +269,79 @@ async def media_download(
     if not already:
         session.add(DownloadStat(media_id=media.id, ip_hash=iph))
         media.downloads_count += 1
-        media.popularity_score = media.views_count * 0.3 + media.downloads_count * 0.7
+        _recalc_popularity(media)
         await session.commit()
 
     return DownloadResult(media_id=media.id, counted=not already, url=url)
+
+
+@router.post("/media/{media_id}/mark", response_model=MarkResult)
+async def media_mark(
+    media_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(require_user),
+):
+    """Поставить/снять метку «отличный контент» (наш аналог лайка).
+
+    Требует аккаунт (аноним → 401). Метка — переключатель: повторный вызов
+    снимает её. Счётчик хранится в `media.marks_count`.
+    """
+    await check_rate_limit(client_ip(request))
+
+    media = await _get_visible_media(session, media_id)
+    await _check_media_access(session, media)
+
+    existing = (
+        await session.execute(
+            select(MediaMark).where(
+                MediaMark.user_id == user.id, MediaMark.media_id == media.id
+            )
+        )
+    ).scalar_one_or_none()
+
+    if existing:
+        await session.delete(existing)
+        media.marks_count = max(0, int(media.marks_count or 0) - 1)
+        marked = False
+    else:
+        session.add(MediaMark(user_id=user.id, media_id=media.id))
+        media.marks_count = int(media.marks_count or 0) + 1
+        marked = True
+
+    _recalc_popularity(media)
+    await session.commit()
+    return MarkResult(media_id=media.id, marked=marked, marks_count=int(media.marks_count or 0))
+
+
+@router.post("/media/{media_id}/favorite", response_model=FavoriteResult)
+async def media_favorite(
+    media_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(require_user),
+):
+    """Добавить/убрать файл в избранное (личная подборка, требует аккаунт)."""
+    await check_rate_limit(client_ip(request))
+
+    media = await _get_visible_media(session, media_id)
+    await _check_media_access(session, media)
+
+    existing = (
+        await session.execute(
+            select(Favorite).where(Favorite.user_id == user.id, Favorite.media_id == media.id)
+        )
+    ).scalar_one_or_none()
+
+    if existing:
+        await session.delete(existing)
+        favorited = False
+    else:
+        session.add(Favorite(user_id=user.id, media_id=media.id))
+        favorited = True
+
+    await session.commit()
+    return FavoriteResult(media_id=media.id, favorited=favorited)
 
 
 # ─────────────── Анонимная отдача файлов (прокси S3) ───────────────
@@ -305,13 +416,14 @@ async def media_raw(
     download: bool = Query(False),
     session: AsyncSession = Depends(get_session),
     s3: S3Storage = Depends(get_s3),
-    user: User = Depends(require_user),
+    user: User = Depends(require_premium),
 ):
-    """Отдаёт ОРИГИНАЛ файла через наш API (только авторизованным).
+    """Отдаёт ОРИГИНАЛ файла через наш API (только премиум-подписка).
 
-    Публично доступны только деривативы (`/asset/thumb|thumb_blur|web|video`).
-    Премиум-файлы требуют активной подписки. Поддерживает Range и
-    Content-Disposition при `?download=1`.
+    Публично доступны только деривативы (`/asset/thumb|thumb_blur|web|video`),
+    причём `thumb_blur` — публичное размытое превью премиум-контента.
+    Аноним получает 401, зарегистрированный без подписки — 403.
+    Поддерживает Range и Content-Disposition при `?download=1`.
     """
     await check_rate_limit(client_ip(request))
 

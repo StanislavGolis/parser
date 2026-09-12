@@ -5,7 +5,7 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // SLUICE palette (ТЗ на дизайн)
+        // DREDGE palette (ТЗ на дизайн)
         ink: {
           primary: "#0A0C0F", // основной фон
           secondary: "#11151A", // фон карточек/панелей

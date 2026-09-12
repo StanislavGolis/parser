@@ -13,6 +13,7 @@ const NAV = [
   },
   { href: "/new", label: "Новинки", match: (p: string) => p === "/new" },
   { href: "/top", label: "Популярное", match: (p: string) => p === "/top" },
+  { href: "/favorites", label: "Избранное", match: (p: string) => p.startsWith("/favorites") },
   { href: "/search", label: "Поиск", match: (p: string) => p.startsWith("/search") },
 ];
 
@@ -23,12 +24,12 @@ export default function Header() {
     <header className="sticky top-0 z-40 border-b border-line bg-ink-primary/95 backdrop-blur">
       <div className="mx-auto flex h-16 w-full max-w-[1400px] items-center justify-between gap-6 px-4 sm:px-6">
         {/* Логотип */}
-        <Link href="/" className="flex shrink-0 items-baseline gap-3" aria-label="SLUICE — на главную">
+        <Link href="/" className="flex shrink-0 items-baseline gap-3" aria-label="DREDGE — на главную">
           <span className="font-mono text-lg font-bold uppercase tracking-[0.15em] text-text-primary">
-            SLUICE
+            DREDGE
           </span>
           <span className="hidden font-mono text-[11px] lowercase text-text-muted lg:inline">
-            архив / галерея / доступ
+            архив // отбор // доступ
           </span>
         </Link>
 

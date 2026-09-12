@@ -26,8 +26,8 @@ body {
     @apply mx-auto w-full max-w-7xl px-4 sm:px-6;
   }
 
-  /* Заголовок-раздел в стиле SLUICE: mono, uppercase */
-  .sluice-title {
+  /* Заголовок-раздел в стиле DREDGE: mono, uppercase */
+  .dredge-title {
     @apply font-mono text-xs font-bold uppercase tracking-[0.12em] text-text-secondary;
   }
 
@@ -69,7 +69,7 @@ body {
   }
 
   /* Поле ввода */
-  .input-sluice {
+  .input-dredge {
     @apply rounded border border-line bg-ink-secondary px-3 py-2 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-line-hover;
   }
 

@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
-import { LockIcon, SpinnerIcon, StarIcon } from "@/components/icons";
+import { BookmarkIcon, LockIcon, SpinnerIcon, StarIcon, TagIcon } from "@/components/icons";
 import { ApiError, apiSend } from "@/lib/api";
+import { formatNumber } from "@/lib/format";
 import type { UserOut } from "@/lib/types";
 
 function formatUntil(iso: string | null): string {
@@ -94,8 +95,8 @@ export default function ProfilePage() {
 
         <p className="mt-2 text-sm text-text-secondary">
           {user.is_premium
-            ? "Полные версии файлов и размытые превью премиум-разделов открыты."
-            : "Доступны превью и файлы свободных разделов. Премиум открывает полные версии файлов и закрытые разделы."}
+            ? "Доступны премиум-разделы, скачивание и оригиналы файлов."
+            : "Метки и избранное уже доступны. Премиум добавляет премиум-разделы, скачивание и оригиналы файлов."}
         </p>
 
         <p className="mt-2 font-mono text-[11px] text-text-muted">
@@ -116,6 +117,37 @@ export default function ProfilePage() {
       </div>
 
       {error ? <p className="mt-4 text-sm text-accent-danger">{error}</p> : null}
+
+      {/* Активность пользователя: метки и избранное */}
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <Link
+          href="/favorites"
+          className="rounded border border-line bg-ink-secondary px-4 py-3 transition-colors hover:border-accent-primary"
+          title="Открыть избранное"
+        >
+          <span className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-widest text-text-muted">
+            <BookmarkIcon className="h-4 w-4" />
+            избранное
+          </span>
+          <span className="mt-1 block font-mono text-lg text-text-primary">
+            {formatNumber(user.favorites_count ?? 0)}
+          </span>
+        </Link>
+        <div className="rounded border border-line bg-ink-secondary px-4 py-3" title="Поставленные метки">
+          <span className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-widest text-text-muted">
+            <TagIcon className="h-4 w-4" />
+            метки
+          </span>
+          <span className="mt-1 block font-mono text-lg text-text-primary">
+            {formatNumber(user.marks_count ?? 0)}
+          </span>
+        </div>
+      </div>
+
+      <p className="mt-4 text-[11px] leading-relaxed text-text-muted">
+        Метка «отличный контент» — наш аналог лайка: она поднимает файл в сортировке «по меткам»
+        и влияет на «Популярное». Избранное — личная подборка файлов.
+      </p>
 
       <p className="mt-6 text-xs text-text-muted">
         <Link href="/" className="hover:text-text-secondary">

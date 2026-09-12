@@ -3,13 +3,16 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import DownloadButton from "@/components/DownloadButton";
+import FavoriteButton from "@/components/FavoriteButton";
+import MarkButton from "@/components/MarkButton";
 import TrackView from "@/components/TrackView";
 import When from "@/components/When";
-import { ArrowLeftIcon, DownloadIcon, EyeIcon, FilmIcon } from "@/components/icons";
+import { ArrowLeftIcon, DownloadIcon, EyeIcon, FilmIcon, LockIcon, StarIcon } from "@/components/icons";
 import { ApiError } from "@/lib/api";
 import { getBoards, getMediaDetail } from "@/lib/data";
 import { mediaUrl } from "@/lib/env";
 import { formatBytes, formatNumber } from "@/lib/format";
+import { isLocked, premiumState } from "@/lib/media";
 import type { MediaDetail } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +50,8 @@ export default async function MediaDetailPage({ params }: DetailProps) {
 
   const boards = await getBoards();
   const board = boards.find((b) => b.id === media?.board_id);
+  const premium = premiumState(media);
+  const locked = isLocked(media);
 
   return (
     <div className="container-site max-w-5xl py-6 sm:py-8">
@@ -62,7 +67,21 @@ export default async function MediaDetailPage({ params }: DetailProps) {
       <div className="overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-900">
         {/* Медиа */}
         <div className="flex items-center justify-center bg-black/40 p-3 sm:p-6">
-          {media.url ? (
+          {locked ? (
+            <div className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+              <LockIcon className="h-8 w-8 text-amber-400" />
+              <p className="font-mono text-xs uppercase tracking-widest text-amber-400">
+                премиум-контент
+              </p>
+              <p className="max-w-sm text-xs text-neutral-400">
+                Файл доступен по премиум-подписке. Активируйте премиум в профиле, чтобы смотреть и
+                скачивать полные версии.
+              </p>
+              <Link href="/profile" className="btn-primary px-4 py-2 text-xs">
+                Активировать премиум
+              </Link>
+            </div>
+          ) : media.url ? (
             media.media_type === "image" ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -94,6 +113,11 @@ export default async function MediaDetailPage({ params }: DetailProps) {
                 /{board.slug}
               </Link>
             ) : null}
+            {premium === "granted" ? (
+              <span className="chip bg-amber-500/15 text-amber-300">
+                <StarIcon className="h-3.5 w-3.5" /> premium
+              </span>
+            ) : null}
             {media.media_type === "video" ? (
               <span className="chip bg-amber-500/15 text-amber-300">
                 <FilmIcon className="h-3.5 w-3.5" /> видео
@@ -123,8 +147,14 @@ export default async function MediaDetailPage({ params }: DetailProps) {
             <span className="text-xs text-neutral-600">#{media.id}</span>
           </div>
 
-          <div className="mt-5">
+          <div className="mt-5 flex flex-wrap items-center gap-3">
             <DownloadButton mediaId={media.id} />
+            <MarkButton
+              mediaId={media.id}
+              marksCount={media.marks_count ?? 0}
+              marked={Boolean(media.marked)}
+            />
+            <FavoriteButton mediaId={media.id} favorited={Boolean(media.favorited)} />
           </div>
         </div>
       </div>

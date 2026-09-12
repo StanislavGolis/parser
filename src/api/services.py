@@ -19,7 +19,12 @@ async def recalc_popularity(session: AsyncSession) -> int:
         .values(
             # В PostgreSQL нет round(double precision, int): кастуем выражение в NUMERIC.
             popularity_score=func.round(
-                cast(Media.views_count * 0.3 + Media.downloads_count * 0.7, Numeric(12, 4)),
+                cast(
+                    Media.views_count * 0.3
+                    + Media.downloads_count * 0.7
+                    + Media.marks_count * 1.5,
+                    Numeric(12, 4),
+                ),
                 2,
             ),
             updated_at=datetime.utcnow(),

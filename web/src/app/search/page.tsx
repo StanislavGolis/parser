@@ -33,7 +33,7 @@ export default async function SearchPage({
 
   return (
     <div className="py-6 sm:py-8">
-      <h1 className="sluice-title mb-1">поиск // файлы</h1>
+      <h1 className="dredge-title mb-1">поиск // файлы</h1>
       <p className="mb-5 text-sm text-text-secondary">
         Ищем по имени файла, MD5 или SHA-256. Минимум 2 символа.
       </p>

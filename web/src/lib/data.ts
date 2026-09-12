@@ -119,3 +119,14 @@ export async function getTopMedia(
 export async function getMediaDetail(id: number): Promise<MediaDetail | null> {
   return serverFetch<MediaDetail | null>(`/api/v1/media/${id}`, REVALIDATE.detail, null);
 }
+
+/**
+ * Избранное текущего пользователя (требует сессии).
+ * `revalidate: 0` — персональные данные не кэшируем; при 401 страница
+ * показывает приглашение войти (см. `/favorites`).
+ */
+export async function getFavoritesPage(page: number, perPage: number): Promise<MediaList> {
+  const q = new URLSearchParams({ page: String(page), per_page: String(perPage) });
+  const fallback: MediaList = { items: [], page, per_page: perPage, total: 0 };
+  return serverFetch<MediaList>(`/api/v1/favorites?${q}`, 0, fallback);
+}

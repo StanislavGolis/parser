@@ -2,11 +2,11 @@
 """Общие константы и хелперы публичных роутов API."""
 from typing import Iterable, Optional
 
-from sqlalchemy import exists
+from sqlalchemy import exists, select
 
 from src.api.schemas import MediaOut
 from src.core.config import settings
-from src.core.models import Board, Media, ThreadState, User
+from src.core.models import Board, Favorite, Media, MediaMark, ThreadState, User
 from src.services.premium import premium_active
 from src.services.s3_storage import S3Storage
 
@@ -113,6 +113,43 @@ def apply_media_urls(
         elif variants.get("web"):
             item.web_url = asset_url(source.id, "web", variants["web"])
     return item
+
+
+async def apply_user_flags(
+    session,
+    items: list[MediaOut],
+    user: Optional[User],
+) -> None:
+    """Проставляет `marked`/`favorited` по данным текущего пользователя.
+
+    Один запрос на список (а не по элементу): для страницы галереи берём
+    множества media_id, отмеченных меткой и добавленных в избранное.
+    """
+    if user is None or not items:
+        return
+
+    ids = [item.id for item in items]
+    marked = set(
+        (
+            await session.execute(
+                select(MediaMark.media_id).where(
+                    MediaMark.user_id == user.id, MediaMark.media_id.in_(ids)
+                )
+            )
+        ).scalars().all()
+    )
+    favorited = set(
+        (
+            await session.execute(
+                select(Favorite.media_id).where(
+                    Favorite.user_id == user.id, Favorite.media_id.in_(ids)
+                )
+            )
+        ).scalars().all()
+    )
+    for item in items:
+        item.marked = item.id in marked
+        item.favorited = item.id in favorited
 
 
 def sign_media_urls(
