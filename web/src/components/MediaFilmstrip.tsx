@@ -106,7 +106,10 @@ export default function MediaFilmstrip({
 }) {
   if (items.length < 2) return null;
   return (
-    <div className="border-t border-line bg-ink-primary/60 px-2 py-2 sm:px-4">
+    <div
+      className="border-t border-line bg-ink-primary/60 px-2 py-2 sm:px-4"
+      data-wheel-ignore
+    >
       <div className="flex gap-1.5 overflow-x-auto pb-1">
         {items.map((m, i) => (
           <Thumb

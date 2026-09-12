@@ -3,21 +3,22 @@
 import { useEffect, useState } from "react";
 
 import { SpinnerIcon, TagIcon } from "@/components/icons";
-import { ApiError, apiPost } from "@/lib/api";
 import { formatCompact } from "@/lib/format";
-import type { MarkResult } from "@/lib/types";
+import type { MarkToggleState } from "@/lib/useMark";
+import { useMarkToggle } from "@/lib/useMark";
 
 /**
  * Метка «отличный контент» — наш аналог лайка.
  *
- * Доступна только аккаунту: анонима отправляем на вход. Метка — переключатель,
- * счётчик приходит с сервера (денормализованный `marks_count`).
+ * Доступна только аккаунту: анонима отправляем на вход. Состояние можно вести
+ * извне (`state`), например в lightbox, где та же метка переключается пробелом.
  */
 export default function MarkButton({
   mediaId,
   marksCount = 0,
   marked = false,
   variant = "panel",
+  state,
   onToggled,
 }: {
   mediaId: number;
@@ -25,39 +26,20 @@ export default function MarkButton({
   marked?: boolean;
   /** overlay — значок поверх превью карточки, panel — кнопка в нижней панели lightbox. */
   variant?: "overlay" | "panel";
+  /** Внешнее состояние (общий хук) — тогда кнопка ничего не ведёт сама. */
+  state?: MarkToggleState;
   onToggled?: (state: { marked: boolean; marksCount: number }) => void;
 }) {
-  const [isMarked, setIsMarked] = useState(marked);
-  const [count, setCount] = useState(marksCount);
-  const [busy, setBusy] = useState(false);
+  const own = useMarkToggle(mediaId, marked, marksCount);
+  const active = state ?? own;
+  const { marked: isMarked, marksCount: count, busy, toggle } = active;
 
-  // Данные могут прийти заново (перезагрузка страницы/новая выборка)
+  // Родителю отдаём изменения (когда состояние ведёт кнопка)
   useEffect(() => {
-    setIsMarked(marked);
-    setCount(marksCount);
-  }, [mediaId, marked, marksCount]);
-
-  async function toggle() {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const res = await apiPost<MarkResult>(`/api/v1/media/${mediaId}/mark`);
-      setIsMarked(res.marked);
-      setCount(res.marks_count);
-      onToggled?.({ marked: res.marked, marksCount: res.marks_count });
-    } catch (err) {
-      const status = err instanceof ApiError ? err.status : 0;
-      if (status === 401) {
-        if (window.confirm("Метки доступны аккаунту. Войти?")) {
-          window.location.assign("/login");
-        }
-      } else {
-        window.alert("Не удалось поставить метку. Попробуйте позже.");
-      }
-    } finally {
-      setBusy(false);
+    if (!state && own.lastAction) {
+      onToggled?.({ marked: own.marked, marksCount: own.marksCount });
     }
-  }
+  }, [state, own.lastAction, own.marked, own.marksCount, onToggled]);
 
   if (variant === "overlay") {
     return (
@@ -68,7 +50,7 @@ export default function MarkButton({
           void toggle();
         }}
         disabled={busy}
-        title={isMarked ? "Снять метку" : "Поставить метку"}
+        title={isMarked ? "Снять метку (в просмотре — пробел)" : "Поставить метку (в просмотре — пробел)"}
         aria-pressed={isMarked}
         className={`inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 font-mono text-[10px] backdrop-blur-sm transition-colors ${
           isMarked
@@ -87,7 +69,11 @@ export default function MarkButton({
       type="button"
       onClick={() => void toggle()}
       disabled={busy}
-      title={isMarked ? "Снять метку («отличный контент»)" : "Отметить как отличный контент"}
+      title={
+        isMarked
+          ? "Снять метку («отличный контент») — пробел"
+          : "Отметить как отличный контент — пробел"
+      }
       aria-pressed={isMarked}
       className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 font-mono text-[11px] transition-colors ${
         isMarked
@@ -101,3 +87,4 @@ export default function MarkButton({
     </button>
   );
 }
+

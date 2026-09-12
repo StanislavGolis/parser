@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import Link from "next/link";
 
@@ -24,7 +24,14 @@ import { apiGet } from "@/lib/api";
 import { mediaUrl } from "@/lib/env";
 import { formatBytes, formatCompact, formatDuration } from "@/lib/format";
 import { webSrc, premiumState } from "@/lib/media";
+import { useMarkToggle } from "@/lib/useMark";
 import type { BoardsById, MediaItem, ViewResult } from "@/lib/types";
+
+// Листание колесом (W1): накапливаем дельту до порога и держим «кулдаун»,
+// чтобы инерционное колесо/трекпад не проматывал десяток файлов сразу.
+const WHEEL_STEP = 40; // px накопленной дельты = один файл
+const WHEEL_COOLDOWN_MS = 300; // пауза после перелистывания
+const TOAST_MS = 1400; // сколько показываем плашку про метку
 
 interface LightboxProps {
   items: MediaItem[];
@@ -41,6 +48,11 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
   const media = items[index];
   const board = media ? boardsById?.[media.board_id] : undefined;
   const [failed, setFailed] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // Метку ведём здесь: её переключают и кнопка в панели, и пробел
+  const mark = useMarkToggle(media?.id ?? 0, Boolean(media?.marked), media?.marks_count ?? 0);
 
   useEffect(() => {
     setFailed(false);
@@ -59,19 +71,75 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
     apiGet<ViewResult>(`/api/v1/media/${media.id}/view`).catch(() => {});
   }, [media]);
 
+  const toggleMark = mark.toggle;
+
+  // Плашка про метку (пробел/кнопка): «Метка поставлена · 42» / «Метка снята»
+  useEffect(() => {
+    if (!mark.lastAction) return;
+    setToast(
+      mark.lastAction === "marked"
+        ? `Метка поставлена · ${mark.marksCount}`
+        : "Метка снята",
+    );
+    const timer = window.setTimeout(() => setToast(null), TOAST_MS);
+    return () => window.clearTimeout(timer);
+  }, [mark.lastAction, mark.marksCount]);
+
   const onKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
       else if (e.key === "ArrowLeft") onPrev();
       else if (e.key === "ArrowRight") onNext();
+      else if (e.code === "Space" || e.key === " ") {
+        // Пробел = метка. preventDefault обязателен: иначе браузер «нажмёт»
+        // сфокусированную кнопку (например, «Скачать») и проскроллит страницу.
+        e.preventDefault();
+        void toggleMark();
+      }
     },
-    [onClose, onPrev, onNext],
+    [onClose, onPrev, onNext, toggleMark],
   );
 
   useEffect(() => {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onKeyDown]);
+
+  // Листание колесом: порог + кулдаун. Ctrl/⌘ не перехватываем (зум браузера),
+  // над каруселью миниатюр (data-wheel-ignore) — не листаем (там свой скролл).
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    let acc = 0;
+    let cooldown = false;
+
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-wheel-ignore]")) return;
+
+      event.preventDefault();
+      if (cooldown || items.length < 2) return;
+
+      // Firefox шлёт построчный скролл (deltaMode=1), редко — страничный (2)
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? el.clientHeight : 1;
+      acc += (event.deltaY + event.deltaX) * unit;
+      if (Math.abs(acc) < WHEEL_STEP) return;
+
+      const direction = acc > 0 ? 1 : -1; // вниз — следующий, вверх — предыдущий
+      acc = 0;
+      cooldown = true;
+      window.setTimeout(() => {
+        cooldown = false;
+      }, WHEEL_COOLDOWN_MS);
+      if (direction > 0) onNext();
+      else onPrev();
+    };
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [onNext, onPrev, items.length]);
 
   if (!media) return null;
 
@@ -83,6 +151,7 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
 
   return (
     <div
+      ref={containerRef}
       className="fixed inset-0 z-50 flex flex-col bg-[#050708]"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
@@ -206,13 +275,9 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
             <DownloadIcon className="h-3.5 w-3.5" />
             {formatCompact(media.downloads_count)} скачиваний
           </span>
-          {/* Метка («отличный контент») и избранное — требуют аккаунт */}
-          <MarkButton
-            key={`mark-${media.id}`}
-            mediaId={media.id}
-            marksCount={media.marks_count ?? 0}
-            marked={Boolean(media.marked)}
-          />
+          {/* Метка («отличный контент») и избранное — требуют аккаунт.
+              Метка управляется общим хуком: пробел делает то же самое. */}
+          <MarkButton mediaId={media.id} state={mark} />
           <FavoriteButton
             key={`fav-${media.id}`}
             mediaId={media.id}
@@ -227,6 +292,7 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
             disabled={items.length < 2}
             className="btn-small px-2.5 py-1.5"
             aria-label="Предыдущий (←)"
+            title="Предыдущий: ← или колесо вверх"
           >
             <ChevronLeftIcon className="h-4 w-4" />
           </button>
@@ -239,6 +305,7 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
             disabled={items.length < 2}
             className="btn-small px-2.5 py-1.5"
             aria-label="Следующий (→)"
+            title="Следующий: → или колесо вниз"
           >
             <ChevronRightIcon className="h-4 w-4" />
           </button>
@@ -252,6 +319,13 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
           )}
         </div>
       </div>
+
+      {/* Плашка-подтверждение (метка): показывается поверх, не перехватывает клики */}
+      {toast ? (
+        <div className="pointer-events-none absolute bottom-20 left-1/2 -translate-x-1/2 rounded bg-black/85 px-3 py-1.5 font-mono text-[11px] text-accent-primary">
+          {toast}
+        </div>
+      ) : null}
     </div>
   );
 }
