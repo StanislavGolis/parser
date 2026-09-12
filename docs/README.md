@@ -184,7 +184,9 @@ docker compose -f docker-compose.prod.yml up -d --build
 ## 2. Архитектура
 
 Один VPS, один Docker Compose-стек: `postgres`, `redis`, `migrate`, `parser`,
-`api`, `web`, `nginx`. Наружу открыт только `nginx` (порт `HTTP_PORT`).
+`api`, `web`, `nginx`. Наружу открыт только хост-nginx (80/443, TLS Let's Encrypt →
+редирект на HTTPS), он проксирует на контейнер `nginx` (порт `HTTP_PORT`, в проде
+`8080`), тот — на `api` и `web`.
 
 | Сервис | Роль | Образ |
 |---|---|---|

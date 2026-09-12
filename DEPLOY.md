@@ -249,8 +249,8 @@ chmod +x /etc/cron.daily/dredge-backup
 | Сервер | `37.221.66.168`, Ubuntu 24.04.5 LTS, 4 vCPU / 8 ГБ RAM / 87 ГБ SSD |
 | Каталог | `/opt/dredge` (первичный клон из `git bundle`; `origin` → `git@github-dredge:StanislavGolis/parser.git`) |
 | Доступ | ключ владельца + deploy-key сервера `/root/.ssh/dredge_deploy` (alias `github-dredge` в `~/.ssh/config`) |
-| Стек | `docker compose -f docker-compose.prod.yml`, nginx слушает `:80` (этап 1 — IP без домена) |
-| `.env` | `HTTP_PORT=80`, `SESSION_COOKIE_SECURE=0`, `SQL_ECHO=0`, новые `ADMIN_TOKEN`/`POSTGRES_PASSWORD` |
+| Стек | хост-nginx на `80/443` (TLS, редирект 80→443) → контейнер `nginx` на `8080` → api/web |
+| `.env` | `HTTP_PORT=8080`, `SESSION_COOKIE_SECURE=1`, `PUBLIC_BASE_URL=https://dredg.ru`, `API_CORS_ORIGINS=https://dredg.ru`, `SQL_ECHO=0` |
 | База | восстановлена из дампа: head `s4t5u6v7w8x9`, media 3557 (все в S3), users 1, boards 2, threads 223 |
 | Бэкапы | `/etc/cron.daily/dredge-backup` → `/opt/dredge/backups/db-<дата>.pgc`, хранение 14 дней (пробный прогон сделан) |
 | Парсер | **на паузе** (ключ `parser:enabled` не выставлен) — включается кнопкой «Запустить» в админке |
@@ -259,13 +259,19 @@ chmod +x /etc/cron.daily/dredge-backup
 | Кэш медиа | **включён**: том `mediacache` → `/data/cache`, лимит 40 ГБ (свободно 79 ГБ диска), 8 потоков прогрева. Прогрев запускается из админки («Прогреть кэш») или `POST /api/v1/admin/media-cache/warm`; парсер наполняет кэш автоматически. Снимок: библиотека 7.84 ГБ ≈ 14 240 объектов, отдача из кэша ~65–165 МБ/с против ~2–3 МБ/с из S3 |
 | Локальный стек | парсер остановлен, чтобы два процесса не работали с одним бакетом S3 |
 
-**Этап 2 (когда будет домен):** A-запись → `37.221.66.168`; `apt install nginx certbot
-python3-certbot-nginx`; конфиг из шага 6 (`server_name <домен>`, `proxy_pass 127.0.0.1:8080`);
-в `.env` → `HTTP_PORT=8080`, `SESSION_COOKIE_SECURE=1`, `API_CORS_ORIGINS=https://<домен>`,
-`PUBLIC_BASE_URL=https://<домен>` (иначе ссылки восстановления в письмах останутся на IP);
-`docker compose -f docker-compose.prod.yml up -d` (пересоздаст nginx и api);
-`certbot --nginx -d <домен> --redirect`. Проверить после: `https://<домен>/healthz` → 200,
-вход в админку по email+паролю, «Забыли пароль?» → письмо со ссылкой на новый домен.
+**Домен и SSL (сделано 12.09.2026).** Домен `dredg.ru` (DNS у RegTime/nameself:
+A `@` и `www` → `37.221.66.168`). После регистрации делегирование появилось в зоне .ru
+примерно через 50 минут (в whois всё это время был статус `REGISTERED, DELEGATED,
+UNVERIFIED`, а зона отвечала `NXDOMAIN` — на деле ждать верификации не потребовалось).
+Сертификат Let's Encrypt на `dredg.ru` + `www.dredg.ru` выпущен через
+`certbot --nginx` (конфиг — `/etc/nginx/sites-available/dredge`, редирект 80→443,
+автопродление: `certbot.timer`, срок действия продлевается автоматически).
+Приложение слушает `8080`, наружу смотрит только хост-nginx; `SESSION_COOKIE_SECURE=1`,
+поэтому cookie сессии передаётся только по HTTPS, а ссылки восстановления в письмах
+ведут на `https://dredg.ru`.
+
+**Этап 2 закрыт.** Осталось из эксплуатации: отзыв старых ключей Backblaze и чистка
+git-истории (`git filter-repo`), отключение входа по паролю на SSH, смена root-пароля.
 
 ### 10. Обслуживание (настроено на VPS)
 
