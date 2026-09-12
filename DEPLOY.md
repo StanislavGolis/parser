@@ -242,6 +242,26 @@ chmod +x /etc/cron.daily/dredge-backup
   Ключи Timeweb S3 в историю не попадали — их менять не обязательно.
 - Наружу только 22/80/443: PostgreSQL и Redis в compose портов не публикуют.
 
+### 9. Что уже сделано на нашем VPS
+
+| Параметр | Значение |
+|---|---|
+| Сервер | `37.221.66.168`, Ubuntu 24.04.5 LTS, 4 vCPU / 8 ГБ RAM / 87 ГБ SSD |
+| Каталог | `/opt/dredge` (первичный клон из `git bundle`; `origin` → `git@github-dredge:StanislavGolis/parser.git`) |
+| Доступ | ключ владельца + deploy-key сервера `/root/.ssh/dredge_deploy` (alias `github-dredge` в `~/.ssh/config`) |
+| Стек | `docker compose -f docker-compose.prod.yml`, nginx слушает `:80` (этап 1 — IP без домена) |
+| `.env` | `HTTP_PORT=80`, `SESSION_COOKIE_SECURE=0`, `SQL_ECHO=0`, новые `ADMIN_TOKEN`/`POSTGRES_PASSWORD` |
+| База | восстановлена из дампа: head `s4t5u6v7w8x9`, media 3557 (все в S3), users 1, boards 2, threads 223 |
+| Бэкапы | `/etc/cron.daily/dredge-backup` → `/opt/dredge/backups/db-<дата>.pgc`, хранение 14 дней (пробный прогон сделан) |
+| Парсер | **на паузе** (ключ `parser:enabled` не выставлен) — включается кнопкой «Запустить» в админке |
+| Проверено | `/healthz` 200, главная 200, `/admin` 200, `thumb_blur` 200 + `X-Cache: MISS→HIT`, `/raw` 401 анониму, `/marks` 401, запись в S3 (`put/delete`) ok |
+| Локальный стек | парсер остановлен, чтобы два процесса не работали с одним бакетом S3 |
+
+**Этап 2 (когда будет домен):** A-запись → `37.221.66.168`; `apt install nginx certbot
+python3-certbot-nginx`; конфиг из шага 6 (`server_name <домен>`, `proxy_pass 127.0.0.1:8080`);
+в `.env` → `HTTP_PORT=8080`, `SESSION_COOKIE_SECURE=1`, `API_CORS_ORIGINS=https://<домен>`;
+`docker compose -f docker-compose.prod.yml up -d`; `certbot --nginx -d <домен> --redirect`.
+
 ## Примечания
 
 - Наружу открыт только `nginx` (порт `HTTP_PORT`). PostgreSQL/Redis наружу
