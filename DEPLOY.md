@@ -96,6 +96,138 @@ git pull
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
+## Переезд на VPS: пошагово (ava.hosting)
+
+Порядок для чистого сервера Ubuntu 22.04/24.04. Медиа уже лежат в S3 (тот же
+бакет), поэтому переносим только код, `.env` и базу.
+
+### 1. Сервер: Docker + firewall
+
+```bash
+apt update && apt upgrade -y
+apt install -y ca-certificates curl git ufw
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" \
+  > /etc/apt/sources.list.d/docker.list
+apt update && apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+systemctl enable --now docker
+ufw allow 22/tcp && ufw allow 80/tcp && ufw allow 443/tcp && ufw --force enable
+```
+
+### 2. Доступ по SSH-ключу
+
+Локальный публичный ключ (`~/.ssh/id_ed25519.pub`) добавить в панели ava.hosting
+или прямо на сервере:
+
+```bash
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+echo 'ssh-ed25519 AAAA... ваш-ключ' >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+```
+
+Потом вход по паролю можно отключить (`PasswordAuthentication no`).
+
+### 3. Код (репозиторий приватный)
+
+```bash
+ssh-keygen -t ed25519 -C "vps-dredge" -f ~/.ssh/id_ed25519 -N ""
+cat ~/.ssh/id_ed25519.pub     # добавить в GitHub → Settings → Deploy keys (read-only)
+git clone git@github.com:StanislavGolis/parser.git /opt/dredge && cd /opt/dredge
+```
+
+Либо HTTPS-клонирование с Personal Access Token вместо пароля.
+
+### 4. `.env`
+
+```bash
+cp .env.prod.example .env
+openssl rand -hex 32   # → ADMIN_TOKEN
+openssl rand -hex 24   # → POSTGRES_PASSWORD
+nano .env
+```
+
+Обязательно проверить: `S3_*` (те же, что локально), `ADMIN_TOKEN` и
+`POSTGRES_PASSWORD` — новые, `HTTP_PORT=8080` (если SSL терминирует nginx хоста,
+шаг 6), `SESSION_COOKIE_SECURE=1`, `SQL_ECHO=0`,
+`API_CORS_ORIGINS=https://<домен>`, `BOARDS_TO_PARSE`, `PARSE_INTERVAL=60`.
+
+### 5. Перенос базы с локальной машины
+
+```bash
+# ЛОКАЛЬНО (дамп со сбросом объектов, чтобы лечь поверх накатанной схемы)
+docker compose -f docker-compose.prod.yml exec -T postgres \
+  pg_dump -U parser -d parser --clean --if-exists | gzip > dredge-$(date +%F).sql.gz
+scp dredge-$(date +%F).sql.gz root@<VPS>:/root/
+```
+
+```bash
+# НА VPS: только БД → восстановление → весь стек
+cd /opt/dredge
+docker compose -f docker-compose.prod.yml up -d postgres
+zcat /root/dredge-*.sql.gz | docker compose -f docker-compose.prod.yml exec -T postgres psql -U parser -d parser
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+Проверка: `select version_num from alembic_version;` (должна совпасть с локальной —
+`s4t5u6v7w8x9`) и `select count(*) from media;`. Медиа (S3) переносить не нужно:
+том `media` на VPS — это локальный кэш, он заполняется по мере надобности.
+
+### 6. Домен и SSL (хост-nginx, вариант A)
+
+Сначала DNS: A-запись `<домен>` → IP VPS.
+
+```bash
+apt install -y nginx certbot python3-certbot-nginx
+cat >/etc/nginx/sites-available/dredge <<'EOF'
+server {
+    listen 80;
+    server_name <домен>;
+    location /.well-known/acme-challenge/ { root /var/www/html; }
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        client_max_body_size 0;
+        proxy_read_timeout 300s;
+    }
+}
+EOF
+ln -s /etc/nginx/sites-available/dredge /etc/nginx/sites-enabled/dredge
+rm -f /etc/nginx/sites-enabled/default
+nginx -t && systemctl reload nginx
+certbot --nginx -d <домен> --agree-tos -m <email> --redirect
+```
+
+`X-Forwarded-Proto` нужен для корректных ссылок, `X-Forwarded-For` — чтобы
+rate-limit и статистика видели IP посетителя (API берёт его из этого заголовка).
+
+### 7. Бэкапы по cron
+
+```bash
+mkdir -p /opt/dredge/backups
+cat >/etc/cron.daily/dredge-backup <<'EOF'
+#!/bin/sh
+cd /opt/dredge || exit 1
+docker compose -f docker-compose.prod.yml exec -T postgres \
+  pg_dump -U parser -d parser --clean --if-exists | gzip > backups/db-$(date +%F).sql.gz
+find backups -name 'db-*.sql.gz' -mtime +14 -delete
+EOF
+chmod +x /etc/cron.daily/dredge-backup
+```
+
+### 8. Безопасность сразу после переезда
+
+- `ADMIN_TOKEN` и `POSTGRES_PASSWORD` — только новые (шаг 4).
+- **Отозвать старые ключи Backblaze** (`B2_KEY_ID`/`B2_APPLICATION_KEY` попали в
+  git-историю в старом `.env`) и вычистить историю (`git filter-repo`, §Секреты).
+  Ключи Timeweb S3 в историю не попадали — их менять не обязательно.
+- Наружу только 22/80/443: PostgreSQL и Redis в compose портов не публикуют.
+
 ## Примечания
 
 - Наружу открыт только `nginx` (порт `HTTP_PORT`). PostgreSQL/Redis наружу
@@ -294,7 +426,9 @@ git push --force --tags
 |---|---|---|
 | `HTTP_PORT` | `80` | внешний порт nginx (локально удобно `8081`) |
 | `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | `parser` / `parser` / — | креды БД стека; пароль обязательно сменить |
-| `ADMIN_TOKEN` | — | токен админ-эндпоинтов (`Authorization: Bearer …`); **сменить на случайный** |
+| `ADMIN_TOKEN` | — | токен админ-эндпоинтов (`Authorization: Bearer …`); **сменить на случайный** (`openssl rand -hex 32`) |
+| `SQL_ECHO` | `0` | логировать SQL-запросы (в проде держать `0`: с `1` логи растут гигабайтами) |
+| `SESSION_COOKIE_SECURE` | `0` | cookie сессии только по HTTPS: на VPS с SSL → `1`, локально без сертификата → `0` |
 | `API_RATE_LIMIT` | `60` | лимит публичных запросов в минуту на IP (0 — выключить) |
 | `API_CORS_ORIGINS` | `http://localhost` | CORS (фронт ходит через тот же origin, поэтому не критично) |
 | `POPULARITY_RECALC_MINUTES` | `5` | период пересчёта `popularity_score` |

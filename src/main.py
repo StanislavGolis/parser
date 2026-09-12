@@ -26,7 +26,7 @@ async def init_db():
 
     Схема БД управляется Alembic (`alembic upgrade head`); create_all не используется.
     """
-    engine = create_async_engine(settings.DATABASE_URL, echo=True, future=True)
+    engine = create_async_engine(settings.DATABASE_URL, echo=settings.SQL_ECHO, future=True)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     return async_session
 

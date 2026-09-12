@@ -45,6 +45,12 @@ x-backend: &backend
     POPULARITY_RECALC_MINUTES: ${POPULARITY_RECALC_MINUTES:-5}
     STORAGE_PATH: /data/media
   restart: unless-stopped
+  # Ограничение логов docker: иначе json-file растёт без предела (парсер болтлив)
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
   networks:
     - site
 
@@ -76,6 +82,11 @@ services:
       timeout: 3s
       retries: 12
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
     networks:
       - site
 
@@ -154,6 +165,11 @@ services:
       retries: 12
       start_period: 15s
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - site
 
@@ -171,6 +187,11 @@ services:
       api:
         condition: service_healthy
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - site
 

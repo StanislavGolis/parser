@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import check_rate_limit, client_ip, require_user
 from src.api.schemas import AuthCredentials, UserOut
+from src.core.config import settings
 from src.core.db import get_session
 from src.core.models import MediaMark, User, UserSession
 from src.services import auth as auth_service
@@ -62,6 +63,8 @@ async def _issue_session(session: AsyncSession, response: Response, user: User) 
         max_age=SESSION_COOKIE_MAX_AGE,
         httponly=True,
         samesite="lax",
+        # В проде за HTTPS включаем SESSION_COOKIE_SECURE=1 (см. .env.prod.example)
+        secure=settings.SESSION_COOKIE_SECURE,
         path="/",
     )
 

@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     # (комментарий в README §3.1, конвейер: подготовка → S3 → БД).
     MAX_PARALLEL_UPLOADS: int = 1
 
+    # Логировать SQL-запросы (echo у SQLAlchemy). В прод — выключено: парсер
+    # печатает каждый запрос, логи растут на гигабайты. Включать только для отладки.
+    SQL_ECHO: bool = False
+    # Cookie сессии только по HTTPS (в проде за SSL — включить). Локально без
+    # сертификата оставить false, иначе браузер не сохранит cookie.
+    SESSION_COOKIE_SECURE: bool = False
+
     # API сайта
     ADMIN_TOKEN: str = ""                     # токен для админ-эндпоинтов
     API_RATE_LIMIT: int = 30                  # запросов в минуту на IP (публичные API)
