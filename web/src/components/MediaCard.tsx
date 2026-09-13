@@ -177,7 +177,7 @@ export default function MediaCard({ media, board, showTop = false, eager = false
                 }`}
                 title={
                   premium === "locked"
-                    ? "Премиум-контент: нужна подписка (превью размыто)"
+                    ? "Премиум-контент: нужна подписка"
                     : "Премиум-контент: доступен по вашей подписке"
                 }
               >

@@ -468,8 +468,7 @@ export default function Lightbox({
               премиум-контент
             </p>
             <p className="max-w-sm text-xs text-text-secondary">
-              Файл доступен по премиум-подписке. Запросите доступ — его включают вручную, чтобы смотреть и
-              скачивать полные версии.
+              Файл доступен по премиум-подписке.
             </p>
             <Link href="/feedback?topic=premium" className="btn-primary px-4 py-2 text-xs">
               Запросить доступ

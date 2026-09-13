@@ -31,7 +31,7 @@ export default function HidePremiumToggle({ className = "" }: { className?: stri
   return (
     <label
       className={`filter-btn inline-flex cursor-pointer items-center gap-1.5 font-mono text-[11px] ${className}`}
-      title="Убрать из лент премиум-файлы — останутся только доступные без подписки"
+      title="Убрать из лент премиум-файлы"
     >
       <input
         type="checkbox"

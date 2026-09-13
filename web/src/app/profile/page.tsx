@@ -106,7 +106,7 @@ export default function ProfilePage() {
         <p className="mt-2 text-sm text-text-secondary">
           {user.is_premium
             ? "Доступны премиум-разделы, скачивание и оригиналы файлов."
-            : "Закладки и весь бесплатный контент доступны. Премиум добавляет закрытые разделы, скачивание и оригиналы."}
+            : "Закладки и бесплатный контент доступны. Премиум — закрытые разделы и скачивание."}
         </p>
 
         <p className="mt-2 font-mono text-[11px] text-text-muted">
@@ -121,8 +121,7 @@ export default function ProfilePage() {
           </Link>
         )}
         <p className="mt-2 text-[11px] leading-relaxed text-text-muted">
-          Заявка уходит администратору вместе с вашим email — доступ включают вручную, статус и
-          срок появятся здесь.
+          Заявка уходит администратору, статус появится здесь.
         </p>
       </div>
 

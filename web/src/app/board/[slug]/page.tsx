@@ -145,8 +145,8 @@ function BoardHeader({ board, slug, threadsTotal }: { board?: Board; slug: strin
       {board?.is_premium ? (
         <p className="mt-1 max-w-xl text-xs text-accent-warning">
           {board.locked
-            ? "Контент раздела доступен по премиум-подписке: превью размыты, полные файлы скрыты."
-            : "Премиум-раздел: ваша подписка активна — полные файлы доступны."}
+            ? "Контент раздела доступен по премиум-подписке."
+            : "Контент раздела доступен по вашей подписке."}
         </p>
       ) : null}
       <p className="mt-2 font-mono text-[11px] text-text-muted">
