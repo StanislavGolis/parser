@@ -153,7 +153,6 @@ export default async function MediaDetailPage({ params }: DetailProps) {
                 playsInline
                 controlsList="nodownload noremoteplayback"
                 disablePictureInPicture
-                onContextMenu={(e) => e.preventDefault()}
                 className="max-h-[80vh] w-auto max-w-full rounded-lg"
               >
                 Ваш браузер не поддерживает HTML5-видео.
