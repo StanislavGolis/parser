@@ -644,7 +644,7 @@ export default function AdminConsole() {
                 onChange={(e) => setNewSlug(e.target.value)}
                 placeholder={
                   activeSource?.kind === "html"
-                    ? "slug раздела источника, например slivach-modeli"
+                    ? "slug раздела источника, например modeli"
                     : "slug новой доски, например abc или /abc"
                 }
                 className="w-56 rounded border border-line bg-ink-secondary px-3 py-2 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-accent-primary"
