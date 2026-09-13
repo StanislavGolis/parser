@@ -145,7 +145,16 @@ export default async function MediaDetailPage({ params }: DetailProps) {
                 className="max-h-[80vh] w-auto max-w-full rounded-lg object-contain"
               />
             ) : (
-              <video src={mediaUrl(media.url)} controls preload="metadata" playsInline className="max-h-[80vh] w-auto max-w-full rounded-lg">
+              <video
+                src={mediaUrl(media.url)}
+                controls
+                preload="metadata"
+                playsInline
+                controlsList="nodownload noremoteplayback"
+                disablePictureInPicture
+                onContextMenu={(e) => e.preventDefault()}
+                className="max-h-[80vh] w-auto max-w-full rounded-lg"
+              >
                 Ваш браузер не поддерживает HTML5-видео.
               </video>
             )

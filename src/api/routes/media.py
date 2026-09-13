@@ -16,6 +16,7 @@ from src.api.common import (
     apply_media_urls,
     apply_user_flags,
     build_media_url,
+    content_locked,
     media_locked,
     sign_media_urls,
     visible_thread_clause,
@@ -94,9 +95,15 @@ async def _check_media_access(
     return board
 
 
-def _require_premium(media: Media, user: Optional[User]) -> None:
-    """Полный доступ к премиум-файлу требует активной подписки."""
-    if media_locked(media, user):
+def _require_premium(
+    media: Media, user: Optional[User], board: Optional[Board] = None
+) -> None:
+    """Полный доступ к премиум-файлу требует активной подписки.
+
+    Учитываем и премиум доски: он закрывает файл, даже если у самого файла
+    флаг не выставлен (страховка от рассинхрона данных).
+    """
+    if content_locked(media, board, user):
         raise HTTPException(status_code=403, detail="Требуется премиум-доступ")
 
 
@@ -160,7 +167,7 @@ async def board_media(
     items = result.scalars().all()
 
     out = [MediaOut.model_validate(m) for m in items]
-    sign_media_urls(out, items, s3, user)
+    sign_media_urls(out, items, s3, user, board)
     await apply_user_flags(session, out, user)
     return MediaListOut(
         items=out,
@@ -186,7 +193,7 @@ async def media_detail(
     board = await _check_media_access(session, media)
     data = MediaDetailOut.model_validate(media)
     data.board_slug = board.slug if board else ""
-    apply_media_urls(data, media, s3, user)
+    apply_media_urls(data, media, s3, user, board)
     await apply_user_flags(session, [data], user)
     return data
 
@@ -260,8 +267,8 @@ async def media_download(
     if not media.s3_key:
         raise HTTPException(status_code=409, detail="File not available")
 
-    await _check_media_access(session, media)
-    _require_premium(media, user)
+    board = await _check_media_access(session, media)
+    _require_premium(media, user, board)
     url = build_media_url(media.id, s3, media.s3_key, download=True)
     if not url:
         raise HTTPException(status_code=503, detail="Storage is not configured")
@@ -627,8 +634,8 @@ async def media_raw(
     if not media.s3_key:
         raise HTTPException(status_code=404, detail="File not available")
 
-    await _check_media_access(session, media)
-    _require_premium(media, user)
+    board = await _check_media_access(session, media)
+    _require_premium(media, user, board)
     return await _stream_object(
         media=media,
         key=media.s3_key,
@@ -664,7 +671,7 @@ async def media_asset(
     await check_rate_limit(client_ip(request), limit=settings.MEDIA_RATE_LIMIT, scope="media")
 
     media = await _get_visible_media(session, media_id)
-    await _check_media_access(session, media)
+    board = await _check_media_access(session, media)
 
     variants = media.variants or {}
 
@@ -684,7 +691,7 @@ async def media_asset(
             cache_control="public, max-age=31536000, immutable",
         )
 
-    _require_premium(media, user)
+    _require_premium(media, user, board)
     key = variants.get(kind)
     if not key:
         raise HTTPException(status_code=404, detail="Asset not available")

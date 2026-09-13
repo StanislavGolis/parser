@@ -446,6 +446,11 @@ export default function Lightbox({
               controls
               autoPlay
               playsInline
+              // Нативное «Скачать» из меню плеера: скачивание — премиум-функция,
+              // поэтому прячем пункт в controls и контекстное меню браузера.
+              controlsList="nodownload noremoteplayback"
+              disablePictureInPicture
+              onContextMenu={(e) => e.preventDefault()}
               onError={() => setFailed(true)}
               className="max-h-[min(74vh,100%)] w-auto max-w-full rounded"
             >

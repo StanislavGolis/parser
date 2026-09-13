@@ -336,7 +336,10 @@ async def ensure_board(
         board.is_visible = visible
         # Архивный раздел не парсится: наполняется только этим импортёром
         board.parse_enabled = False
-        board.is_premium = premium
+        # Премиум-флаг не сбрасываем при обычном прогоне: доску могли закрыть
+        # в админке, а импорт бежит без --premium. Включить его можно только явно.
+        if premium:
+            board.is_premium = True
         if title and (not board.title or board.title == board.slug):
             board.title = title
     return board
