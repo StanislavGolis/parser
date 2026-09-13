@@ -12,7 +12,7 @@ export default function Footer() {
           <Link href="/new" className="transition-colors hover:text-text-primary">весь поток</Link>
           <Link href="/boards" className="transition-colors hover:text-text-primary">разделы</Link>
           <Link href="/top" className="transition-colors hover:text-text-primary">популярное</Link>
-          <Link href="/marks" className="transition-colors hover:text-text-primary">метки</Link>
+          <Link href="/marks" className="transition-colors hover:text-text-primary">закладки</Link>
           <Link href="/feedback" className="transition-colors hover:text-text-primary">обратная связь</Link>
         </nav>
       </div>

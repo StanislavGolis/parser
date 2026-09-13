@@ -249,7 +249,7 @@ export default function Lightbox({
 
   const toggleMark = mark.toggle;
 
-  // Плашка про метку (пробел/кнопка) + запоминаем правку для этого файла
+  // Плашка про закладку (пробел/кнопка) + запоминаем правку для этого файла
   useEffect(() => {
     if (!mark.lastAction) return;
     if (media) {
@@ -260,8 +260,8 @@ export default function Lightbox({
     }
     setToast(
       mark.lastAction === "marked"
-        ? `Метка поставлена · ${mark.marksCount}`
-        : "Метка снята",
+        ? `Закладка добавлена · ${mark.marksCount}`
+        : "Закладка снята",
     );
     const timer = window.setTimeout(() => setToast(null), TOAST_MS);
     return () => window.clearTimeout(timer);
@@ -501,7 +501,7 @@ export default function Lightbox({
               <div className="mt-2 flex flex-col gap-1.5 text-xs text-text-secondary">
                 <HintRow keys="← →" text="предыдущий / следующий файл" />
                 <HintRow keys="колесо" text="листать файлы" />
-                <HintRow keys="пробел" text="поставить или снять метку" />
+                <HintRow keys="пробел" text="добавить или снять закладку" />
                 <HintRow keys="Esc" text="закрыть — как и клик по фону" />
                 <HintRow keys="? →" text="подробная подсказка (кнопка «подсказка» внизу)" />
                 <div className="sm:hidden">
@@ -528,7 +528,7 @@ export default function Lightbox({
             <DownloadIcon className="h-3.5 w-3.5" />
             {formatCompact(media.downloads_count)} скачиваний
           </span>
-          {/* Метка («отличный контент») — общий хук: пробел делает то же самое. */}
+          {/* Закладка — общий хук: пробел делает то же самое. */}
           <span
             className={showHint ? "inline-flex rounded ring-1 ring-accent-primary/50" : "inline-flex"}
           >
@@ -613,7 +613,7 @@ export default function Lightbox({
           </span>
           <span className="hidden items-center gap-1.5 sm:inline-flex">
             <Kbd>пробел</Kbd>
-            метка
+            закладка
           </span>
           <span className="hidden items-center gap-1.5 sm:inline-flex">
             <Kbd>Esc</Kbd>

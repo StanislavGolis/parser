@@ -273,6 +273,33 @@ class MediaMark(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
+class UserResumePoint(Base):
+    """Точка возврата «продолжить просмотр» для авторизованного зрителя.
+
+    Анонимам точку хранит браузер (`localStorage`, `web/src/lib/resume.ts`).
+    Для аккаунта она живёт здесь: сменил устройство — тред открывается на том же
+    файле. Ключ — пара (пользователь, тред); `position` и `total` нужны, чтобы
+    после выхода новых файлов по-прежнему считать «+N новых в конце», а если сам
+    файл исчез из архива — вернуться по сохранённой позиции.
+    """
+    __tablename__ = "user_resume_points"
+    __table_args__ = (
+        UniqueConstraint("user_id", "thread_id", name="uq_user_resume_user_thread"),
+        Index("ix_user_resume_user_updated", "user_id", "updated_at"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    # Тред — ключ точки: файлы внутри него меняются, а тред остаётся
+    thread_id = Column(Integer, nullable=False)
+    # Последний просмотренный файл (главный ориентир)
+    media_id = Column(Integer, nullable=False)
+    # Позиция файла в списке треда (0-based) и полный размер треда на момент просмотра
+    position = Column(Integer, nullable=False, default=0)
+    total = Column(Integer, nullable=False, default=0)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
 class PageHit(Base):
     """Посещение сайта: просмотр страницы или событие в интерфейсе.
 

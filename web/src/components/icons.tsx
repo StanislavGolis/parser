@@ -120,16 +120,6 @@ export function LockIcon(props: IconProps) {
   );
 }
 
-/** Метка «отличный контент» — наш аналог лайка (тег). */
-export function TagIcon(props: IconProps) {
-  return (
-    <svg {...base(props)}>
-      <path d="M20.59 13.41 12 22l-9-9V4h9l8.59 8.59a2 2 0 0 1 0 2.82Z" />
-      <circle cx="7.5" cy="7.5" r="1.5" />
-    </svg>
-  );
-}
-
 /** Закладка (личный список). */
 export function BookmarkIcon(props: IconProps) {
   return (

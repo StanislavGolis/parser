@@ -30,12 +30,20 @@ export default function AgeGate() {
   const [denied, setDenied] = useState(false);
 
   useEffect(() => {
-    if (!hasConsent()) setOpen(true);
+    if (hasConsent()) {
+      // Подтверждение уже есть (например, вчера) — сообщаем об этом остальным
+      // подсказкам: онбординг ждёт именно сигнала «возраст подтверждён».
+      window.dispatchEvent(new Event("dredge:age-ok"));
+      return;
+    }
+    setOpen(true);
   }, []);
 
   const confirm = useCallback(() => {
     rememberConsent();
     setOpen(false);
+    // Сигнал «возраст подтверждён»: по нему показывается онбординг новичка
+    window.dispatchEvent(new Event("dredge:age-ok"));
   }, []);
 
   if (!open) return null;

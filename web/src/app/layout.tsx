@@ -6,6 +6,7 @@ import AgeGate from "@/components/AgeGate";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
 import MobileNav from "@/components/MobileNav";
+import Onboarding from "@/components/Onboarding";
 import Tracker from "@/components/Tracker";
 import { SITE_URL } from "@/lib/env";
 import "./globals.css";
@@ -76,6 +77,8 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <Tracker />
         {/* Предупреждение 18+: раз в сутки, подтверждение — в cookie `dv_age` */}
         {isBot ? null : <AgeGate />}
+        {/* Онбординг новичка: один раз, после подтверждения возраста */}
+        {isBot ? null : <Onboarding />}
       </body>
     </html>
   );

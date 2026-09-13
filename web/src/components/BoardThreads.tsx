@@ -18,7 +18,7 @@ import { apiGet } from "@/lib/api";
 import { mediaUrl } from "@/lib/env";
 import { thumbSrc, premiumState } from "@/lib/media";
 import { formatDuration, formatNumber, formatRelative } from "@/lib/format";
-import { clearResume, getResume, readResumes, resumeIndex } from "@/lib/resume";
+import { clearResume, getResume, readResumes, resumeIndex, syncResumes } from "@/lib/resume";
 import type { ResumeMap, ResumePoint } from "@/lib/resume";
 import type { BoardThread, MediaItem, MediaList, ThreadList } from "@/lib/types";
 
@@ -82,11 +82,20 @@ export default function BoardThreads({
   const [lightboxBusy, setLightboxBusy] = useState(false);
   const [openingThread, setOpeningThread] = useState<number | null>(null);
 
-  // Точки возврата «продолжить просмотр» (localStorage). Читаем после
-  // монтирования: на сервере хранилища нет, иначе SSR и первый рендер разошлись бы.
+  // Точки возврата «продолжить просмотр»: локальные (localStorage) читаем после
+  // монтирования — на сервере хранилища нет, иначе SSR и первый рендер разошлись
+  // бы. Затем подтягиваем серверные точки аккаунта: сменил устройство — продолжишь
+  // с того же файла (анониму API ответит 401, и остаётся локальная история).
   const [resumes, setResumes] = useState<ResumeMap>({});
   useEffect(() => {
     setResumes(readResumes());
+    let alive = true;
+    void syncResumes().then(() => {
+      if (alive) setResumes(readResumes());
+    });
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const hasMore = threads.length < total;
@@ -296,7 +305,6 @@ export default function BoardThreads({
             thread={t}
             opening={openingThread === t.thread_id}
             resume={resumes[`t${t.thread_id}`] ?? null}
-            onOpenAll={() => void openThread(t.thread_id, { startIndex: 0 })}
             onOpenAt={(mediaId) => void openThread(t.thread_id, { mediaId })}
             onResume={() => void openThread(t.thread_id)}
             onForget={() => {
@@ -371,7 +379,6 @@ function ThreadCard({
   thread,
   opening,
   resume,
-  onOpenAll,
   onOpenAt,
   onResume,
   onForget,
@@ -381,7 +388,6 @@ function ThreadCard({
   opening: boolean;
   /** Последний просмотренный файл треда (или null — треда нет в истории). */
   resume: ResumePoint | null;
-  onOpenAll: () => void;
   /** Клик по превью: открыть тред именно на этом файле. */
   onOpenAt: (mediaId: number) => void;
   onResume: () => void;
@@ -467,7 +473,8 @@ function ThreadCard({
         </div>
       </div>
 
-      {/* Действия рядом с превью: продолжить с метки или открыть с начала */}
+      {/* Действия рядом с превью: продолжить с точки возврата (её можно забыть).
+          Отдельной кнопки «с начала» нет: тред открывается кликом по превью. */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-4 py-2 font-mono text-[11px]">
         <span className="uppercase tracking-wider text-text-muted">файлы треда</span>
         {resume ? (
@@ -504,16 +511,6 @@ function ThreadCard({
             продолжить
           </button>
         ) : null}
-        <button
-          type="button"
-          onClick={onOpenAll}
-          disabled={opening}
-          className="inline-flex items-center gap-1.5 rounded border border-line px-2 py-1 text-text-secondary transition-colors hover:border-line-hover hover:text-text-primary disabled:opacity-50"
-          title="Открыть тред с первого файла"
-        >
-          <ImageIcon className="h-3.5 w-3.5" />
-          с начала
-        </button>
         {resume ? (
           <button
             type="button"

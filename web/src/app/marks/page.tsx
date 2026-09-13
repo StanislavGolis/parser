@@ -10,7 +10,7 @@ import type { MediaList } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Метки",
+  title: "Закладки",
   // Личная страница: в поиске не нужна.
   robots: { index: false, follow: false },
 };
@@ -33,10 +33,10 @@ export default async function MarksPage() {
   return (
     <div className="py-2">
       <h1 className="dredge-title mb-1">
-        метки // {list ? `${formatNumber(list.total)} файлов` : "мой список"}
+        закладки // {list ? `${formatNumber(list.total)} файлов` : "мой список"}
       </h1>
       <p className="mb-4 font-mono text-[11px] text-text-muted">
-        метка «отличный контент» поднимает файл в рейтинге и собирает здесь ваш личный список
+        закладка поднимает файл в «Популярном» и собирает здесь ваш личный список
       </p>
 
       {list ? (
@@ -45,8 +45,8 @@ export default async function MarksPage() {
           apiPath="/api/v1/marks"
           perPage={PER_PAGE}
           boardsById={boardsById}
-          emptyTitle="Пока нет меток"
-          emptyHint="Нажмите 🏷 на карточке или пробел в просмотре файла — он появится здесь."
+          emptyTitle="Пока нет закладок"
+          emptyHint="Нажмите 🔖 на карточке или пробел в просмотре файла — он появится здесь."
         />
       ) : (
         <div className="flex flex-col items-center gap-3 rounded border border-dashed border-line py-16 text-center">
@@ -54,7 +54,7 @@ export default async function MarksPage() {
             нужен аккаунт
           </p>
           <p className="max-w-md text-sm text-text-secondary">
-            Метки доступны зарегистрированным пользователям. Войдите или создайте аккаунт —
+            Закладки доступны зарегистрированным пользователям. Войдите или создайте аккаунт —
             это займёт минуту.
           </p>
           <Link href="/login" className="btn-primary mt-1">
