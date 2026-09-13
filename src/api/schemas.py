@@ -464,6 +464,38 @@ class ThreadRefListOut(BaseModel):
     total: int
 
 
+class SitemapMediaOut(BaseModel):
+    """Файл в карте сайта: только то, что нужно роботу (адрес строится по id)."""
+
+    id: int
+    created_at: Optional[datetime] = None
+    media_type: str = "image"
+    locked: bool = False        # премиум-файл без подписки: превью не отдаём
+
+
+class SitemapMediaListOut(BaseModel):
+    items: List[SitemapMediaOut]
+    page: int
+    per_page: int
+    total: int
+
+
+class SitemapVideoOut(BaseModel):
+    """Видео для карты с `<video:video>`: нужны длительность и размер."""
+
+    id: int
+    created_at: Optional[datetime] = None
+    duration_seconds: Optional[float] = None
+    file_size: Optional[int] = None
+
+
+class SitemapVideoListOut(BaseModel):
+    items: List[SitemapVideoOut]
+    page: int
+    per_page: int
+    total: int
+
+
 class MediaDetailOut(MediaOut):
     board_slug: Optional[str] = None
     duplicate_of_id: Optional[int] = None

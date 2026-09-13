@@ -413,6 +413,37 @@ export interface ThreadRef {
   last_media_at: string | null;
 }
 
+/** Файл в карте сайта (минимум полей — так карта генерируется быстро). */
+export interface SitemapMedia {
+  id: number;
+  created_at: string | null;
+  media_type: string;
+  /** Премиум-файл без подписки: превью в карту не отдаём. */
+  locked: boolean;
+}
+
+export interface SitemapMediaList {
+  items: SitemapMedia[];
+  page: number;
+  per_page: number;
+  total: number;
+}
+
+/** Видео для карты с `<video:video>`. */
+export interface SitemapVideo {
+  id: number;
+  created_at: string | null;
+  duration_seconds: number | null;
+  file_size: number | null;
+}
+
+export interface SitemapVideoList {
+  items: SitemapVideo[];
+  page: number;
+  per_page: number;
+  total: number;
+}
+
 export interface ThreadRefList {
   items: ThreadRef[];
   page: number;

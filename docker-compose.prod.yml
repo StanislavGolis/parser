@@ -54,6 +54,9 @@ x-backend: &backend
     ADMIN_EMAILS: ${ADMIN_EMAILS:-}
     ADMIN_RESET_TTL_MINUTES: ${ADMIN_RESET_TTL_MINUTES:-30}
     PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+    # Публичный адрес сайта и ключ IndexNow — уведомления о новых страницах
+    SITE_URL: ${SITE_URL:-https://dredg.ru}
+    INDEXNOW_KEY: ${INDEXNOW_KEY:-}
     SMTP_HOST: ${SMTP_HOST:-}
     SMTP_PORT: ${SMTP_PORT:-465}
     SMTP_USER: ${SMTP_USER:-}
@@ -295,6 +298,8 @@ services:
       # Коды подтверждения панелей вебмастера (meta-тег в HTML); можно оставить пустыми
       GOOGLE_SITE_VERIFICATION: ${GOOGLE_SITE_VERIFICATION:-}
       YANDEX_VERIFICATION: ${YANDEX_VERIFICATION:-}
+      # Ключ IndexNow отдаётся по /indexnow-key.txt: поисковик проверяет владение сайтом
+      INDEXNOW_KEY: ${INDEXNOW_KEY:-}
       # NEXT_PUBLIC_API_BASE не задаём: браузер ходит на тот же origin
       # (/api проксируется nginx на сервис api).
     healthcheck:

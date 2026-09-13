@@ -83,6 +83,12 @@ class Settings(BaseSettings):
     ADMIN_RESET_TTL_MINUTES: int = 30
     # База для ссылок в письмах, например https://example.com (пусто — из запроса)
     PUBLIC_BASE_URL: str = ""
+    # Публичный адрес сайта для уведомлений поисковиков (IndexNow): карты сайта и
+    # ключ живут на домене web, поэтому указываем тот же адрес, что в SITE_URL web
+    SITE_URL: str = ""
+    # Ключ IndexNow (32+ символов): файл с ним отдаёт web по /indexnow-key.txt,
+    # уведомления о новых страницах отправляет `python -m src.tools.indexnow`
+    INDEXNOW_KEY: str = ""
     # SMTP для писем восстановления. Пусто — почта выключена, останется
     # восстановление через CLI на сервере (см. DEPLOY.md).
     SMTP_HOST: str = ""
