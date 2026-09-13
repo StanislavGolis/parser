@@ -32,7 +32,11 @@ import type { BoardsById, MediaItem, ViewResult } from "@/lib/types";
 const WHEEL_STEP = 40; // px накопленной дельты = один файл
 const WHEEL_COOLDOWN_MS = 300; // пауза после перелистывания
 const TOAST_MS = 1400; // сколько показываем плашку про метку
-const HINT_MS = 10000; // сколько висит подсказка по клавишам (или до первого действия)
+
+// Свайпы (мобильные): пороги в пикселях и максимальная длительность жеста.
+const SWIPE_DX = 55; // влево/вправо — листать файлы
+const SWIPE_DY = 85; // вниз — закрыть просмотр
+const SWIPE_MAX_MS = 800; // медленнее — считаем это скроллом/выделением, не свайпом
 
 interface LightboxProps {
   items: MediaItem[];
@@ -43,6 +47,15 @@ interface LightboxProps {
   onNext: () => void;
   /** Перейти к произвольному файлу (клик по миниатюре карусели). */
   onSelect?: (index: number) => void;
+}
+
+/** Чип клавиши/жеста в строке подсказок. */
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="rounded border border-line bg-ink-tertiary px-1 py-0.5 font-mono text-[10px] text-text-secondary">
+      {children}
+    </span>
+  );
 }
 
 /** Строка подсказки «клавиша — что делает» в оверлее лайтбокса. */
@@ -62,9 +75,9 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
   const board = media ? boardsById?.[media.board_id] : undefined;
   const [failed, setFailed] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  // Подсказка по клавишам: показывается при открытии, гаснет сама или по первому
-  // действию (клик / клавиша / колесо); кнопка «?» в шапке — показать снова.
-  const [showHint, setShowHint] = useState(true);
+  // Подробная подсказка: по умолчанию скрыта — внизу окна всегда висит строка
+  // подсказок, а подробную плашку вызывают кнопкой «?» или клавишей «?».
+  const [showHint, setShowHint] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Локальные правки метки: при листании «вперёд-назад» данные приходят из
   // исходной выборки, поэтому запоминаем изменения, сделанные в просмотре.
@@ -85,25 +98,93 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
     setFailed(false);
   }, [media?.id, media?.url]);
 
-  // Подсказка: автоскрытие по таймеру…
-  useEffect(() => {
-    if (!showHint) return;
-    const timer = window.setTimeout(() => setShowHint(false), HINT_MS);
-    return () => window.clearTimeout(timer);
-  }, [showHint]);
+  // ── Свайпы (мобильные) ───────────────────────────────────────────
+  // Влево/вправо — листать файлы, вниз — закрыть. Жесты, начатые на видео
+  // (там своя перемотка) и на карусели миниатюр (свой скролл), игнорируем.
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const touchRef = useRef<{ x: number; y: number; at: number; active: boolean } | null>(null);
+  const movedRef = useRef(false);
 
-  // …и скрытие по первому действию: клик/тап или колесо (клавиши — в onKeyDown,
-  // чтобы «?» успевал показать подсказку заново).
-  useEffect(() => {
-    if (!showHint) return;
-    const hide = () => setShowHint(false);
-    window.addEventListener("pointerdown", hide);
-    window.addEventListener("wheel", hide);
-    return () => {
-      window.removeEventListener("pointerdown", hide);
-      window.removeEventListener("wheel", hide);
-    };
-  }, [showHint]);
+  const resetCard = useCallback(() => {
+    const card = cardRef.current;
+    if (!card) return;
+    card.style.transition = "transform 160ms ease-out, opacity 160ms ease-out";
+    card.style.transform = "";
+    card.style.opacity = "";
+    window.setTimeout(() => {
+      if (card) card.style.transition = "";
+    }, 200);
+  }, []);
+
+  const onTouchStart = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length !== 1) {
+      touchRef.current = null; // пинч/мультитач — не наш жест
+      return;
+    }
+    const target = e.target as HTMLElement | null;
+    const ignored = Boolean(target?.closest("video") || target?.closest("[data-wheel-ignore]"));
+    const touch = e.touches[0];
+    touchRef.current = { x: touch.clientX, y: touch.clientY, at: Date.now(), active: !ignored };
+    movedRef.current = false;
+  }, []);
+
+  const onTouchMove = useCallback((e: React.TouchEvent) => {
+    const state = touchRef.current;
+    if (!state?.active) return;
+    const touch = e.touches[0];
+    const dx = touch.clientX - state.x;
+    const dy = touch.clientY - state.y;
+    if (Math.abs(dx) + Math.abs(dy) > 12) movedRef.current = true;
+
+    // Окно «идёт» за пальцем: правим стиль напрямую, без ререндеров
+    const card = cardRef.current;
+    if (!card) return;
+    card.style.transition = "";
+    card.style.transform = `translate(${Math.max(-140, Math.min(140, dx * 0.5))}px, ${Math.max(
+      -30,
+      Math.min(220, dy * 0.5),
+    )}px)`;
+    card.style.opacity = dy > 0 ? String(Math.max(0.4, 1 - dy / 500)) : "1";
+  }, []);
+
+  const onTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      const state = touchRef.current;
+      touchRef.current = null;
+      if (!state?.active) return;
+
+      const touch = e.changedTouches[0];
+      const dx = touch.clientX - state.x;
+      const dy = touch.clientY - state.y;
+      const fast = Date.now() - state.at < SWIPE_MAX_MS;
+      const horizontal = Math.abs(dx) > Math.abs(dy) * 1.4;
+      const vertical = Math.abs(dy) > Math.abs(dx) * 1.4;
+
+      if (fast && vertical && dy > SWIPE_DY) {
+        // Свайп вниз — закрыть: окно уезжает, затем закрываем просмотр
+        const card = cardRef.current;
+        if (card) {
+          card.style.transition = "transform 160ms ease-out, opacity 160ms ease-out";
+          card.style.transform = "translateY(55%)";
+          card.style.opacity = "0";
+        }
+        window.setTimeout(onClose, 140);
+        return;
+      }
+      if (fast && horizontal && Math.abs(dx) > SWIPE_DX && items.length > 1) {
+        // Влево — следующий, вправо — предыдущий
+        if (dx < 0) onNext();
+        else onPrev();
+      }
+      resetCard();
+    },
+    [items.length, onClose, onNext, onPrev, resetCard],
+  );
+
+  const onTouchCancel = useCallback(() => {
+    touchRef.current = null;
+    resetCard();
+  }, [resetCard]);
 
   useEffect(() => {
     const prevOverflow = document.body.style.overflow;
@@ -141,9 +222,9 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
 
   const onKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      // «?» (или h) — снова показать подсказку; любая другая клавиша её убирает
+      // «?» (или h) — переключить подробную подсказку; любая другая клавиша её закрывает
       if (e.key === "?" || e.key === "h" || e.key === "H") {
-        setShowHint(true);
+        setShowHint((visible) => !visible);
         return;
       }
       setShowHint(false);
@@ -224,7 +305,10 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
     >
       {/* Окно плеера: не «на весь экран» — с отступами, поэтому и крестик, и файл
           рядом с курсором; клик по затемнению вокруг закрывает просмотр */}
-      <div className="relative flex h-full max-h-[92vh] w-full max-w-[1500px] flex-col overflow-hidden rounded-lg border border-line bg-[#050708] shadow-2xl">
+      <div
+        ref={cardRef}
+        className="relative flex h-full max-h-[92vh] w-full max-w-[1500px] flex-col overflow-hidden rounded-lg border border-line bg-[#050708] shadow-2xl"
+      >
       <div className="flex items-start justify-between gap-4 border-b border-line px-4 py-2.5 sm:px-6">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] text-text-secondary">
@@ -268,12 +352,12 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
         <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
-            onClick={() => setShowHint(true)}
+            onClick={() => setShowHint((visible) => !visible)}
             className={`rounded p-2 font-mono text-sm text-text-secondary transition-colors hover:bg-ink-tertiary hover:text-text-primary ${
               showHint ? "ring-1 ring-accent-primary/50" : ""
             }`}
             aria-label="Подсказка по клавишам (?)"
-            title="Подсказка по клавишам: ?"
+            title="Подсказка: ? (повторный клик — скрыть)"
           >
             ?
           </button>
@@ -291,12 +375,22 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
         </div>
       </div>
 
-      {/* Медиа: клик по пустому месту вокруг файла тоже закрывает окно */}
+      {/* Медиа: клик по пустому месту вокруг файла закрывает окно; свайпы —
+          листание (влево/вправо) и закрытие (вниз) на мобильных */}
       <div
-        className="relative flex min-h-0 flex-1 items-center justify-center p-2 sm:p-4"
+        className="relative flex min-h-0 flex-1 touch-none items-center justify-center p-2 sm:p-4"
         onClick={(e) => {
+          // Клик после свайпа закрытием не считаем — жест уже обработан
+          if (movedRef.current) {
+            movedRef.current = false;
+            return;
+          }
           if (e.target === e.currentTarget) onClose();
         }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchCancel}
       >
         {canShow ? (
           isVideo ? (
@@ -359,7 +453,10 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
                 <HintRow keys="колесо" text="листать файлы" />
                 <HintRow keys="пробел" text="поставить или снять метку" />
                 <HintRow keys="Esc" text="закрыть — как и клик по фону" />
-                <HintRow keys="?" text="показать эту подсказку" />
+                <HintRow keys="? →" text="подробная подсказка (кнопка «подсказка» внизу)" />
+                <div className="sm:hidden">
+                  <HintRow keys="свайп" text="вниз — закрыть, влево/вправо — листать" />
+                </div>
               </div>
             </div>
           </div>
@@ -370,7 +467,8 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
       {onSelect ? <MediaFilmstrip items={items} index={index} onSelect={onSelect} /> : null}
 
       {/* Нижняя панель */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-2.5 sm:px-6">
+      <div className="flex flex-col gap-2 border-t border-line px-4 py-2.5 sm:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-text-secondary">
           <span className="inline-flex items-center gap-1.5">
             <EyeIcon className="h-3.5 w-3.5" />
@@ -387,18 +485,17 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
             <MarkButton mediaId={media.id} state={mark} />
           </span>
 
-          {/* Повторный вызов подсказки: иконка рядом со счётчиками (та же плашка,
-              что появляется при открытии) */}
+          {/* Подробная подсказка: по требованию (кнопка под счётчиками или «?») */}
           <button
             type="button"
-            onClick={() => setShowHint(true)}
+            onClick={() => setShowHint((visible) => !visible)}
             className={`inline-flex items-center gap-1.5 rounded px-2 py-1 font-mono text-[11px] transition-colors ${
               showHint
                 ? "bg-accent-primary/15 text-accent-primary ring-1 ring-accent-primary/50"
                 : "text-text-secondary hover:text-text-primary"
             }`}
             aria-label="Подсказка по клавишам"
-            title="Подсказка по клавишам: ? или эта кнопка"
+            title="Подсказка: ? или эта кнопка"
           >
             <HelpIcon className="h-3.5 w-3.5" />
             подсказка
@@ -437,6 +534,41 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
           ) : (
             <DownloadButton mediaId={media.id} size="sm" />
           )}
+          </div>
+        </div>
+
+        {/* Постоянная строка подсказок: на десктопе — клавиши, на мобильных — жесты.
+            Подробную плашку вызывают кнопкой «подсказка» или клавишей «?» */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line/60 pt-2 font-mono text-[10px] text-text-muted">
+          <span className="hidden items-center gap-1.5 sm:inline-flex">
+            <Kbd>←</Kbd>
+            <Kbd>→</Kbd>
+            файлы
+          </span>
+          <span className="hidden items-center gap-1.5 sm:inline-flex">
+            <Kbd>колесо</Kbd>
+            листать
+          </span>
+          <span className="hidden items-center gap-1.5 sm:inline-flex">
+            <Kbd>пробел</Kbd>
+            метка
+          </span>
+          <span className="hidden items-center gap-1.5 sm:inline-flex">
+            <Kbd>Esc</Kbd>
+            закрыть
+          </span>
+          <span className="inline-flex items-center gap-1.5 sm:hidden">
+            <Kbd>свайп ←/→</Kbd>
+            файлы
+          </span>
+          <span className="inline-flex items-center gap-1.5 sm:hidden">
+            <Kbd>свайп ↓</Kbd>
+            закрыть
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <Kbd>?</Kbd>
+            подробнее
+          </span>
         </div>
       </div>
 
