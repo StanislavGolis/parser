@@ -11,6 +11,7 @@ import { ApiError } from "@/lib/api";
 import { getBoards, getMediaDetail } from "@/lib/data";
 import { absoluteUrl, mediaUrl } from "@/lib/env";
 import { formatBytes, formatNumber } from "@/lib/format";
+import { breadcrumbList, jsonLdHtml } from "@/lib/jsonld";
 import { isLocked, premiumState } from "@/lib/media";
 import type { MediaDetail } from "@/lib/types";
 
@@ -47,6 +48,8 @@ export async function generateMetadata({ params }: DetailProps): Promise<Metadat
     title,
     description,
     alternates: { canonical: `/media/${numericId}` },
+    // Возрастная метка: файлы архива 18+
+    other: { rating: "adult" },
     openGraph: {
       title: media.original_name,
       description,
@@ -76,25 +79,36 @@ export default async function MediaDetailPage({ params }: DetailProps) {
   const locked = isLocked(media);
 
   // Микроразметка для поисковых роботов: фото/видео с превью и датой.
-  const jsonLd = {
-    "@context": "https://schema.org",
-    "@type": media.media_type === "video" ? "VideoObject" : "ImageObject",
-    name: media.original_name,
-    contentUrl: absoluteUrl(media.url),
-    thumbnailUrl: absoluteUrl(media.thumb_url),
-    uploadDate: media.created_at,
-    ...(media.width && media.height ? { width: media.width, height: media.height } : {}),
-    ...(media.media_type === "video" && media.duration_seconds
-      ? { duration: `PT${Math.round(media.duration_seconds)}S` }
-      : {}),
-  };
+  // `contentUrl` указываем только для файлов без премиум-гейта: у закрытых
+  // ссылка вернула бы роботу 403, поэтому честнее отметить isAccessibleForFree.
+  const jsonLd = [
+    breadcrumbList([
+      { name: "Главная", path: "/" },
+      { name: "Разделы", path: "/boards" },
+      ...(board ? [{ name: `/${board.slug}`, path: `/board/${board.slug}` }] : []),
+      { name: media.original_name, path: `/media/${media.id}` },
+    ]),
+    {
+      "@context": "https://schema.org",
+      "@type": media.media_type === "video" ? "VideoObject" : "ImageObject",
+      name: media.original_name,
+      ...(locked ? {} : { contentUrl: absoluteUrl(media.url) }),
+      thumbnailUrl: absoluteUrl(media.thumb_url),
+      uploadDate: media.created_at,
+      isAccessibleForFree: !locked,
+      ...(media.width && media.height ? { width: media.width, height: media.height } : {}),
+      ...(media.media_type === "video" && media.duration_seconds
+        ? { duration: `PT${Math.round(media.duration_seconds)}S` }
+        : {}),
+    },
+  ];
 
   return (
     <div className="container-site max-w-5xl py-6 sm:py-8">
       <script
         type="application/ld+json"
         // JSON-LD: сериализуем объект, экранируя «<», чтобы нельзя было вставить тег
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
+        dangerouslySetInnerHTML={{ __html: jsonLdHtml(jsonLd) }}
       />
       <TrackView mediaId={media.id} />
       <Link

@@ -5,7 +5,9 @@ import BoardThreads from "@/components/BoardThreads";
 import { LockIcon, StarIcon } from "@/components/icons";
 import { ApiError } from "@/lib/api";
 import { getBoardThreads, getBoards } from "@/lib/data";
+import { SITE_URL } from "@/lib/env";
 import { formatNumber, plural } from "@/lib/format";
+import { breadcrumbList, jsonLdHtml } from "@/lib/jsonld";
 import type { Board, ThreadList } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +28,8 @@ export async function generateMetadata({ params }: BoardPageProps): Promise<Meta
     title,
     description: `Раздел /${params.slug}: ${files}фото и видео в архиве, треды, превью и оригиналы файлов.`,
     alternates: { canonical: `/board/${params.slug}` },
+    // Возрастная метка: контент раздела 18+
+    other: { rating: "adult" },
   };
 }
 
@@ -49,8 +53,46 @@ export default async function BoardPage({ params, searchParams }: BoardPageProps
     throw err;
   }
 
+  // Микроразметка раздела: цепочка навигации + коллекция тредов (они кликабельны
+  // и ведут на /board/{slug}?thread=…). isAccessibleForFree отражает премиум-гейт.
+  const jsonLd = [
+    breadcrumbList([
+      { name: "Главная", path: "/" },
+      { name: "Разделы", path: "/boards" },
+      { name: `/${slug}`, path: `/board/${slug}` },
+    ]),
+    {
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      name: board ? `/${slug} — ${board.title ?? slug}` : `Раздел /${slug}`,
+      description: board?.description ?? undefined,
+      url: `${SITE_URL}/board/${slug}`,
+      inLanguage: "ru-RU",
+      isAccessibleForFree: !board?.locked,
+      ...(list.items.length
+        ? {
+            mainEntity: {
+              "@type": "ItemList",
+              numberOfItems: list.total,
+              itemListElement: list.items.map((thread, index) => ({
+                "@type": "ListItem",
+                position: index + 1,
+                name: thread.subject?.trim() || `Тред №${thread.thread_id}`,
+                url: `${SITE_URL}/board/${slug}?thread=${thread.thread_id}`,
+              })),
+            },
+          }
+        : {}),
+    },
+  ];
+
   return (
     <div className="py-6 sm:py-8">
+      <script
+        type="application/ld+json"
+        // JSON-LD: сериализуем объект, экранируя «<», чтобы нельзя было вставить тег
+        dangerouslySetInnerHTML={{ __html: jsonLdHtml(jsonLd) }}
+      />
       <BoardHeader board={board} slug={slug} threadsTotal={list.total} />
       <BoardThreads slug={slug} initial={list} sort={sort} initialThreadId={threadId} />
     </div>

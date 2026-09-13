@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 
 import { getBoards, getFeedPage } from "@/lib/data";
-import { SITE_URL } from "@/lib/env";
+import { SITE_URL, absoluteUrl } from "@/lib/env";
 
 /** Лимит страницы ленты в API: `per_page <= 100`. */
 const FEED_PAGE_MAX = 100;
@@ -44,15 +44,21 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.7,
     }));
 
+    // В карту попадают и превью файлов (images): они отдаются нашим API и открыты
+    // роботам — без этого ссылки на изображения в поиске не появляются.
     const mediaPages: MetadataRoute.Sitemap = feeds
       .flatMap((feed) => feed.items)
       .slice(0, MEDIA_IN_SITEMAP)
-      .map((m) => ({
-        url: `${SITE_URL}/media/${m.id}`,
-        lastModified: m.created_at ? new Date(m.created_at) : now,
-        changeFrequency: "weekly",
-        priority: 0.5,
-      }));
+      .map((m) => {
+        const preview = absoluteUrl(m.web_url ?? m.thumb_url);
+        return {
+          url: `${SITE_URL}/media/${m.id}`,
+          lastModified: m.created_at ? new Date(m.created_at) : now,
+          changeFrequency: "weekly" as const,
+          priority: 0.5,
+          ...(preview ? { images: [preview] } : {}),
+        };
+      });
 
     return [...pages, ...boardPages, ...mediaPages];
   } catch {
