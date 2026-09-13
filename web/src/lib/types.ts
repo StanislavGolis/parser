@@ -120,14 +120,21 @@ export interface AdminOverview {
   parser_current_board: string | null;
 }
 
-/** Доска форума (список из index.json двача) в сопоставлении с нашей БД. */
-export interface ForumBoard {
+/** Раздел источника (аналог «доски форума») в сопоставлении с нашей БД.
+ *
+ * Так админка показывает, что вообще предлагает источник: 2ch — доски из
+ * `index.json`, сайт — свои категории. Отсюда администратор выбирает разделы.
+ */
+export interface SourceBoard {
   slug: string;
   name: string | null;
-  category: string | null;
-  threads_on_forum: number;
+  /** Рубрика источника: категория доски на 2ch, «категория сайта» у сайтов. */
+  group: string | null;
+  /** Сколько «тредов» источник показывает в разделе (оценка). */
+  hint: number;
   in_db: boolean;
   parse_enabled: boolean;
+  parse_mode: string | null;
   is_visible: boolean;
   is_premium: boolean;
   media_total: number;

@@ -446,14 +446,23 @@ docker compose -f docker-compose.prod.yml exec parser-slivach python -c \
   "import selectolax, src.parsers.slivach as s; print(s.SlivachAdapter().default_boards[:3])"
 # → ['slivach-modeli', 'slivach-asmr', 'slivach-aktrisy']
 
-# 2. в админке: вкладка «Источники» → slivach
-#    - «Вернуть в реестр» (is_enabled=true)
-#    - конфиг адаптера: категории и лимиты, пример аккуратного старта:
-#      {"boards": ["slivach-modeli"], "max_pages": 2, "max_records": 5, "include_video": false}
-#    - «Запустить прогон» (флаг parser:slivach:enabled)
+# 2. в админке: вкладка «Контент» → источник slivach
+#    - «Разделы сайта» → «Обновить список» → «Добавить» у нужных категорий
+#      (список читает адаптер: GET /api/v1/admin/sources/slivach/catalog)
+#    - «Мои разделы» → у раздела «Парсить» + «Загрузить записи» (глубокий скан
+#      покажет «файлов: N»); записи создаются выключенными
+#    - включить «Парсить» у нужных записей (массово — чекбоксами), при
+#      необходимости «published» и «премиум» (премиум проставляется вручную)
+#    - вкладка «Источники» → slivach → «Вернуть в реестр» (is_enabled=true) и
+#      «Запустить прогон» (флаг parser:slivach:enabled)
 # 3. смотреть прогресс и журнал там же, логи — в контейнере:
 docker compose -f docker-compose.prod.yml logs -f parser-slivach
 ```
+
+Лимиты и конфиг адаптера приходят из миграции `y0z1a2b3c4d5` и правятся в
+админке (`/admin/sources`): `max_pages: 0` — вся пагинация категории,
+`max_records: 0` — все записи видны, `include_video: true` — видео качаем,
+объём регулируется тем, какие записи включены, и `budget_minutes` прогона.
 
 Что важно помнить:
 

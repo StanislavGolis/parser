@@ -15,13 +15,19 @@
 (`services/sources.py`). Контракт адаптера — `src/parsers/base.py`.
 """
 import re
+import time
 from datetime import datetime
 from typing import Dict, List, Optional
 
 import aiohttp
 
-from src.parsers.base import CatalogResult, FileNode, ThreadNode
+from src.parsers.base import BoardNode, CatalogResult, FileNode, ThreadNode
 from src.services.media_validator import MediaValidator
+
+# Кэш списка досок форума: index.json статичен, а вкладка «Доски форума»
+# опрашивает его при каждом открытии
+BOARDS_CACHE_TTL = 300
+_BOARDS_CACHE: Dict[str, object] = {}
 
 MIME_BY_EXT = {
     "jpg": "image/jpeg",
@@ -59,6 +65,40 @@ class DvachAdapter:
     def download_headers(self) -> Dict[str, str]:
         """2ch отдаёт файлы без Referer — дополнительных заголовков не нужно."""
         return {}
+
+    @property
+    def default_boards(self) -> List[str]:
+        """2ch не диктует список разделов: их выбирает админ из index.json."""
+        return []
+
+    async def fetch_boards(self) -> Optional[List[BoardNode]]:
+        """Доски форума из `index.json` (аналог вкладки «Доски форума»).
+
+        Список кэшируется на 5 минут: админка может дёргать его при каждом
+        открытии вкладки, а index.json — статичный и тяжёлый.
+        """
+        now = time.time()
+        cached = _BOARDS_CACHE.get("items")
+        if cached is not None and now - float(_BOARDS_CACHE.get("ts", 0)) < BOARDS_CACHE_TTL:
+            return cached  # type: ignore[return-value]
+
+        data = await self._get_json(f"{self.base_url}/index.json")
+        if data is None:
+            return None
+
+        items = [
+            BoardNode(
+                slug=str(board["id"]),
+                title=(board.get("name") or None),
+                group=(board.get("category") or None),
+                hint=int(board.get("threads") or 0),
+            )
+            for board in (data.get("boards") or [])
+            if board.get("id")
+        ]
+        _BOARDS_CACHE["items"] = items
+        _BOARDS_CACHE["ts"] = now
+        return items
 
     # ───────────────────────── HTTP / JSON ─────────────────────────
 

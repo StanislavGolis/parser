@@ -78,6 +78,27 @@ class AdminOverview(BaseModel):
     parser_current_board: Optional[str] = None
 
 
+class SourceBoardOut(BaseModel):
+    """Раздел источника (аналог «доски форума») в сопоставлении с нашей БД.
+
+    Так админка показывает, что источник вообще предлагает: 2ch — доски из
+    `index.json`, сайт — свои категории. Пользователь выбирает из списка и
+    добавляет разделы в систему (`POST /admin/boards`).
+    """
+    slug: str
+    name: Optional[str] = None
+    group: Optional[str] = None      # рубрика источника (категория доски на 2ch)
+    hint: int = 0                    # сколько «тредов» источник показывает (оценка)
+    in_db: bool = False
+    parse_enabled: bool = False
+    parse_mode: Optional[str] = None
+    is_visible: bool = False
+    is_premium: bool = False
+    media_total: int = 0
+    media_in_s3: int = 0
+    threads_active: int = 0
+
+
 class ForumBoardOut(BaseModel):
     """Доска форума (из index.json двача), сопоставленная с нашей БД."""
     slug: str

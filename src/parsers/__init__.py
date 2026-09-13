@@ -7,7 +7,7 @@
 """
 from typing import Dict, Type
 
-from src.parsers.base import CatalogResult, FileNode, SourceAdapter, ThreadNode
+from src.parsers.base import BoardNode, CatalogResult, FileNode, SourceAdapter, ThreadNode
 from src.parsers.dvach import DvachAdapter
 from src.parsers.slivach import SlivachAdapter
 
@@ -27,9 +27,11 @@ def build_adapter(code: str, **options) -> SourceAdapter:
 
 __all__ = [
     "ADAPTERS",
+    "BoardNode",
     "CatalogResult",
     "DvachAdapter",
     "FileNode",
+    "SlivachAdapter",
     "SourceAdapter",
     "ThreadNode",
     "build_adapter",

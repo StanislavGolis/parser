@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.models import ParseRun, Source
 from src.core.redis_client import redis_client
+from src.parsers import SourceAdapter, build_adapter
 
 # Источник, с которого начинался проект (его ключи и были «глобальными»)
 DEFAULT_SOURCE_CODE = "dvach"
@@ -203,6 +204,24 @@ async def list_sources(session: AsyncSession) -> List[Source]:
 async def get_source(session: AsyncSession, code: str) -> Optional[Source]:
     result = await session.execute(select(Source).where(Source.code == code))
     return result.scalar_one_or_none()
+
+
+def build_source_adapter(source: Source) -> SourceAdapter:
+    """Адаптер по строке реестра: код, адрес сайта и конфиг адаптера.
+
+    Одна точка для демона и админки: и цикл прогона, и разовые операции (список
+    разделов источника, сканирование каталога раздела) создают адаптер одинаково,
+    поэтому настройки из `sources.config` действуют везде.
+    """
+    config = dict(source.config or {})
+    options = {
+        key: value
+        for key, value in config.items()
+        # Служебные ключи конфига: адрес передаём отдельно, `boards`/`note` нужны
+        # планировщику и админке, а не адаптеру
+        if key not in ("base_url", "boards", "note")
+    }
+    return build_adapter(source.code, base_url=source.base_url or None, **options)
 
 
 async def ensure_source(

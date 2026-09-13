@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 import { PlusIcon, SpinnerIcon } from "@/components/icons";
-import { BoardsTable, ForumTab } from "@/components/AdminViews";
+import { BoardsTable, CatalogTab } from "@/components/AdminViews";
 import { ApiError, apiDelete, apiPatch, apiPost, apiSend } from "@/lib/api";
 import { useAdminToken } from "@/lib/adminAuth";
 import { formatBytes, formatNumber } from "@/lib/format";
@@ -13,7 +13,7 @@ import type {
   AdminBoard,
   AdminOverview,
   BackfillStatus,
-  ForumBoard,
+  SourceBoard,
   MediaCacheStats,
   ParserStatus,
   SourceInfo,
@@ -26,7 +26,7 @@ const PARSER_POLL_MS = 1000; // статус парсера (лёгкий зап
 const SOURCES_POLL_MS = 5000; // реестр источников — раз в 5 c
 const CACHE_POLL_MS = 10000; // состояние кэша медиа (обход каталога) — раз в 10 c
 
-type Tab = "boards" | "forum";
+type Tab = "boards" | "catalog";
 
 function errText(err: unknown): string {
   if (err instanceof ApiError && err.detail) return err.detail;
@@ -37,8 +37,8 @@ export default function AdminConsole() {
   const { token, logout } = useAdminToken();
   const [tab, setTab] = useState<Tab>("boards");
   const [overview, setOverview] = useState<AdminOverview | null>(null);
-  const [forum, setForum] = useState<ForumBoard[] | null>(null);
-  const [forumQuery, setForumQuery] = useState("");
+  const [catalog, setCatalog] = useState<SourceBoard[] | null>(null);
+  const [catalogQuery, setCatalogQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [rowError, setRowError] = useState<Record<string, string>>({});
@@ -48,7 +48,7 @@ export default function AdminConsole() {
   const [addError, setAddError] = useState<{ message: string; canForce: boolean; slug: string } | null>(
     null,
   );
-  const [forumError, setForumError] = useState<Record<string, { message: string; canForce: boolean }>>(
+  const [catalogError, setCatalogError] = useState<Record<string, { message: string; canForce: boolean }>>(
     {},
   );
   const [backfill, setBackfill] = useState<BackfillStatus | null>(null);
@@ -160,23 +160,34 @@ export default function AdminConsole() {
     return () => window.clearInterval(id);
   }, [token, loadParserStatus]);
 
-  const loadForum = useCallback(async () => {
-    if (!token) return;
-    setLoading(true);
-    setGlobalError(null);
-    try {
-      const data = await apiSend<ForumBoard[]>("/api/v1/admin/forum", { token });
-      setForum(data);
-    } catch (err) {
-      setGlobalError(errText(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [token]);
+  /** Разделы активного источника: что он предлагает завести (аналог «досок форума»). */
+  const loadCatalog = useCallback(
+    async (code: string) => {
+      if (!token) return;
+      setLoading(true);
+      setGlobalError(null);
+      try {
+        const data = await apiSend<SourceBoard[]>(
+          `/api/v1/admin/sources/${encodeURIComponent(code)}/catalog`,
+          { token },
+        );
+        setCatalog(data);
+      } catch (err) {
+        setGlobalError(errText(err));
+        setCatalog(null);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [token],
+  );
 
+  // Список разделов читаем при открытии вкладки и при смене источника (категории
+  // и доски меняются редко, поэтому без поллинга)
   useEffect(() => {
-    if (token && tab === "forum" && forum === null) void loadForum();
-  }, [token, tab, forum, loadForum]);
+    if (!token || tab !== "catalog" || !sourceCode) return;
+    void loadCatalog(sourceCode);
+  }, [token, tab, sourceCode, loadCatalog]);
 
   // Останавливаем поллинг бэкфилла при размонтировании
   useEffect(() => () => {
@@ -348,11 +359,11 @@ export default function AdminConsole() {
   }
 
   async function addBoard(slug: string, name?: string | null, force = false) {
-    if (!token || creating) return;
+    if (!token || creating || !activeSource) return;
     setCreating(true);
     setGlobalError(null);
     setAddError(null);
-    setForumError((prev) => {
+    setCatalogError((prev) => {
       const next = { ...prev };
       delete next[slug];
       return next;
@@ -360,22 +371,19 @@ export default function AdminConsole() {
     try {
       await apiPost<AdminBoard>(
         "/api/v1/admin/boards",
-        { slug, name: name ?? undefined, force },
+        // Источник обязателен: раздел попадает в его вкладку и обслуживается его адаптером
+        { slug, name: name ?? undefined, force, source: activeSource.code },
         token,
       );
       await loadOverview(token);
-      setForum((prev) =>
-        prev
-          ? prev.map((f) => (f.slug === slug ? { ...f, in_db: true, parse_enabled: false } : f))
-          : prev,
-      );
+      await loadCatalog(activeSource.code);
       setNewSlug("");
     } catch (err) {
-      // Ошибку показываем там, где нажали: у карточки раздела на «Досках форума»
-      // и рядом с формой «Добавить раздел» на «Моих разделах».
+      // Ошибку показываем там, где нажали: у карточки раздела в списке источника
+      // и рядом с формой «Добавить раздел».
       const canForce = err instanceof ApiError && err.canForce;
       const message = errText(err);
-      setForumError((prev) => ({ ...prev, [slug]: { message, canForce } }));
+      setCatalogError((prev) => ({ ...prev, [slug]: { message, canForce } }));
       if (!name) setAddError({ message, canForce, slug });
     } finally {
       setCreating(false);
@@ -438,28 +446,30 @@ export default function AdminConsole() {
               <span className="px-2 py-1.5 text-xs text-text-muted">источники…</span>
             ) : null}
           </div>
-          {activeSource?.code === "dvach" ? (
-            <div className="flex overflow-hidden rounded border border-line">
-              <button
-                type="button"
-                onClick={() => setTab("boards")}
-                className={`px-3 py-1.5 text-sm transition-colors ${
-                  tab === "boards" ? "bg-ink-tertiary text-accent-primary" : "text-text-secondary hover:text-white"
-                }`}
-              >
-                Мои разделы
-              </button>
-              <button
-                type="button"
-                onClick={() => setTab("forum")}
-                className={`px-3 py-1.5 text-sm transition-colors ${
-                  tab === "forum" ? "bg-ink-tertiary text-accent-primary" : "text-text-secondary hover:text-white"
-                }`}
-              >
-                Доски форума
-              </button>
-            </div>
-          ) : null}
+          {/* Два режима работы: свои разделы и список того, что предлагает источник.
+              Список читает адаптер источника (у 2ch — index.json, у сайтов —
+              категории), поэтому переключатель есть у любого источника */}
+          <div className="flex overflow-hidden rounded border border-line">
+            <button
+              type="button"
+              onClick={() => setTab("boards")}
+              className={`px-3 py-1.5 text-sm transition-colors ${
+                tab === "boards" ? "bg-ink-tertiary text-accent-primary" : "text-text-secondary hover:text-white"
+              }`}
+            >
+              Мои разделы
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("catalog")}
+              className={`px-3 py-1.5 text-sm transition-colors ${
+                tab === "catalog" ? "bg-ink-tertiary text-accent-primary" : "text-text-secondary hover:text-white"
+              }`}
+              title="Список разделов, которые предлагает источник: оттуда их добавляют в систему"
+            >
+              {activeSource?.kind === "html" ? "Разделы сайта" : "Доски форума"}
+            </button>
+          </div>
           <Link href="/admin/sources" className="btn-ghost px-3 py-1.5 text-xs" title="Реестр источников: расписание, лимиты, журнал прогонов">
             Источники →
           </Link>
@@ -604,7 +614,7 @@ export default function AdminConsole() {
         </div>
       ) : null}
 
-      {tab === "boards" || activeSource?.code !== "dvach" ? (
+      {tab === "boards" ? (
         <>
           {totals ? <TotalsBar totals={totals} /> : null}
           {activeSource ? (
@@ -617,56 +627,60 @@ export default function AdminConsole() {
             />
           ) : null}
 
-          {activeSource?.code === "dvach" ? (
-            <>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  // Принимаем и «hc», и «/hc», и ссылку — лишние слеши убираем сразу
-                  const slug = newSlug.trim().toLowerCase().replace(/^\/+|\/+$/g, "");
-                  if (slug) void addBoard(slug);
-                }}
-                className="my-5 flex flex-wrap items-center gap-2"
-              >
-                <input
-                  value={newSlug}
-                  onChange={(e) => setNewSlug(e.target.value)}
-                  placeholder="slug новой доски, например abc или /abc"
-                  className="w-56 rounded border border-line bg-ink-secondary px-3 py-2 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-accent-primary"
-                />
-                <button type="submit" disabled={creating || !newSlug.trim()} className="btn-ghost">
-                  {creating ? <SpinnerIcon className="h-4 w-4" /> : <PlusIcon className="h-4 w-4" />}
-                  Добавить раздел
-                </button>
-              </form>
+          <>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                // Принимаем и «hc», и «/hc», и ссылку — лишние слеши убираем сразу
+                const slug = newSlug.trim().toLowerCase().replace(/^\/+|\/+$/g, "");
+                if (slug) void addBoard(slug);
+              }}
+              className="my-5 flex flex-wrap items-center gap-2"
+            >
+              <input
+                value={newSlug}
+                onChange={(e) => setNewSlug(e.target.value)}
+                placeholder={
+                  activeSource?.kind === "html"
+                    ? "slug раздела источника, например slivach-modeli"
+                    : "slug новой доски, например abc или /abc"
+                }
+                className="w-56 rounded border border-line bg-ink-secondary px-3 py-2 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-accent-primary"
+              />
+              <button type="submit" disabled={creating || !newSlug.trim()} className="btn-ghost">
+                {creating ? <SpinnerIcon className="h-4 w-4" /> : <PlusIcon className="h-4 w-4" />}
+                Добавить раздел
+              </button>
+            </form>
 
-              {addError ? (
-                <div className="mb-5 rounded border border-accent-danger/30 bg-red-500/5 px-3 py-2 text-sm text-accent-danger">
-                  <div>{addError.message}</div>
-                  {addError.canForce ? (
-                    <button
-                      type="button"
-                      disabled={creating}
-                      onClick={() => void addBoard(addError.slug, undefined, true)}
-                      className="mt-2 rounded border border-line px-2.5 py-1.5 text-xs text-text-secondary transition-colors hover:text-text-primary"
-                      title="Раздел появится в списке с бейджем «каталог недоступен»; парситься он не будет, пока 2ch не откроет доступ"
-                    >
-                      Добавить всё равно
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
-            </>
-          ) : activeSource && activeSource.boards_total === 0 ? (
-            <p className="my-5 rounded border border-dashed border-line px-3 py-6 text-center text-sm text-text-secondary">
-              У источника «{activeSource.title || activeSource.code}» пока нет разделов: их заводит
-              парсер при первом прогоне (список досок — в конфиге источника на вкладке{" "}
-              <Link href="/admin/sources" className="text-accent-primary">
-                «Источники»
-              </Link>
-              ).
-            </p>
-          ) : null}
+            {addError ? (
+              <div className="mb-5 rounded border border-accent-danger/30 bg-red-500/5 px-3 py-2 text-sm text-accent-danger">
+                <div>{addError.message}</div>
+                {addError.canForce ? (
+                  <button
+                    type="button"
+                    disabled={creating}
+                    onClick={() => void addBoard(addError.slug, undefined, true)}
+                    className="mt-2 rounded border border-line px-2.5 py-1.5 text-xs text-text-secondary transition-colors hover:text-text-primary"
+                    title="Раздел появится в списке, но качаться не будет, пока источник не отдаст его каталог"
+                  >
+                    Добавить всё равно
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+
+            {activeSource && activeSource.boards_total === 0 ? (
+              <p className="my-5 rounded border border-dashed border-line px-3 py-6 text-center text-sm text-text-secondary">
+                Разделов пока нет. Откройте вкладку{" "}
+                <button type="button" onClick={() => setTab("catalog")} className="text-accent-primary">
+                  «{activeSource.kind === "html" ? "Разделы сайта" : "Доски форума"}»
+                </button>{" "}
+                и добавьте нужные: внутри раздела появится список «тредов» (у сайтов —
+                записей), и их тоже можно включать поштучно.
+              </p>
+            ) : null}
+          </>
 
           <BoardsTable
             boards={visibleBoards}
@@ -685,18 +699,22 @@ export default function AdminConsole() {
           />
         </>
       ) : (
-        <ForumTab
-          forum={forum}
+        <CatalogTab
+          items={catalog}
           loading={loading}
-          query={forumQuery}
-          onQuery={setForumQuery}
-          onRefresh={() => void loadForum()}
+          query={catalogQuery}
+          onQuery={setCatalogQuery}
+          onRefresh={() => {
+            if (sourceCode) void loadCatalog(sourceCode);
+          }}
           onAdd={addBoard}
           onRemove={async (slug) => {
             await removeBoard(slug);
-            setForum((prev) => (prev ? prev.map((f) => (f.slug === slug ? { ...f, in_db: false } : f)) : prev));
+            // Список перечитываем: у добавленного раздела появились счётчики
+            if (sourceCode) void loadCatalog(sourceCode);
           }}
-          addError={forumError}
+          addError={catalogError}
+          hintLabel={activeSource?.kind === "html" ? "записей на сайте" : "на форуме"}
         />
       )}
     </div>

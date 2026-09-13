@@ -15,7 +15,7 @@ import {
 import AdminBoardThreads from "@/components/AdminBoardThreads";
 import { Switch } from "@/components/Switch";
 import { formatNumber } from "@/lib/format";
-import type { AdminBoard, ForumBoard, ParserStatus } from "@/lib/types";
+import type { AdminBoard, ParserStatus, SourceBoard } from "@/lib/types";
 
 // Переключатель Switch вынесен в @/components/Switch (кругового импорта нет).
 
@@ -46,7 +46,7 @@ export function BoardsTable({
   if (!boards || boards.length === 0) {
     return (
       <p className="py-10 text-center text-sm text-text-secondary">
-        Разделов нет. Добавьте slug вручную выше или откройте «Доски форума».
+        Разделов нет. Добавьте slug вручную выше или откройте список разделов источника.
       </p>
     );
   }
@@ -348,8 +348,8 @@ function BoardRow({
   );
 }
 
-export function ForumTab({
-  forum,
+export function CatalogTab({
+  items,
   loading,
   query,
   onQuery,
@@ -357,8 +357,9 @@ export function ForumTab({
   onAdd,
   onRemove,
   addError,
+  hintLabel = "в источнике",
 }: {
-  forum: ForumBoard[] | null;
+  items: SourceBoard[] | null;
   loading: boolean;
   query: string;
   onQuery: (v: string) => void;
@@ -367,14 +368,16 @@ export function ForumTab({
   onRemove: (slug: string) => Promise<void>;
   /** Ошибки добавления по слагам: сообщение + можно ли добавить принудительно. */
   addError?: Record<string, { message: string; canForce: boolean }>;
+  /** Подпись счётчика источника: у 2ch это треды на форуме, у сайта — записей. */
+  hintLabel?: string;
 }) {
   const q = query.trim().toLowerCase();
-  const filtered = (forum ?? []).filter(
+  const filtered = (items ?? []).filter(
     (f) =>
       !q ||
       f.slug.includes(q) ||
       (f.name ?? "").toLowerCase().includes(q) ||
-      (f.category ?? "").toLowerCase().includes(q),
+      (f.group ?? "").toLowerCase().includes(q),
   );
 
   return (
@@ -383,26 +386,26 @@ export function ForumTab({
         <input
           value={query}
           onChange={(e) => onQuery(e.target.value)}
-          placeholder="Поиск по slug / названию / категории"
+          placeholder="Поиск по slug / названию / рубрике"
           className="w-72 rounded border border-line bg-ink-secondary px-3 py-2 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-accent-primary"
         />
         <button type="button" onClick={onRefresh} disabled={loading} className="btn-ghost">
           {loading ? <SpinnerIcon className="h-4 w-4" /> : null}
           Обновить список
         </button>
-        {forum ? (
+        {items ? (
           <span className="text-xs text-text-secondary">
-            Всего досок на форуме: {formatNumber(forum.length)} · показано:{" "}
+            Всего разделов: {formatNumber(items.length)} · показано:{" "}
             {formatNumber(filtered.length)}
           </span>
         ) : null}
       </div>
 
-      {loading && !forum ? (
-        <p className="py-8 text-center text-sm text-text-secondary">Сканируем доски форума…</p>
-      ) : forum === null ? (
+      {loading && !items ? (
+        <p className="py-8 text-center text-sm text-text-secondary">Запрашиваем разделы у источника…</p>
+      ) : items === null ? (
         <p className="py-8 text-center text-sm text-text-secondary">
-          Список досок форума недоступен (сервер не ответил).
+          Список разделов недоступен (сервер или источник не ответил).
         </p>
       ) : filtered.length === 0 ? (
         <p className="py-8 text-center text-sm text-text-secondary">Ничего не найдено.</p>
@@ -417,9 +420,9 @@ export function ForumTab({
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-semibold text-text-primary">/{f.slug}</span>
                   {f.name ? <span className="truncate text-sm text-text-secondary">{f.name}</span> : null}
-                  {f.category ? (
+                  {f.group ? (
                     <span className="rounded bg-ink-tertiary px-1.5 py-0.5 text-[10px] text-text-secondary">
-                      {f.category}
+                      {f.group}
                     </span>
                   ) : null}
                   {f.in_db ? (
@@ -433,7 +436,7 @@ export function ForumTab({
                   )}
                 </div>
                 <div className="mt-0.5 text-xs text-text-secondary">
-                  на форуме: {formatNumber(f.threads_on_forum)} тредов
+                  {f.hint > 0 ? `${hintLabel}: ${formatNumber(f.hint)} «тредов»` : null}
                   {f.in_db ? (
                     <>
                       {" "}
@@ -477,7 +480,7 @@ export function ForumTab({
                       type="button"
                       onClick={() => void onAdd(f.slug, f.name, true)}
                       className="mt-1 rounded border border-line px-2 py-1 text-[11px] text-text-secondary transition-colors hover:text-text-primary"
-                      title="Добавить раздел в список, даже если форум сейчас не отдаёт его каталог: парситься он не будет, пока 2ch не откроет доступ"
+                      title="Добавить раздел в список, даже если источник сейчас не отдаёт его список: парситься он не будет, пока раздел не подтвердится каталогом"
                     >
                       Добавить всё равно
                     </button>

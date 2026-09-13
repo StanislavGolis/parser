@@ -36,7 +36,7 @@ import aiohttp
 from selectolax.parser import HTMLParser
 
 from src.core.config import settings
-from src.parsers.base import CatalogResult, FileNode, ThreadNode
+from src.parsers.base import BoardNode, CatalogResult, FileNode, ThreadNode
 
 # Категории сайта (пункты меню). Используются, если в конфиге источника
 # (`sources.config["boards"]`) свой список не задан.
@@ -57,6 +57,7 @@ IMAGE_EXTS = (".webp", ".jpg", ".jpeg", ".png", ".gif")
 VIDEO_EXTS = (".mp4", ".webm")
 
 RECORD_RE = re.compile(r"^/([a-z0-9-]+-sliv)/?$")
+CATEGORY_RE = re.compile(r"/category/([a-z0-9-]+)/?$")
 COVER_TS_RE = re.compile(r"-(\d{14})-(\d+)-")
 DIMS_RE = re.compile(r"-(\d{3,5})x(\d{3,5})\.(?:webp|jpe?g|png|gif)$")
 # Одна и та же фотография лежит на сайте в нескольких размерах
@@ -86,9 +87,11 @@ class SlivachAdapter:
         # base_url приходит из реестра (`sources.base_url`): сайт переезжал между
         # доменами, поэтому адрес задаётся конфигом, а не зашит в код
         self.base_url = (base_url or self.BASE_URL).rstrip("/")
-        # Лимиты обхода (конфиг источника): страниц категории и записей на категорию
-        self.max_pages = max(1, int(max_pages))
-        self.max_records = max(0, int(max_records))  # 0 — без ограничения
+        # Лимиты обхода (конфиг источника): страниц категории и записей на категорию.
+        # `max_pages=0` — обходить всю пагинацию; `max_records=0` — все записи
+        # (сколько качать — решает админ: записи включаются поштучно).
+        self.max_pages = max(0, int(max_pages))
+        self.max_records = max(0, int(max_records))
         self.include_images = bool(include_images)
         self.include_video = bool(include_video)
         self.http_session: Optional[aiohttp.ClientSession] = None
@@ -113,6 +116,46 @@ class SlivachAdapter:
     def download_headers(self) -> Dict[str, str]:
         """Сайт отдаёт видео только с Referer (без него — 403)."""
         return {"Referer": f"{self.base_url}/"}
+
+    async def fetch_boards(self) -> Optional[List[BoardNode]]:
+        """Категории сайта — разделы источника для выбора в админке.
+
+        Список читаем из меню главной страницы, а не из константы: если сайт
+        добавит категорию, админка увидит её без правок кода. Если главная
+        отдалась, но ссылок на категории в ней нет (сайт поменял вёрстку),
+        отдаём известный список — разделы всё равно можно завести.
+        `None` — главная недоступна: это не ошибка прогона, а повод обновить позже.
+        """
+        html = await self._get_html(f"{self.base_url}/")
+        if html is None:
+            return None
+
+        tree = HTMLParser(html)
+        items: List[BoardNode] = []
+        seen: set[str] = set()
+        for anchor in tree.css("a[href]"):
+            found = CATEGORY_RE.search(anchor.attributes.get("href") or "")
+            if not found:
+                continue
+            category = found.group(1)
+            if category in seen:
+                continue
+            seen.add(category)
+            items.append(
+                BoardNode(
+                    slug=f"{self.code}-{category}",
+                    title=self._clean(anchor.text()),
+                    group="категория сайта",
+                )
+            )
+
+        if not items:
+            print("   [warn] В меню главной нет категорий — отдаю известный список")
+            items = [
+                BoardNode(slug=f"{self.code}-{category}", title=category, group="категория сайта")
+                for category in DEFAULT_CATEGORIES
+            ]
+        return items
 
     # ───────────────────────── HTTP и разбор ─────────────────────────
 
@@ -228,7 +271,9 @@ class SlivachAdapter:
             found = page_re.search(anchor.attributes.get("href") or "")
             if found:
                 last_page = max(last_page, int(found.group(1)))
-        last_page = min(last_page, self.max_pages)
+        # `max_pages=0` — обходить всю пагинацию категории
+        if self.max_pages > 0:
+            last_page = min(last_page, self.max_pages)
 
         threads: List[ThreadNode] = []
         seen: set[str] = set()

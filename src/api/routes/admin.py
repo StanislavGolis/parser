@@ -2,11 +2,12 @@
 """Админ-эндпоинты (защищены ADMIN_TOKEN): центр управления контентом.
 
 - GET  /admin/overview              — сводка по всем доскам + общие цифры (для polling)
-- GET  /admin/forum                 — все доски форума (index.json) + сопоставление с БД
+- GET  /admin/sources/{code}/catalog — разделы, которые предлагает источник (аналог «досок форума»)
 - GET  /admin/boards                — наши доски с флагами и статистикой
 - POST /admin/boards                — создать доску по slug
 - PATCH /admin/boards/{slug}        — обновить флаги и код доступа
 - GET  /admin/boards/{slug}/threads — треды доски со статистикой
+- POST /admin/boards/{slug}/scan    — прочитать каталог раздела («треды» без файлов)
 - POST /admin/boards/{slug}/toggle  — скрыть/показать доску
 - POST /admin/media/{id}/toggle     — скрыть/показать файл
 """
@@ -33,8 +34,8 @@ from src.api.schemas import (
     BoardCreate,
     BoardReorder,
     BoardUpdate,
-    ForumBoardOut,
     ResetResult,
+    SourceBoardOut,
     SourceUpdate,
     SystemTotals,
     ThreadBulkUpdate,
@@ -54,11 +55,13 @@ from src.api.threads_service import (
 )
 from src.core.db import async_session_factory, get_session
 from src.core.config import settings
-from src.core.models import Board, Media, ThreadState
+from src.core.models import Board, Media, Source, ThreadState
 from src.core.redis_client import redis_client
+from src.parsers import build_adapter
 from src.services.analytics import record_audit
 from src.services.catalog_health import catalog_errors, mark_catalog_error, mark_catalog_ok
 from src.services.media_cache import get_media_cache
+from src.services.media_validator import MediaValidator
 from src.services.s3_storage import S3Storage
 from src.services import sources as sources_service
 from src.services.derivatives import generate_and_upload
@@ -67,20 +70,20 @@ from src.services.premium import (
     sync_thread_media_premium,
     sync_threads_media_premium,
 )
-from src.services.thread_discovery import ThreadDiscovery, scan_key
+from src.services.scan_planner import ScanPlanner
+from src.services.thread_discovery import scan_key
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
 logger = logging.getLogger(__name__)
 
-SLUG_RE = re.compile(r"^[a-z0-9]{1,32}$")
+# Слаг раздела: латиница/цифры и дефис (у сайтов разделы вида `slivach-modeli`)
+SLUG_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$")
 
-# Полный список досок форума
-FORUM_INDEX_URL = "https://2ch.hk/index.json"
+# Проверка каталога доски 2ch при добавлении раздела вручную
 FORUM_CATALOG_URL = "https://2ch.hk/{slug}/catalog.json"
+FORUM_LABEL = "2ch"
 FORUM_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-FORUM_CACHE_TTL = 300  # 5 минут
-_forum_cache: Dict[str, object] = {}
 
 
 def _admin_out(
@@ -202,25 +205,20 @@ async def parser_stop(
     return {"ok": True, "enabled": False}
 
 
-async def _fetch_forum_boards() -> List[dict]:
-    """Список досок форума из 2ch index.json (с 5-минутным кэшем)."""
-    now = time.time()
-    cached = _forum_cache.get("boards")
-    if cached and now - float(_forum_cache.get("ts", 0)) < FORUM_CACHE_TTL:
-        return cached  # type: ignore[return-value]
+async def _dvach_board_slugs() -> set:
+    """Слаги досок 2ch из `index.json` (через адаптер — один источник правды).
 
-    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-        resp = await client.get(
-            FORUM_INDEX_URL,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; ParserBot/1.0)"},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-
-    boards = [b for b in (data.get("boards") or []) if b.get("id")]
-    _forum_cache["boards"] = boards
-    _forum_cache["ts"] = now
-    return boards
+    Нужны, чтобы отличить «доска есть в списке форума, но закрыта» от «такой
+    доски на форуме нет» при добавлении раздела вручную.
+    """
+    adapter = build_adapter(sources_service.DEFAULT_SOURCE_CODE)
+    try:
+        async with adapter:
+            nodes = await adapter.fetch_boards()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Не удалось получить index.json двача: %s", exc)
+        return set()
+    return {node.slug for node in (nodes or [])}
 
 
 async def _probe_board_catalog(slug: str) -> tuple:
@@ -233,10 +231,7 @@ async def _probe_board_catalog(slug: str) -> tuple:
     поэтому в тексте ошибки это различаем.
     """
     url = FORUM_CATALOG_URL.format(slug=slug)
-    try:
-        in_index = any(b.get("id") == slug for b in await _fetch_forum_boards())
-    except Exception:  # noqa: BLE001
-        in_index = False  # список форума недоступен — не мешаем проверке каталога
+    in_index = slug in await _dvach_board_slugs()
     try:
         async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
             resp = await client.get(url, headers={"User-Agent": FORUM_UA})
@@ -266,59 +261,103 @@ async def _probe_board_catalog(slug: str) -> tuple:
     return False, reason, in_index
 
 
-def _scan_error_text(slug: str, exc: Exception) -> str:
+def _scan_error_text(slug: str, exc: Exception, source_label: str = FORUM_LABEL) -> str:
     """Человеческий текст ошибки сканирования вместо сырого текста aiohttp."""
     if isinstance(exc, aiohttp.ClientResponseError):
         if exc.status == 404:
-            return f"Раздел /{slug} не найден на 2ch (404)"
+            return f"Раздел /{slug} не найден на источнике «{source_label}» (404)"
         if exc.status >= 500:
             return (
-                f"2ch ответил {exc.status} на каталог /{slug}: раздел удалён или "
-                f"недоступен (проверьте slug)"
+                f"Источник «{source_label}» ответил {exc.status} на каталог /{slug}: "
+                f"раздел удалён или недоступен (проверьте slug)"
             )
-        return f"2ch ответил {exc.status} на каталог /{slug}"
+        return f"Источник «{source_label}» ответил {exc.status} на каталог /{slug}"
     if isinstance(exc, asyncio.TimeoutError):
-        return "2ch не ответил вовремя (таймаут) — попробуйте ещё раз"
+        return f"Источник «{source_label}» не ответил вовремя (таймаут) — попробуйте ещё раз"
     if isinstance(exc, aiohttp.ClientError):
-        return f"Не удалось связаться с 2ch: {exc}"
+        return f"Не удалось связаться с источником «{source_label}»: {exc}"
     return str(exc) or exc.__class__.__name__
 
 
-@router.get("/forum", response_model=list[ForumBoardOut])
-async def admin_forum_boards(
+@router.get("/sources/{code}/catalog", response_model=List[SourceBoardOut])
+async def source_catalog(
+    code: str,
     _=Depends(verify_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Все доски форума (из index.json двача) с признаком «есть в нашей системе»."""
-    try:
-        forum_boards = await _fetch_forum_boards()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Не удалось получить index.json двача: %s", exc)
-        raise HTTPException(status_code=502, detail="Не удалось получить список досок форума")
+    """Разделы, которые предлагает источник, — «Доски форума» для любого источника.
 
-    db_result = await session.execute(select(Board))
-    db_boards = {b.slug: b for b in db_result.scalars().all()}
+    Список читает адаптер источника: у 2ch это `index.json`, у сайтов — своё меню
+    категорий. Админка показывает те разделы, которых ещё нет в системе, и
+    добавляет выбранные (`POST /admin/boards`): дальше раздел ведёт себя как
+    обычный — «Парсить» / «published» / «премиум», а внутри появляются «треды»
+    (у сайтов — записи), их тоже можно включать поштучно.
+    """
+    source = await _require_source(session, code)
+    adapter = sources_service.build_source_adapter(source)
+    try:
+        async with adapter:
+            nodes = await adapter.fetch_boards()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Источник %s не отдал список разделов: %s", code, exc)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Источник «{code}» не отдал список разделов: {exc}",
+        )
+    if nodes is None:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Источник «{code}» не отдал список разделов (сайт недоступен)",
+        )
+
+    db_boards = {
+        b.slug: b
+        for b in (
+            await session.execute(select(Board).where(Board.source_id == source.id))
+        )
+        .scalars()
+        .all()
+    }
     stats, _ = await collect_board_stats(session)
 
-    out = []
-    for fb in forum_boards:
-        slug = str(fb["id"])
-        board = db_boards.get(slug)
+    out: List[SourceBoardOut] = []
+    for node in nodes:
+        board = db_boards.get(node.slug)
         s = stats.get(board.id, {}) if board else {}
-        out.append(ForumBoardOut(
-            slug=slug,
-            name=fb.get("name"),
-            category=fb.get("category"),
-            threads_on_forum=int(fb.get("threads") or 0),
-            in_db=board is not None,
-            parse_enabled=board.parse_enabled if board else False,
-            is_visible=board.is_visible if board else False,
-            is_premium=board.is_premium if board else False,
-            media_total=int(s.get("media_total", 0)),
-            media_in_s3=int(s.get("media_in_s3", 0)),
-            threads_active=int(s.get("threads_active", 0)),
-        ))
+        out.append(
+            SourceBoardOut(
+                slug=node.slug,
+                name=node.title,
+                group=node.group,
+                hint=int(node.hint or 0),
+                in_db=board is not None,
+                parse_enabled=board.parse_enabled if board else False,
+                parse_mode=board.parse_mode if board else None,
+                is_visible=board.is_visible if board else False,
+                is_premium=board.is_premium if board else False,
+                media_total=int(s.get("media_total", 0)),
+                media_in_s3=int(s.get("media_in_s3", 0)),
+                threads_active=int(s.get("threads_active", 0)),
+            )
+        )
     return out
+
+
+async def _source_for_board(session: AsyncSession, board: Board) -> Source:
+    """Источник раздела: по `board.source_id`, а для старых досок — 2ch."""
+    if board.source_id:
+        source = (
+            await session.execute(select(Source).where(Source.id == board.source_id))
+        ).scalar_one_or_none()
+        if source is not None:
+            return source
+    source = await sources_service.get_source(session, sources_service.DEFAULT_SOURCE_CODE)
+    if source is None:
+        raise RuntimeError(
+            "Реестр источников пуст: нет даже источника "
+            f"«{sources_service.DEFAULT_SOURCE_CODE}»"
+        )
+    return source
 
 
 @router.get("/boards", response_model=list[AdminBoardOut])
@@ -403,7 +442,28 @@ async def create_board(
         if not ok:
             await mark_catalog_error(slug, f"раздел не читается: {reason}")
         print(f"[admin] раздел /{slug} добавлен принудительно (каталог: {'ок' if ok else reason})")
-    # Для остальных источников каталог проверяет их парсер при первом прогоне.
+    else:
+        # Остальные источники: раздел должен быть в списке, который предлагает
+        # сам источник (у сайтов это категории). Список не пришёл — не мешаем.
+        known = None
+        try:
+            async with sources_service.build_source_adapter(source) as adapter:
+                known = await adapter.fetch_boards()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Источник %s не отдал разделы при добавлении /%s: %s", source.code, slug, exc
+            )
+        if known and slug not in {node.slug for node in known} and not payload.force:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": (
+                        f"У источника «{source.code}» нет раздела «{slug}» — "
+                        f"обновите список разделов и выберите из него"
+                    ),
+                    "can_force": True,
+                },
+            )
 
     max_order = (await session.execute(select(func.max(Board.sort_order)))).scalar() or 0
     name = (payload.name or "").strip()
@@ -975,8 +1035,18 @@ async def delete_threads(
 
 
 async def _run_board_scan(slug: str, deep: bool = False) -> None:
-    """Фоновое сканирование каталога доски с записью прогресса в Redis."""
+    """Фоновое чтение каталога раздела: «треды» появляются до скачивания файлов.
+
+    Работает через адаптер источника, поэтому одинаково устроено для 2ch
+    (`catalog.json`) и для сайтов (страницы категории). Новые «треды» включаются
+    только у раздела с `parse_mode=all`: по умолчанию админ выбирает их вручную
+    (`selected`) — это и есть инструмент отбора записей/тредов.
+
+    `deep=true` дополнительно читает каждый «тред» и считает файлы, которые прошли
+    бы фильтры; медиа при этом **не скачивается**.
+    """
     key = scan_key(slug)
+    source_label = FORUM_LABEL
     try:
         async with async_session_factory() as session:
             board = (
@@ -984,40 +1054,86 @@ async def _run_board_scan(slug: str, deep: bool = False) -> None:
             ).scalar_one_or_none()
             if not board:
                 await redis_client.set(
-                    key, json.dumps({"status": "error", "error": "Board not found"}), ex=600
+                    key, json.dumps({"status": "error", "error": "Раздел не найден"}), ex=600
                 )
                 return
 
-            async def on_progress(phase: str, done: int, total: int) -> None:
-                await redis_client.set(
-                    key,
-                    json.dumps({"status": "running", "phase": phase, "total": total, "done": done}),
-                    ex=600,
-                )
+            source = await _source_for_board(session, board)
+            source_label = source.title or source.code
+            adapter = sources_service.build_source_adapter(source)
+            planner = ScanPlanner(session, adapter, source.code, source.id)
+            repo = planner.thread_state_repo
 
-            result = await ThreadDiscovery(session).discover(
-                board, on_progress=on_progress, deep=deep
-            )
+            files_total = 0
+            async with adapter:
+                before = len(await repo.get_all_by_board(board.id))
+                total = await planner.sync_board_catalog(slug)
+                if total is None:
+                    raise RuntimeError(f"каталог раздела /{slug} недоступен")
+
+                states = await repo.get_all_by_board(board.id)
+                created = max(0, len(states) - before)
+
+                if deep:
+                    await redis_client.set(
+                        key,
+                        json.dumps(
+                            {"status": "running", "phase": "files", "total": len(states), "done": 0}
+                        ),
+                        ex=600,
+                    )
+                    for i, state in enumerate(states, start=1):
+                        try:
+                            files = await adapter.fetch_thread_files(slug, state.external_id)
+                        except Exception as e:  # noqa: BLE001
+                            files = None
+                            print(f"   [warn] не удалось посчитать файлы «{state.external_id}»: {e}")
+                        if files is not None:
+                            count = sum(
+                                1
+                                for f in files
+                                if MediaValidator.is_allowed(
+                                    f.filename, f.size_bytes, f.media_type, f.width, f.height
+                                )[0]
+                            )
+                            state.files_detected = count
+                            files_total += count
+                        if i % 25 == 0:
+                            await session.commit()
+                            await redis_client.set(
+                                key,
+                                json.dumps(
+                                    {
+                                        "status": "running",
+                                        "phase": "files",
+                                        "total": len(states),
+                                        "done": i,
+                                    }
+                                ),
+                                ex=600,
+                            )
+                        await asyncio.sleep(settings.REQUEST_DELAY * 0.5)
+                    await session.commit()
+
         await mark_catalog_ok(slug)
-
         await redis_client.set(
             key,
             json.dumps(
                 {
                     "status": "done",
                     "phase": "files" if deep else "catalog",
-                    "total": result["total"],
-                    "done": result["total"],
-                    "created": result["created"],
-                    "updated": result["updated"],
-                    "files_total": result.get("files_total", 0),
+                    "total": total,
+                    "done": total,
+                    "created": created,
+                    "updated": max(0, int(total) - created),
+                    "files_total": files_total,
                 }
             ),
             ex=600,
         )
     except Exception as e:  # noqa: BLE001
         logger.exception("scan failed for /%s", slug)
-        text = _scan_error_text(slug, e)
+        text = _scan_error_text(slug, e, source_label)
         await mark_catalog_error(slug, text)
         await redis_client.set(key, json.dumps({"status": "error", "error": text}), ex=600)
 

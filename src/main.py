@@ -86,9 +86,9 @@ async def run_source_cycle(session: AsyncSession, source: Source) -> dict:
     print(f"\n[run] Источник {source.code} ({source.title or source.code}): цикл начат")
     config = source.config if isinstance(source.config, dict) else {}
     # Опции адаптера приходят из реестра (`sources.config`): базовый URL, отбор
-    # записей, селекторы/пагинация у сайтов. base_url передаём отдельно.
-    adapter_options = {k: v for k, v in config.items() if k != "base_url"}
-    adapter = build_adapter(source.code, base_url=source.base_url or None, **adapter_options)
+    # записей, селекторы/пагинация у сайтов. Тот же конструктор используют
+    # админка (список разделов, сканирование каталога) — настройки одни на всех.
+    adapter = sources_service.build_source_adapter(source)
     planner = ScanPlanner(
         session,
         adapter,
