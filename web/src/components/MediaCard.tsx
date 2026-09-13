@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+import Link from "next/link";
+
 import MarkButton from "@/components/MarkButton";
 import {
   EyeIcon,
@@ -59,13 +61,22 @@ export default function MediaCard({ media, board, showTop = false, eager = false
   const locked = isLocked(media);
 
   return (
-    <div className="group relative">
-      <button
-        type="button"
-        onClick={onOpen}
-        aria-label={`Открыть: ${media.original_name}`}
-        className="block w-full cursor-pointer rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
-      >
+    <div
+      // Клик по карточке открывает лайтбокс, ссылки внутри (раздел/тред) —
+      // переходят на свои страницы: так у карточки есть и «открыть», и адрес.
+      className="group relative cursor-pointer"
+      role="button"
+      tabIndex={0}
+      aria-label={`Открыть: ${media.original_name}`}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+    >
+      <span className="block w-full text-left outline-none">
         {/* Превью */}
         <span
           className="relative block w-full overflow-hidden rounded border border-line bg-ink-secondary transition-colors duration-150 group-hover:border-accent-primary"
@@ -181,7 +192,33 @@ export default function MediaCard({ media, board, showTop = false, eager = false
         {/* Метаданные (mono) */}
         <span className="mt-1.5 block px-0.5">
           <span className="block truncate font-mono text-[11px] text-text-muted" title={media.original_name}>
-            {board ? `/${board.slug}` : `#${media.board_id}`} · {media.original_name}
+            {board ? (
+              <>
+                {/* Точное расположение: раздел / тред — и то и другое кликабельно */}
+                <Link
+                  href={`/board/${board.slug}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="transition-colors hover:text-accent-primary"
+                  title={`Раздел /${board.slug}`}
+                >
+                  /{board.slug}
+                </Link>
+                <span className="text-text-muted">/</span>
+                <Link
+                  href={`/board/${board.slug}?thread=${media.thread_id}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="transition-colors hover:text-accent-primary"
+                  title={`Открыть тред №${media.thread_id} в разделе /${board.slug}`}
+                >
+                  {media.thread_id}
+                </Link>
+              </>
+            ) : (
+              <span>
+                #{media.board_id}/{media.thread_id}
+              </span>
+            )}
+            <span className="text-text-muted"> · {media.original_name}</span>
           </span>
           <span className="mt-0.5 flex items-center justify-between font-mono text-[11px] text-text-muted">
             <span>
@@ -194,7 +231,7 @@ export default function MediaCard({ media, board, showTop = false, eager = false
             </span>
           </span>
         </span>
-      </button>
+      </span>
 
       {/* Метка — поверх превью; клик не открывает lightbox */}
       <span className="absolute right-1.5 top-1.5 z-10 flex items-center gap-1">

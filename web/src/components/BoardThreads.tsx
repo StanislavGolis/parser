@@ -32,6 +32,8 @@ interface BoardThreadsProps {
   initial: ThreadList;
   /** Порядок тредов из URL (`?sort=`): new | files | posts | views. */
   sort?: string;
+  /** Тред из ссылки (`?thread=…`): открываем его сразу — из ленты, меток, топа. */
+  initialThreadId?: number | null;
 }
 
 /** Варианты сортировки тредов внутри раздела. */
@@ -46,7 +48,12 @@ const SORTS: Array<{ value: string; label: string; title: string }> = [
  * Доска в виде «список тредов → их файлы».
  * Кнопка открытия треда догружает все файлы треда и открывает Lightbox.
  */
-export default function BoardThreads({ slug, initial, sort: initialSort = "new" }: BoardThreadsProps) {
+export default function BoardThreads({
+  slug,
+  initial,
+  sort: initialSort = "new",
+  initialThreadId = null,
+}: BoardThreadsProps) {
   const [sort, setSort] = useState(initialSort);
   const [threads, setThreads] = useState<BoardThread[]>(initial.items);
   const [page, setPage] = useState(initial.page);
@@ -219,6 +226,25 @@ export default function BoardThreads({ slug, initial, sort: initialSort = "new" 
     }
   }
 
+  // Ссылка вида `/board/gg?thread=2306409` (из ленты, меток, топа, поиска):
+  // сразу открываем этот тред в лайтбоксе — зритель попадает точно в место,
+  // которое указано на карточке медиа.
+  useEffect(() => {
+    if (!initialThreadId) return;
+    void openThread(initialThreadId);
+    // openThread объявлена ниже как function-декларация (поднимается), зависимостей нет
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialThreadId]);
+
+  /** Убирает `?thread=` из адреса: после закрытия лайтбокса это уже не точка входа. */
+  const dropThreadParam = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("thread")) return;
+    url.searchParams.delete("thread");
+    window.history.replaceState(null, "", url.toString());
+  }, []);
+
   if (threads.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-neutral-800 py-20 text-center">
@@ -305,6 +331,8 @@ export default function BoardThreads({ slug, initial, sort: initialSort = "new" 
           onClose={() => {
             setLightbox(null);
             setResumes(readResumes());
+            // `?thread=` больше не нужен: закрыли — значит ссылка отработала
+            dropThreadParam();
           }}
           onPrev={() =>
             setLightbox((lb) =>

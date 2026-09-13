@@ -216,13 +216,19 @@ async def list_threads(
     # Сортировка публичного списка. «По файлам» считаем по фактически видимым
     # файлам треда (дубли-ссылки не в счёт) — это то, что зритель увидит на
     # карточке, а не число файлов из каталога источника.
+    #
+    # «Свежие» — по времени **последнего файла треда** (когда тред реально
+    # пополнился), а не по дате треда у источника: иначе обновлённый тред с
+    # новыми файлами мог стоять ниже старых (дата создания треда не меняется).
+    # Если файлов нет вовсе — берём дату треда.
     query = select(ThreadState).where(*filters)
-    if sort == "files":
+    if sort in ("new", "files"):
         counts = (
             select(
                 Media.board_id.label("board_id"),
                 Media.thread_id.label("thread_id"),
                 func.count(Media.id).label("files_cnt"),
+                func.max(Media.created_at).label("last_media_at"),
             )
             .where(
                 Media.is_visible.is_(True),
@@ -239,7 +245,14 @@ async def list_threads(
                 counts.c.thread_id == ThreadState.thread_id,
             ),
         )
-        order_by.append(func.coalesce(counts.c.files_cnt, 0).desc())
+        if sort == "files":
+            order_by.append(func.coalesce(counts.c.files_cnt, 0).desc())
+        else:
+            order_by.append(
+                func.coalesce(counts.c.last_media_at, ThreadState.thread_timestamp)
+                .desc()
+                .nullslast()
+            )
     elif sort == "posts":
         order_by.append(ThreadState.posts_count.desc())
     elif sort == "views":

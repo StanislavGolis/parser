@@ -14,7 +14,7 @@ const PER_PAGE = 15;
 
 interface BoardPageProps {
   params: { slug: string };
-  searchParams: { sort?: string | string[] };
+  searchParams: { sort?: string | string[]; thread?: string | string[] };
 }
 
 export async function generateMetadata({ params }: BoardPageProps): Promise<Metadata> {
@@ -34,6 +34,9 @@ export default async function BoardPage({ params, searchParams }: BoardPageProps
   // `?sort=files` — порядок тредов по числу файлов (плюс варианты posts/views)
   const rawSort = Array.isArray(searchParams?.sort) ? searchParams.sort[0] : searchParams?.sort;
   const sort = ["new", "files", "posts", "views"].includes(rawSort ?? "") ? String(rawSort) : "new";
+  // `?thread=…` — пришли по ссылке из ленты/меток/топа: открываем этот тред
+  const rawThread = Array.isArray(searchParams?.thread) ? searchParams.thread[0] : searchParams?.thread;
+  const threadId = rawThread && /^\d+$/.test(String(rawThread)) ? Number(rawThread) : null;
 
   const [boards] = await Promise.all([getBoards()]);
   const board = boards.find((b) => b.slug === slug);
@@ -49,7 +52,7 @@ export default async function BoardPage({ params, searchParams }: BoardPageProps
   return (
     <div className="py-6 sm:py-8">
       <BoardHeader board={board} slug={slug} threadsTotal={list.total} />
-      <BoardThreads slug={slug} initial={list} sort={sort} />
+      <BoardThreads slug={slug} initial={list} sort={sort} initialThreadId={threadId} />
     </div>
   );
 }
