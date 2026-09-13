@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     DB_COMMIT_EVERY_FILES: int = 25
 
     # Сверка данных (reconciliation)
-    RECONCILE_MINUTES: int = 60  # период сверки БД ↔ хранилище, 0 = только при старте
+    RECONCILE_MINUTES: int = 60  # период сверки БД ↔ хранилище; 0 — только при старте, −1 — не делать (сверку ведёт один контейнер, см. docker-compose.prod.yml)
 
     # Гигиена обхода тредов (чтобы не было «забытых» тредов)
     DEAD_THREAD_AFTER_MISSES: int = 3  # столько проходов каталога подряд без треда → is_active=False

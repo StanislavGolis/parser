@@ -1,6 +1,9 @@
 # Деплой (этап 7) — docker-compose.prod.yml
 
-Единый стек: `postgres` + `redis` + `migrate` + `parser` + `api` + `web` + `nginx`.
+Единый стек: `postgres` + `redis` + `migrate` + `parser-dvach` + `parser-slivach` +
+`api` + `web` + `nginx`. Парсеры — **контейнер на источник** (`PARSER_SOURCE`): у
+каждого источника свой процесс со своими логами, рестартами, лимитами и
+расписанием, поэтому пауза/сбой одного не затрагивает остальные.
 Работает одинаково локально (тест «в один клик») и на VPS.
 
 ## Локальный запуск
@@ -23,7 +26,7 @@ API отдаёт их через прокси `/api/v1/media/{id}/raw`) и `ADMI
 ```bash
 docker compose -f docker-compose.prod.yml ps          # статус
 docker compose -f docker-compose.prod.yml logs -f api
-docker compose -f docker-compose.prod.yml logs -f parser
+docker compose -f docker-compose.prod.yml logs -f parser-dvach
 docker compose -f docker-compose.prod.yml down         # остановить
 docker compose -f docker-compose.prod.yml down -v      # остановить + удалить данные (БД/медиа)
 ```
@@ -282,8 +285,8 @@ git-истории (`git filter-repo`), отключение входа по п�
 | Автообновления | `unattended-upgrades` (`/etc/apt/apt.conf.d/20auto-upgrades`) | патчи безопасности ставятся автоматически |
 | Логи docker | `docker-compose.prod.yml` + `/etc/docker/daemon.json` | `json-file`, `max-size=10m`, `max-file=3` — даже при отладке диск не забьётся |
 | Кэш медиа | том `mediacache`, `/data/cache` | лимит 40 ГБ, LRU; прогревается из админки («Прогреть кэш») и автоматически (парсер отдаёт туда скачанные файлы). Мониторится в карточке «Кэш медиа на диске»; при росте библиотеки лимит поднять в `MEDIA_CACHE_MAX_BYTES` |
-| Просмотр | `docker compose -f docker-compose.prod.yml logs -f api\|parser` | `tail -f /var/log/dredge-health.log` — журнал проверок |
-| Обновление кода | `cd /opt/dredge && git pull && docker compose -f docker-compose.prod.yml up -d --build` | не забыть про общий образ `parser-backend` (см. «Примечания») |
+| Просмотр | `docker compose -f docker-compose.prod.yml logs -f api\|parser-dvach\|parser-slivach` | `tail -f /var/log/dredge-health.log` — журнал проверок |
+| Обновление кода | `cd /opt/dredge && git pull && docker compose -f docker-compose.prod.yml up -d --build` | не забыть про общий образ `parser-backend` (см. «Примечания»); после перехода на контейнер на источник добавлять `--remove-orphans` |
 
 ### 11. Доступ в админку и восстановление пароля
 
@@ -359,11 +362,12 @@ print(asyncio.run(mailer.send_mail('shksns35@gmail.com', 'DREDGE: проверк
 - Наружу открыт только `nginx` (порт `HTTP_PORT`). PostgreSQL/Redis наружу
   не пробрасываются.
 - Данные (тома `pgdata`, `media`) переживают перезапуск; `down -v` удаляет их.
-- **Код общий для `api`, `parser` и `migrate`** (образ `parser-backend:local`).
-  `build:` объявлен только у сервиса `api`, поэтому `up -d --build parser`
-  код НЕ пересобирает (только пересоздаёт контейнер из старого образа).
-  Чтобы обновить парсер: `docker compose -f docker-compose.prod.yml up -d --build`
-  (весь стек) или `up -d --build api parser`.
+- **Код общий для `api`, `parser-dvach`, `parser-slivach` и `migrate`** (образ
+  `parser-backend:local`). `build:` объявлен только у сервиса `api`, поэтому
+  `up -d --build parser-dvach` код НЕ пересобирает (только пересоздаёт контейнер
+  из старого образа). Чтобы обновить парсеры:
+  `docker compose -f docker-compose.prod.yml up -d --build` (весь стек) или
+  `up -d --build api parser-dvach parser-slivach`.
 - Парсер коммитит БД после каждого треда и каждые `DB_COMMIT_EVERY_FILES`
   файлов внутри треда (дефолт 25, `0` — только по завершении треда): частичный
   прогресс сразу виден на сайте и в статистике, а рестарт теряет максимум пачку
@@ -425,29 +429,79 @@ docker compose -f docker-compose.prod.yml exec -T web \
 - [ ] `robots.txt` и `sitemap.xml` отдаются, canonical в HTML указывает на `https://dredg.ru`;
 - [ ] в заголовках нет версии nginx и `X-Powered-By`; `www` редиректит на основной домен;
 - [ ] в бандле web есть «продолжить» (точка возврата треда, localStorage) и
-      «сортировка: файлов ↓» в каталоге разделов.
+      «сортировка: файлов ↓» в каталоге разделов;
+- [ ] `docker compose ps` показывает `parser-dvach` и `parser-slivach`,
+      контейнера `parser` нет; ключи `parser:{code}:*` живые, `parse_runs` пополняется.
+
+## Переход на контейнер на источник (этап 3)
+
+Раньше парсер был одним сервисом `parser`. Теперь на каждый источник свой
+контейнер (`parser-dvach`, `parser-slivach`) из того же образа.
+
+**Важно:** старый контейнер `parser` надо остановить и удалить, иначе он
+продолжит качать 2ch параллельно с `parser-dvach` (двойная нагрузка и гонки).
+`docker compose up` сам его не уберёт — нужен `--remove-orphans`.
+
+```bash
+cd /opt/dredge
+git pull                        # или git fetch <bundle> && git merge --ff-only FETCH_HEAD
+docker compose -f docker-compose.prod.yml stop parser || true
+docker compose -f docker-compose.prod.yml rm -f parser || true
+docker compose -f docker-compose.prod.yml up -d --remove-orphans --build \
+  postgres redis migrate api web nginx parser-dvach parser-slivach
+docker compose -f docker-compose.prod.yml ps          # parser быть НЕ должно
+
+# проверка: контейнеры по источникам живы, у каждого свои ключи
+docker compose -f docker-compose.prod.yml logs --tail 20 parser-dvach
+docker compose -f docker-compose.prod.yml logs --tail 20 parser-slivach
+docker compose -f docker-compose.prod.yml exec redis redis-cli --scan --pattern 'parser*'
+```
+
+Ожидаемая картина после перехода:
+
+- `parser-dvach` — работает (в логах `Источник dvach … цикл начат`), ключи
+  `parser:dvach:*`, старые ключи `parser:*` заполняются как зеркало;
+- `parser-slivach` — поднят, но простаивает: в логах
+  `[warn] Нет адаптера для источника: slivach … простаиваю` (адаптер появится на
+  этапе 5) либо `[pause] Нет запущенных источников (источник slivach) …` — это
+  нормальное состояние;
+- журнал прогонов: `select id, status, stats from parse_runs order by id desc limit 5;`
+  — записи `ok`/`stopped` с итогами, оборванные рестартом закрываются как `error`.
 
 ## Диагностика
 
-**`up -d --build parser` не обновляет код парсера.** `api`, `parser` и `migrate`
-используют общий образ `parser-backend:local`, а `build:` объявлен только у `api`.
-Собирать так:
+**`up -d --build parser-dvach` не обновляет код парсера.** `api`, `parser-dvach`,
+`parser-slivach` и `migrate` используют общий образ `parser-backend:local`,
+а `build:` объявлен только у `api`. Собирать так:
 
 ```bash
-docker compose -f docker-compose.prod.yml up -d --build              # весь стек
-docker compose -f docker-compose.prod.yml up -d --build api parser   # api пересоберёт образ
+docker compose -f docker-compose.prod.yml up -d --build                    # весь стек
+docker compose -f docker-compose.prod.yml up -d --build api parser-dvach parser-slivach
 # проверка, что код внутри свежий:
-docker compose -f docker-compose.prod.yml exec parser python -c \
+docker compose -f docker-compose.prod.yml exec parser-dvach python -c \
   "import src.core.config as c; print(c.settings.DB_COMMIT_EVERY_FILES)"
+```
+
+**Два процесса качают один источник** (после перехода на контейнер на источник
+остался старый контейнер `parser`): в логах видно дубли `[down] Скачиваем ...`
+одного и того же файла, в `parse_runs` — две записи `running` на один источник.
+Лечится удалением осиротевшего контейнера:
+
+```bash
+docker compose -f docker-compose.prod.yml stop parser && docker rm parser
+docker compose -f docker-compose.prod.yml up -d --remove-orphans --build
 ```
 
 **Застрял статус `running` в Redis** (парсер/бэкфилл прерваны рестартом):
 
 ```bash
-docker compose -f docker-compose.prod.yml exec redis redis-cli get parser:progress
-docker compose -f docker-compose.prod.yml exec redis redis-cli del parser:progress
+docker compose -f docker-compose.prod.yml exec redis redis-cli get parser:dvach:progress
+docker compose -f docker-compose.prod.yml exec redis redis-cli del parser:dvach:progress
 docker compose -f docker-compose.prod.yml exec redis redis-cli del backfill:variants
 ```
+
+> У каждого источника свой прогресс (`parser:{code}:progress`); ключ `parser:progress`
+> без префикса — зеркало источника `dvach` (нужен текущей админке).
 
 `backfill:variants` со статусом `running` блокирует кнопку «Оптимизировать медиа»
 до истечения TTL (2 ч); удаление ключа разблокирует её, прогон безопасно

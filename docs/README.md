@@ -218,7 +218,8 @@ docker compose -f docker-compose.prod.yml up -d --build
 |---|---|---|
 | `nginx` | точка входа: `/api/*` → api, `/` → web, дисковый кэш деривативов | `nginx:1.27-alpine` |
 | `api` | FastAPI (публичные + админ + auth) | `parser-backend:local` |
-| `parser` | демон парсинга (включается флагом из админки) | `parser-backend:local` |
+| `parser-dvach` | прогон источника 2ch (`PARSER_SOURCE=dvach`) | `parser-backend:local` |
+| `parser-slivach` | прогон источника slivach (`PARSER_SOURCE=slivach`) | тот же образ |
 | `migrate` | `alembic upgrade head`, затем завершается | `parser-backend:local` |
 | `web` | Next.js 14 (SSR + статика) | `parser-web:local` |
 | `postgres`, `redis` | БД и состояние/лимиты/прогресс | официальные образы |
@@ -325,6 +326,13 @@ S3 у провайдера отдаёт ~3 МБ/с (4 потока — ~8 МБ/�
   + флаг прогона `parser:{code}:enabled`, кнопка в админке источника); heartbeat
   `parser:{code}:up` / `:alive` / `:current` (TTL 45–60 с). Прогоны независимы:
   остановка одного источника не трогает остальные, ошибка одного не роняет демон.
+- В проде **на каждый источник свой контейнер** из одного образа:
+  `PARSER_SOURCE=dvach` / `PARSER_SOURCE=slivach` (см. `docker-compose.prod.yml`).
+  Процесс трогает только свой источник, поэтому у контейнеров независимые
+  рестарты, логи, лимиты (`deploy.resources.limits`) и расписание (`PARSE_INTERVAL`
+  задаётся каждому свой). Без `PARSER_SOURCE` (локально) один процесс обслуживает
+  все источники с адаптером. Сверку данных (reconciliation) ведёт ровно один
+  контейнер: у 2ch `RECONCILE_MINUTES=60`, у остальных `-1`.
 - **Адаптер источника** (`src/parsers/base.py`, реализация — `parsers/dvach.py`)
   знает только свой сайт: каталог → «треды» (`ThreadNode`) и файлы «треда»
   (`FileNode`, у 2ch с md5/размером до скачивания). Реестр адаптеров —
@@ -800,9 +808,14 @@ DELETE /api/v1/admin/reset                           полный сброс (Б
    Новая проверка — `test_pipeline.py`: полный цикл на локальных фикстурах
    (каталог → план → скан → БД → `parse_runs`), изоляция источников и заголовки
    скачивания.
-3. Целевое состояние по изоляции: **контейнер на источник** (`parser-dvach`,
-   `parser-slivach`, один образ, `PARSER_SOURCE=…`) — независимые рестарты,
-   лимиты, расписание и логи; очередь по-прежнему в БД (`threads_state.pending_scan`).
+3. ~~Контейнер на источник~~ — сделано: в compose вместо одного `parser` два
+   сервиса из общего образа (`parser-dvach`, `parser-slivach`) с
+   `PARSER_SOURCE=…`, независимыми рестартами, логами и лимитами
+   (`deploy.resources.limits`); фильтр источников в процессе —
+   `sources_for_run()` (юнит-проверки в `test_pipeline.py`). Переход на VPS:
+   остановить и удалить старый контейнер `parser`, поднять стек с
+   `--remove-orphans` (иначе старый процесс продолжит качать 2ch параллельно) —
+   см. `DEPLOY.md` §«Переход на контейнер на источник».
 4. Админка: вкладки по источникам внутри «Контента» (строятся из
    `GET /admin/sources`) + отдельная вкладка «Источники» (реестр), панели
    `DvachPanel` / `SlivachPanel` / `SourcesPanel`, каркас без 2ch-специфики.

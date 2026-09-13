@@ -11,10 +11,11 @@
 `ok` (цикл дошёл до конца), `stopped` (остановили кнопкой в админке), `error`.
 """
 import asyncio
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -24,13 +25,17 @@ from sqlalchemy.orm import sessionmaker
 from src.core.config import settings
 from src.core.models import Source
 from src.core.redis_client import redis_client
-from src.parsers import build_adapter
+from src.parsers import ADAPTERS, build_adapter
 from src.services import sources as sources_service
 from src.services.scan_planner import ScanPlanner
 
 HEARTBEAT_INTERVAL = 15  # секунд между обновлениями ключей живости
-# Доски источника из окружения (историческая настройка 2ch; у остальных источников
-# список досок живёт в `sources.config["boards"]`)
+# Какой источник обслуживает этот процесс. Пусто — все включённые источники
+# (удобно локально); в проде у каждого источника свой контейнер:
+# `PARSER_SOURCE=dvach` / `PARSER_SOURCE=slivach` (см. docker-compose.prod.yml).
+ONLY_SOURCE = (os.getenv("PARSER_SOURCE") or "").strip() or None
+# Доски источника из окружения (историческая настройка 2ch; у сайтов список досок
+# живёт в `sources.config["boards"]`)
 ENV_BOARDS = {"dvach": settings.BOARDS_TO_PARSE}
 
 # Текущая доска каждого источника — читается heartbeat-таском
@@ -79,7 +84,11 @@ async def run_source_cycle(session: AsyncSession, source: Source) -> dict:
     прогон закрывается статусом `error`.
     """
     print(f"\n[run] Источник {source.code} ({source.title or source.code}): цикл начат")
-    adapter = build_adapter(source.code, base_url=source.base_url or None)
+    config = source.config if isinstance(source.config, dict) else {}
+    # Опции адаптера приходят из реестра (`sources.config`): базовый URL, отбор
+    # записей, селекторы/пагинация у сайтов. base_url передаём отдельно.
+    adapter_options = {k: v for k, v in config.items() if k != "base_url"}
+    adapter = build_adapter(source.code, base_url=source.base_url or None, **adapter_options)
     planner = ScanPlanner(
         session,
         adapter,
@@ -103,9 +112,11 @@ async def run_source_cycle(session: AsyncSession, source: Source) -> dict:
 
     await adapter.__aenter__()
     try:
-        # Доски, заданные конфигурацией источника (только при первом запуске)
-        if source.code in ENV_BOARDS:
-            await planner.ensure_configured_boards(ENV_BOARDS[source.code])
+        # Доски, заданные конфигурацией источника (только при первом запуске):
+        # у 2ch это BOARDS_TO_PARSE, у сайтов — `sources.config["boards"]`
+        slugs = ENV_BOARDS.get(source.code) or list(config.get("boards") or [])
+        if slugs:
+            await planner.ensure_configured_boards([str(slug) for slug in slugs])
 
         # Фаза A: каталоги всех парсируемых досок источника → очередь в БД
         plan = await planner.build_scan_plan()
@@ -171,14 +182,30 @@ async def _source_can_run(source: Source) -> bool:
     return await sources_service.is_enabled(source.code)
 
 
+def sources_for_run(all_sources: List[Source]) -> Tuple[List[Source], List[str]]:
+    """Отбирает источники для этого процесса.
+
+    Возвращает (источники к прогону, коды источников без адаптера). Фильтр
+    `PARSER_SOURCE` — это и есть «контейнер на источник»: процесс трогает только
+    свой источник, поэтому прогоны не мешают друг другу. Без `PARSER_SOURCE`
+    (локальная разработка) обслуживаются все источники, у которых есть адаптер.
+    """
+    candidates = [s for s in all_sources if ONLY_SOURCE is None or s.code == ONLY_SOURCE]
+    ready = [s for s in candidates if s.code in ADAPTERS]
+    unknown = [s.code for s in candidates if s.code not in ADAPTERS]
+    return ready, unknown
+
+
 async def main() -> None:
-    print("[run] Запуск парсера-демона (источники из реестра)...")
+    role = f"источник {ONLY_SOURCE}" if ONLY_SOURCE else "все включённые источники"
+    print(f"[run] Запуск парсера-демона ({role})...")
     print(f"[dir] Хранилище: {settings.STORAGE_PATH}")
     print("[info] Парсинг управляется из админки: у каждого источника своя кнопка")
     print("-" * 50)
 
     async_session = await init_db()
     last_reconcile: Optional[datetime] = None
+    warned_unknown = False
 
     # Гигиена журнала: прогоны, оборванные прошлым перезапуском, не должны висеть
     async with async_session() as session:
@@ -194,11 +221,29 @@ async def main() -> None:
                 async with async_session() as session:
                     all_sources = await sources_service.list_sources(session)
 
-                enabled = [s for s in all_sources if await _source_can_run(s)]
+                ready, unknown = sources_for_run(all_sources)
+                if unknown and not warned_unknown:
+                    # Адаптера нет — этап разработки источника: контейнер простаивает
+                    print(
+                        f"[warn] Нет адаптера для источника: {', '.join(unknown)} "
+                        f"(см. src/parsers/__init__.py) — простаиваю"
+                    )
+                    warned_unknown = True
+                if ONLY_SOURCE and not ready:
+                    print(
+                        f"[pause] Источник {ONLY_SOURCE} не описан в реестре "
+                        f"(или у него нет адаптера) — жду настройки в админке..."
+                    )
+                    await asyncio.sleep(30)
+                    continue
+
+                enabled = [s for s in ready if await _source_can_run(s)]
                 if not enabled:
                     # На паузе: ничего не парсим, ждём кнопку в админке
                     last_reconcile = None  # при запуске снова сделаем сверку
-                    print("[pause] Нет запущенных источников (жду команды из админки)...")
+                    print(
+                        f"[pause] Нет запущенных источников ({role}) — жду команды из админки..."
+                    )
                     await asyncio.sleep(5)
                     continue
 
@@ -210,25 +255,30 @@ async def main() -> None:
                     async with async_session() as session:
                         await run_source_cycle(session, source)
 
-                # Периодическая сверка данных (общая: БД ↔ локальный кэш ↔ S3)
-                due = last_reconcile is None or (
-                    settings.RECONCILE_MINUTES > 0
-                    and (datetime.utcnow() - last_reconcile).total_seconds() / 60
-                    >= settings.RECONCILE_MINUTES
-                )
-                if settings.RECONCILE_MINUTES >= 0 and due:
-                    source = enabled[0]
-                    async with async_session() as session:
-                        adapter = build_adapter(source.code, base_url=source.base_url or None)
-                        planner = ScanPlanner(
-                            session, adapter, source.code, source_id=source.id
-                        )
-                        await adapter.__aenter__()
-                        try:
-                            await planner.run_reconciliation()
-                        finally:
-                            await adapter.__aexit__(None, None, None)
-                    last_reconcile = datetime.utcnow()
+                # Сверка данных (общая: БД ↔ локальный кэш ↔ S3). Её выполняет ровно
+                # один контейнер: у «своего» источника RECONCILE_MINUTES >= 0,
+                # у остальных −1 (см. docker-compose.prod.yml).
+                if settings.RECONCILE_MINUTES >= 0:
+                    due = last_reconcile is None or (
+                        settings.RECONCILE_MINUTES > 0
+                        and (datetime.utcnow() - last_reconcile).total_seconds() / 60
+                        >= settings.RECONCILE_MINUTES
+                    )
+                    if due:
+                        source = enabled[0]
+                        async with async_session() as session:
+                            adapter = build_adapter(
+                                source.code, base_url=source.base_url or None
+                            )
+                            planner = ScanPlanner(
+                                session, adapter, source.code, source_id=source.id
+                            )
+                            await adapter.__aenter__()
+                            try:
+                                await planner.run_reconciliation()
+                            finally:
+                                await adapter.__aexit__(None, None, None)
+                        last_reconcile = datetime.utcnow()
 
                 print(f"\n[wait] Ожидание {settings.PARSE_INTERVAL} секунд до следующего цикла...\n")
                 await asyncio.sleep(settings.PARSE_INTERVAL)

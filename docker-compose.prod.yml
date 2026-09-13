@@ -1,7 +1,8 @@
 # ─────────────────────────────────────────────────────────────────
 #  docker-compose.prod.yml — production-стек (этап 7 ТЗ)
 #
-#  Один стек: postgres + redis + migrate + parser + api + web + nginx.
+#  Один стек: postgres + redis + migrate + parser-dvach + parser-slivach + api +
+#  web + nginx.
 #  Используется и для локального теста «в один клик», и для деплоя на VPS.
 #
 #  Запуск (один клик):
@@ -11,7 +12,8 @@
 #  Полезные команды:
 #    docker compose -f docker-compose.prod.yml ps
 #    docker compose -f docker-compose.prod.yml logs -f api
-#    docker compose -f docker-compose.prod.yml logs -f parser
+#    docker compose -f docker-compose.prod.yml logs -f parser-dvach
+#    docker compose -f docker-compose.prod.yml logs -f parser-slivach
 #    docker compose -f docker-compose.prod.yml down        # остановить
 #    docker compose -f docker-compose.prod.yml down -v     # + удалить тома БД/медиа
 #
@@ -142,28 +144,25 @@ services:
       retries: 12
       start_period: 10s
 
-  # ── Парсер (фоновый процесс) ──────────────────────────────
-  parser:
+  # ── Парсеры: контейнер на источник ─────────────────────────────────
+  # Один образ, разные процессы: каждый обслуживает СВОЙ источник
+  # (`PARSER_SOURCE`), поэтому у них независимые рестарты, логи, лимиты и флаги
+  # прогона (`parser:{code}:enabled` — своя кнопка в админке). Очередь живёт в БД,
+  # прогресс/живость — в Redis под ключами источника (`parser:{code}:*`), так что
+  # контейнеры друг другу не мешают. Сверку данных (reconciliation) выполняет
+  # ровно один контейнер: у остальных `RECONCILE_MINUTES=-1`.
+  parser-dvach:
     <<: *backend
     command: ["python", "src/main.py"]
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-parser}:${POSTGRES_PASSWORD:-parser-pass}@postgres:5432/${POSTGRES_DB:-parser}
-      REDIS_URL: redis://redis:6379/0
-      S3_URL: ${S3_URL:-https://s3.twcstorage.ru}
-      S3_REGION: ${S3_REGION:-ru-1}
-      S3_BUCKET: ${S3_BUCKET:-}
-      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
-      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
-      S3_ADDRESSING_STYLE: ${S3_ADDRESSING_STYLE:-path}
-      S3_SIGNED_URL_TTL: ${S3_SIGNED_URL_TTL:-3600}
-      MEDIA_DELIVERY: ${MEDIA_DELIVERY:-proxy}
-      STORAGE_PATH: /data/media
-      # Парсинг
+      PARSER_SOURCE: dvach
       BOARDS_TO_PARSE: ${BOARDS_TO_PARSE:-["b"]}
       REQUEST_DELAY: ${REQUEST_DELAY:-0.5}
       PARSE_INTERVAL: ${PARSE_INTERVAL:-60}
       MAX_FILES_PER_POST: ${MAX_FILES_PER_POST:-5}
       MAX_FILE_SIZE: ${MAX_FILE_SIZE:-104857600}
+      MAX_PARALLEL_DOWNLOADS: ${MAX_PARALLEL_DOWNLOADS:-2}
+      MAX_PARALLEL_UPLOADS: ${MAX_PARALLEL_UPLOADS:-1}
       RECONCILE_MINUTES: ${RECONCILE_MINUTES:-60}
     volumes:
       - media:/data/media
@@ -172,6 +171,37 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+    # Лимиты процесса (docker compose v2 применяет их и без swarm): 2ch — основной
+    # объём загрузок, но контейнер не должен «съедать» VPS при всплеске
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2g
+
+  parser-slivach:
+    <<: *backend
+    command: ["python", "src/main.py"]
+    environment:
+      PARSER_SOURCE: slivach
+      # Сайт трогаем вежливее: медленнее запросы, без параллельных загрузок
+      REQUEST_DELAY: ${SLIVACH_REQUEST_DELAY:-1.0}
+      PARSE_INTERVAL: ${SLIVACH_PARSE_INTERVAL:-300}
+      MAX_PARALLEL_DOWNLOADS: ${SLIVACH_MAX_PARALLEL_DOWNLOADS:-1}
+      MAX_PARALLEL_UPLOADS: 1
+      # Сверку данных ведёт только 2ch-контейнер
+      RECONCILE_MINUTES: -1
+    volumes:
+      - media:/data/media
+      - mediacache:/data/cache
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
 
   # ── Frontend (Next.js standalone) ──────────────────────────
   web:
