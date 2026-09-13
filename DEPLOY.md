@@ -281,6 +281,7 @@ git-истории (`git filter-repo`), отключение входа по п�
 | Что | Где | Детали |
 |---|---|---|
 | Бэкап БД | `/etc/cron.daily/dredge-backup` | `pg_dump -Fc` → `/opt/dredge/backups/db-<дата>.pgc`, хранение 14 дней |
+| IndexNow | `/etc/cron.hourly/dredge-indexnow` | раз в час уведомляет Bing/Яндекс о новых страницах (`src/tools/indexnow.py`); лог `/var/log/dredge-indexnow.log` |
 | Health-check | `/etc/cron.hourly/dredge-health` | проверяет `/healthz` и заполнение диска; лог `/var/log/dredge-health.log` (урезается до 500 строк). Если сайт не отвечает — поднимает стек (`docker compose up -d`); при диске >85% пишет ALERT |
 | Автообновления | `unattended-upgrades` (`/etc/apt/apt.conf.d/20auto-upgrades`) | патчи безопасности ставятся автоматически |
 | Логи docker | `docker-compose.prod.yml` + `/etc/docker/daemon.json` | `json-file`, `max-size=10m`, `max-file=3` — даже при отладке диск не забьётся |
@@ -688,12 +689,25 @@ git push --force --tags
 `/login`, `/profile`, `/marks`, `/favorites`, `/search`). Отдельно разрешён путь
 `/api/v1/media/` — по нему отдаются превью и постеры файлов, без этого исключения
 картинки не попадают в поиск (остальной `/api/` при этом закрыт, побеждает более
-точное правило). Карта сайта — собственный XML-роут
-`web/src/app/sitemap.xml/route.ts` (главная, `/new`, `/boards`, `/top`, все разделы
-`/board/<slug>` и 500 последних файлов `/media/<id>`): штатный `MetadataRoute.Sitemap`
-в Next 14 не поддерживает `images`, поэтому XML собирается вручную и у страниц
-файлов появляется `<image:image>` с превью (`web_url`, для видео — `thumb_url`).
-Адрес берётся из `SITE_URL` — от него же зависят `canonical`, Open Graph и микроразметка.
+точное правило). Карта сайта — **индекс карт**: `web/src/app/sitemap.xml/route.ts`
+перечисляет отдельные карты, а сами карты лежат в `web/src/app/sitemap/…`:
+
+| Карта | Что внутри |
+|---|---|
+| `/sitemap/pages.xml` | главная, `/new`, `/boards`, `/top`, все разделы `/board/<slug>` |
+| `/sitemap/threads/{N}.xml` | страницы тредов `/t/<id>` (посадочные: тема/описание записи) |
+| `/sitemap/media/{N}.xml` | страницы файлов `/media/<id>` + `<image:image>` с превью |
+| `/sitemap/videos/{N}.xml` | видео с `<video:video>` (`thumbnail_loc`, `content_loc`, `duration`) |
+
+Страницы карт — по 5000 адресов (`SITEMAP_PAGE_SIZE`), число карт индекс считает по
+`total` из `/api/v1/sitemap/{threads,media,videos}`. Штатный `MetadataRoute.Sitemap`
+в Next 14 не поддерживает `images`, поэтому XML собирается вручную
+(`web/src/lib/sitemap.ts`). Превью в `<image:image>` попадает только у открытых
+файлов: у премиум-файла `thumb_url` — размытый вариант, и в выдаче картинок он
+выглядит как «дефект». Несуществующая страница карты отдаёт `404`, но только если
+API ответил (`total > 0`) — при сбое API карта остаётся пустой, а не «удалённой».
+Адрес берётся из `SITE_URL` — от него же зависят `canonical`, Open Graph, микроразметка
+и уведомления поисковиков.
 
 **Canonical и микроразметка.** В корневом layout задан `metadataBase`, поэтому
 страницы указывают относительный `alternates.canonical`; фильтры и периоды
@@ -732,6 +746,23 @@ git push --force --tags
 HTML автоматически) и пересоберите `web`. После подтверждения отправьте
 `sitemap.xml` на обход.
 
+**IndexNow (Bing и Яндекс).** Быстрый канал уведомлений о новых страницах: ключ
+задаётся в `.env` (`INDEXNOW_KEY`, 32+ символа), web отдаёт его по
+`/indexnow-key.txt`, отправка — `python -m src.tools.indexnow --hours 2` (адреса
+новых файлов и их тредов, батчами до 10 000, endpoint `api.indexnow.org`).
+В проде это делает часовой cron `/etc/cron.hourly/dredge-indexnow`, лог —
+`/var/log/dredge-indexnow.log`. Проверка вручную:
+
+```
+docker compose -f docker-compose.prod.yml exec -T api python -m src.tools.indexnow --hours 3 --dry-run
+curl -s https://dredg.ru/indexnow-key.txt           # ключ из .env
+```
+
+Первый ответ бывает `403 SiteVerificationNotCompleted` — это проверка владения
+сайтом по файлу ключа; следующий прогон проходит штатно (`HTTP 200`/`202`).
+Google sitemap-ping не поддерживает с 2023 года — карты он забирает сам, ссылка на
+них есть в `robots.txt`.
+
 **Что наружу не уходит.** `.env`, `.git`, `DEPLOY.md`, `docker-compose.prod.yml`,
 `package.json`, `requirements.txt`, `openapi.json`, `/docs`, `/redoc` — все `404`
 (nginx проксирует только `/` и `/api/`, docs API выключены). Медиа отдаёт свой API:
@@ -761,6 +792,7 @@ HTML автоматически) и пересоберите `web`. После �
 | `ADMIN_RESET_TTL_MINUTES` | `30` | срок жизни ссылки восстановления пароля, мин |
 | `PUBLIC_BASE_URL` | — | домен для ссылок в письмах (`https://example.com`); пусто — берётся адрес запроса |
 | `SITE_URL` | `https://dredg.ru` | публичный адрес сайта для SEO: canonical, `sitemap.xml`, `robots.txt`, Open Graph |
+| `INDEXNOW_KEY` | 32 hex-символа | ключ IndexNow: web отдаёт его по `/indexnow-key.txt`, API отправляет уведомления о новых страницах |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_TLS` | — / `465` / `ssl` | SMTP для писем восстановления (`ssl`, `starttls` или `none`) |
 | `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` | — | креды отправки: логин, «пароль приложения», адрес отправителя |
 | `API_RATE_LIMIT` | `300` | лимит JSON-запросов в минуту на IP (ленты, детали, статистика; 0 — выключить) |
