@@ -1,7 +1,7 @@
 # src/api/schemas.py
 """Pydantic-схемы ответов API."""
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -27,6 +27,8 @@ class AdminBoardOut(BoardOut):
     is_visible: bool = True
     sort_order: int = 0
     parse_mode: str = "all"  # all | selected
+    # Источник раздела: по нему админка раскладывает доски по вкладкам источников
+    source_id: Optional[int] = None
 
     # Статистика (агрегируется из БД)
     media_total: int = 0
@@ -179,6 +181,23 @@ class ThreadBulkUpdate(BaseModel):
 class BoardReorder(BaseModel):
     """Новый порядок парсинга: слаги досок в требуемой последовательности."""
     slugs: List[str]
+
+
+class SourceUpdate(BaseModel):
+    """Правка источника в реестре (вкладка «Источники» в админке).
+
+    Все поля необязательные: приходит только то, что меняли. `config` — настройки
+    адаптера (категории, селекторы, пагинация, заголовки) для сайтов-источников.
+    """
+
+    title: Optional[str] = None
+    base_url: Optional[str] = None
+    is_enabled: Optional[bool] = None
+    schedule_minutes: Optional[int] = None
+    rate_limit_rps: Optional[float] = None
+    budget_minutes: Optional[int] = None
+    sort_order: Optional[int] = None
+    config: Optional[Dict[str, object]] = None
 
 
 class ResetResult(BaseModel):

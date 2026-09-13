@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import Link from "next/link";
 
 import { PlusIcon, SpinnerIcon } from "@/components/icons";
 import { BoardsTable, ForumTab } from "@/components/AdminViews";
@@ -14,11 +16,14 @@ import type {
   ForumBoard,
   MediaCacheStats,
   ParserStatus,
+  SourceInfo,
+  SourceStatus,
   SystemTotals,
 } from "@/lib/types";
 
 const POLL_MS = 2000; // сводка (агрегаты по доскам) — раз в 2 c
 const PARSER_POLL_MS = 1000; // статус парсера (лёгкий запрос) — раз в 1 c
+const SOURCES_POLL_MS = 5000; // реестр источников — раз в 5 c
 const CACHE_POLL_MS = 10000; // состояние кэша медиа (обход каталога) — раз в 10 c
 
 type Tab = "boards" | "forum";
@@ -49,6 +54,10 @@ export default function AdminConsole() {
   const [backfill, setBackfill] = useState<BackfillStatus | null>(null);
   const backfillPollRef = useRef<number | null>(null);
   const [parserStatus, setParserStatus] = useState<ParserStatus | null>(null);
+  // Реестр источников: из него строятся вкладки «Контента» и берётся статус
+  // прогона активного источника (у каждого источника свой флаг и прогресс)
+  const [sources, setSources] = useState<SourceInfo[] | null>(null);
+  const [sourceCode, setSourceCode] = useState<string | null>(null);
   const [cacheStats, setCacheStats] = useState<MediaCacheStats | null>(null);
   const [cacheBusy, setCacheBusy] = useState(false);
 
@@ -81,13 +90,67 @@ export default function AdminConsole() {
     return () => window.clearInterval(id);
   }, [token, loadOverview]);
 
-  const loadParserStatus = useCallback(async (t: string) => {
-    try {
-      setParserStatus(await apiSend<ParserStatus>("/api/v1/admin/parser/status", { token: t }));
-    } catch {
-      /* тихо игнорируем — следующий тик повторит */
-    }
-  }, []);
+  const loadParserStatus = useCallback(
+    async (t: string) => {
+      if (!sourceCode) {
+        setParserStatus(null);
+        return;
+      }
+      try {
+        const data = await apiSend<SourceStatus>(
+          `/api/v1/admin/sources/${encodeURIComponent(sourceCode)}/status`,
+          { token: t },
+        );
+        const updatedAt = data.progress?.updated_at;
+        const ts = typeof updatedAt === "string" ? new Date(updatedAt).getTime() : NaN;
+        setParserStatus({
+          up: data.up,
+          enabled: data.enabled,
+          alive: data.alive,
+          current_board: data.current,
+          progress: data.progress,
+          stall_seconds: Number.isFinite(ts)
+            ? Math.max(0, Math.round((Date.now() - ts) / 1000))
+            : null,
+        });
+      } catch {
+        /* тихо игнорируем — следующий тик повторит */
+      }
+    },
+    [sourceCode],
+  );
+
+  // Реестр источников (вкладки «Контента»): опрашиваем редко, данные лёгкие
+  const loadSources = useCallback(
+    async (t: string) => {
+      try {
+        const data = await apiSend<{ items: SourceInfo[] }>("/api/v1/admin/sources", { token: t });
+        setSources(data.items);
+        setSourceCode((prev) => prev ?? data.items[0]?.code ?? null);
+      } catch (err) {
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) logout();
+      }
+    },
+    [logout],
+  );
+
+  useEffect(() => {
+    if (!token) return;
+    void loadSources(token);
+    const id = window.setInterval(() => void loadSources(token), SOURCES_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [token, loadSources]);
+
+  const activeSource = useMemo(
+    () => (sources ?? []).find((s) => s.code === sourceCode) ?? null,
+    [sources, sourceCode],
+  );
+  // Доски активного источника: контент источников не смешивается во вкладках
+  const visibleBoards = useMemo(() => {
+    const boards = overview?.boards ?? null;
+    if (!boards || !activeSource) return boards;
+    return boards.filter((b) => b.source_id === activeSource.id);
+  }, [overview?.boards, activeSource]);
 
   // Лёгкий статус парсера — раз в секунду (живость + прогресс текущего треда)
   useEffect(() => {
@@ -191,9 +254,9 @@ export default function AdminConsole() {
   }
 
   async function startParser() {
-    if (!token) return;
+    if (!token || !sourceCode) return;
     try {
-      await apiPost("/api/v1/admin/parser/start", undefined, token);
+      await apiPost(`/api/v1/admin/sources/${encodeURIComponent(sourceCode)}/start`, undefined, token);
       setGlobalError(null);
       await loadOverview(token);
     } catch (err) {
@@ -202,9 +265,9 @@ export default function AdminConsole() {
   }
 
   async function stopParser() {
-    if (!token) return;
+    if (!token || !sourceCode) return;
     try {
-      await apiPost("/api/v1/admin/parser/stop", undefined, token);
+      await apiPost(`/api/v1/admin/sources/${encodeURIComponent(sourceCode)}/stop`, undefined, token);
       await loadOverview(token);
     } catch (err) {
       setGlobalError(errText(err));
@@ -339,26 +402,67 @@ export default function AdminConsole() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex overflow-hidden rounded border border-line">
-            <button
-              type="button"
-              onClick={() => setTab("boards")}
-              className={`px-3 py-1.5 text-sm transition-colors ${
-                tab === "boards" ? "bg-ink-tertiary text-accent-primary" : "text-text-secondary hover:text-white"
-              }`}
-            >
-              Мои разделы
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("forum")}
-              className={`px-3 py-1.5 text-sm transition-colors ${
-                tab === "forum" ? "bg-ink-tertiary text-accent-primary" : "text-text-secondary hover:text-white"
-              }`}
-            >
-              Доски форума
-            </button>
+          {/* Вкладки по источникам: список приходит из реестра, поэтому новый
+              источник появляется в интерфейсе без правок фронтенда */}
+          <div className="flex flex-wrap items-center gap-0.5 rounded border border-line p-0.5">
+            {(sources ?? []).map((s) => {
+              const active = s.code === sourceCode;
+              const dot = !s.is_enabled
+                ? "bg-text-muted"
+                : s.status.alive
+                  ? "bg-accent-secondary"
+                  : s.status.enabled
+                    ? "bg-accent-warning"
+                    : "bg-line-hover";
+              return (
+                <button
+                  key={s.code}
+                  type="button"
+                  onClick={() => setSourceCode(s.code)}
+                  title={`${s.title || s.code} — источник ${s.code}${s.is_enabled ? "" : " (выключен в реестре)"}`}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm transition-colors ${
+                    active
+                      ? "bg-ink-tertiary text-accent-primary"
+                      : "text-text-secondary hover:text-white"
+                  }`}
+                >
+                  <span className={`h-2 w-2 rounded-full ${dot}`} aria-hidden />
+                  {s.title || s.code}
+                  <span className="font-mono text-[10px] text-text-muted">
+                    {formatNumber(s.boards_total)}
+                  </span>
+                </button>
+              );
+            })}
+            {sources === null ? (
+              <span className="px-2 py-1.5 text-xs text-text-muted">источники…</span>
+            ) : null}
           </div>
+          {activeSource?.code === "dvach" ? (
+            <div className="flex overflow-hidden rounded border border-line">
+              <button
+                type="button"
+                onClick={() => setTab("boards")}
+                className={`px-3 py-1.5 text-sm transition-colors ${
+                  tab === "boards" ? "bg-ink-tertiary text-accent-primary" : "text-text-secondary hover:text-white"
+                }`}
+              >
+                Мои разделы
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("forum")}
+                className={`px-3 py-1.5 text-sm transition-colors ${
+                  tab === "forum" ? "bg-ink-tertiary text-accent-primary" : "text-text-secondary hover:text-white"
+                }`}
+              >
+                Доски форума
+              </button>
+            </div>
+          ) : null}
+          <Link href="/admin/sources" className="btn-ghost px-3 py-1.5 text-xs" title="Реестр источников: расписание, лимиты, журнал прогонов">
+            Источники →
+          </Link>
           {tab === "boards" ? (
             <>
               <button
@@ -500,57 +604,72 @@ export default function AdminConsole() {
         </div>
       ) : null}
 
-      {tab === "boards" ? (
+      {tab === "boards" || activeSource?.code !== "dvach" ? (
         <>
           {totals ? <TotalsBar totals={totals} /> : null}
-          {overview ? (
+          {activeSource ? (
             <QueueStatus
-              overview={overview}
+              source={activeSource}
+              status={parserStatus}
+              boards={(overview?.boards ?? []).filter((b) => b.source_id === activeSource.id)}
               onStart={() => void startParser()}
               onStop={() => void stopParser()}
             />
           ) : null}
 
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              // Принимаем и «hc», и «/hc», и ссылку — лишние слеши убираем сразу
-              const slug = newSlug.trim().toLowerCase().replace(/^\/+|\/+$/g, "");
-              if (slug) void addBoard(slug);
-            }}
-            className="my-5 flex flex-wrap items-center gap-2"
-          >
-            <input
-              value={newSlug}
-              onChange={(e) => setNewSlug(e.target.value)}
-              placeholder="slug новой доски, например abc или /abc"
-              className="w-56 rounded border border-line bg-ink-secondary px-3 py-2 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-accent-primary"
-            />
-            <button type="submit" disabled={creating || !newSlug.trim()} className="btn-ghost">
-              {creating ? <SpinnerIcon className="h-4 w-4" /> : <PlusIcon className="h-4 w-4" />}
-              Добавить раздел
-            </button>
-          </form>
-
-          {addError ? (
-            <div className="mb-5 rounded border border-accent-danger/30 bg-red-500/5 px-3 py-2 text-sm text-accent-danger">
-              <div>{addError.message}</div>
-              {addError.canForce ? (
-                <button
-                  type="button"
-                  disabled={creating}
-                  onClick={() => void addBoard(addError.slug, undefined, true)}
-                  className="mt-2 rounded border border-line px-2.5 py-1.5 text-xs text-text-secondary transition-colors hover:text-text-primary"
-                  title="Раздел появится в списке с бейджем «каталог недоступен»; парситься он не будет, пока 2ch не откроет доступ"
-                >
-                  Добавить всё равно
+          {activeSource?.code === "dvach" ? (
+            <>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  // Принимаем и «hc», и «/hc», и ссылку — лишние слеши убираем сразу
+                  const slug = newSlug.trim().toLowerCase().replace(/^\/+|\/+$/g, "");
+                  if (slug) void addBoard(slug);
+                }}
+                className="my-5 flex flex-wrap items-center gap-2"
+              >
+                <input
+                  value={newSlug}
+                  onChange={(e) => setNewSlug(e.target.value)}
+                  placeholder="slug новой доски, например abc или /abc"
+                  className="w-56 rounded border border-line bg-ink-secondary px-3 py-2 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-accent-primary"
+                />
+                <button type="submit" disabled={creating || !newSlug.trim()} className="btn-ghost">
+                  {creating ? <SpinnerIcon className="h-4 w-4" /> : <PlusIcon className="h-4 w-4" />}
+                  Добавить раздел
                 </button>
+              </form>
+
+              {addError ? (
+                <div className="mb-5 rounded border border-accent-danger/30 bg-red-500/5 px-3 py-2 text-sm text-accent-danger">
+                  <div>{addError.message}</div>
+                  {addError.canForce ? (
+                    <button
+                      type="button"
+                      disabled={creating}
+                      onClick={() => void addBoard(addError.slug, undefined, true)}
+                      className="mt-2 rounded border border-line px-2.5 py-1.5 text-xs text-text-secondary transition-colors hover:text-text-primary"
+                      title="Раздел появится в списке с бейджем «каталог недоступен»; парситься он не будет, пока 2ch не откроет доступ"
+                    >
+                      Добавить всё равно
+                    </button>
+                  ) : null}
+                </div>
               ) : null}
-            </div>
+            </>
+          ) : activeSource && activeSource.boards_total === 0 ? (
+            <p className="my-5 rounded border border-dashed border-line px-3 py-6 text-center text-sm text-text-secondary">
+              У источника «{activeSource.title || activeSource.code}» пока нет разделов: их заводит
+              парсер при первом прогоне (список досок — в конфиге источника на вкладке{" "}
+              <Link href="/admin/sources" className="text-accent-primary">
+                «Источники»
+              </Link>
+              ).
+            </p>
           ) : null}
 
           <BoardsTable
-            boards={overview?.boards ?? null}
+            boards={visibleBoards}
             loading={loading}
             parserStatus={parserStatus}
             busyKey={busyKey}
@@ -611,63 +730,74 @@ function TotalsBar({ totals }: { totals: SystemTotals }) {
   );
 }
 
-/** Статус парсера: демон, включение, текущая доска и очередь парсинга. */
+/** Статус прогона источника: контейнер, включение, текущая доска и очередь. */
 function QueueStatus({
-  overview,
+  source,
+  status,
+  boards,
   onStart,
   onStop,
 }: {
-  overview: AdminOverview;
+  source: SourceInfo;
+  status: ParserStatus | null;
+  boards: AdminBoard[];
   onStart: () => void;
   onStop: () => void;
 }) {
-  const parsed = overview.boards.filter((b) => b.parse_enabled);
-  const current = overview.parser_current_board;
+  const parsed = boards.filter((b) => b.parse_enabled);
+  const current = status?.current_board ?? null;
+  const up = Boolean(status?.up);
+  const alive = Boolean(status?.alive);
+  const enabled = Boolean(status?.enabled);
 
   return (
     <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded border border-line bg-ink-secondary px-3 py-2 text-sm">
       <span className="flex items-center gap-2">
         <span
           className={`h-2 w-2 rounded-full ${
-            overview.parser_up
-              ? overview.parser_alive
-                ? "bg-emerald-400"
-                : "bg-amber-400"
-              : "bg-neutral-600"
+            !source.is_enabled ? "bg-neutral-600" : up ? (alive ? "bg-accent-secondary" : "bg-amber-400") : "bg-neutral-600"
           }`}
         />
         <span
           className={
-            overview.parser_up
-              ? overview.parser_alive
-                ? "text-text-primary"
-                : "text-accent-primary"
-              : "text-text-secondary"
+            !source.is_enabled
+              ? "text-text-secondary"
+              : up
+                ? alive
+                  ? "text-text-primary"
+                  : "text-accent-primary"
+                : "text-text-secondary"
           }
         >
-          {!overview.parser_up
-            ? "Парсер-демон не запущен"
-            : overview.parser_alive
-              ? "Парсер работает"
-              : "Парсер на паузе"}
+          {!source.is_enabled
+            ? `Источник ${source.code} выключен в реестре`
+            : !up
+              ? `Контейнер ${source.code} не отвечает`
+              : alive
+                ? `Прогон «${source.title || source.code}» работает`
+                : `Прогон «${source.title || source.code}» на паузе`}
         </span>
       </span>
 
-      {!overview.parser_up ? (
+      {!source.is_enabled ? (
+        <Link href="/admin/sources" className="text-xs text-accent-primary">
+          открыть реестр источников →
+        </Link>
+      ) : !up ? (
         <span className="text-xs text-text-muted">
-          демон не запущен — выполните: docker compose -f docker-compose.prod.yml start parser
+          контейнер не отвечает — проверьте: docker compose ... logs parser-{source.code}
         </span>
-      ) : overview.parser_enabled ? (
+      ) : enabled ? (
         <button type="button" onClick={onStop} className="btn-ghost px-3 py-1 text-xs">
           Остановить
         </button>
       ) : (
         <button type="button" onClick={onStart} className="btn-primary px-3 py-1 text-xs">
-          Запустить парсер
+          Запустить прогон
         </button>
       )}
 
-      {overview.parser_alive && current ? (
+      {alive && current ? (
         <span className="text-text-primary">
           сейчас парсит: <b className="text-accent-primary">/{current}</b>
         </span>

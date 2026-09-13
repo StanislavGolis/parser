@@ -18,6 +18,8 @@ export interface Board {
 
 /** Доска в админ-панели (с живой статистикой). */
 export interface AdminBoard extends Board {
+  /** Источник раздела: по нему админка раскладывает доски по вкладкам источников. */
+  source_id?: number | null;
   parse_enabled: boolean;
   is_visible: boolean;
   sort_order: number;
@@ -43,7 +45,53 @@ export interface AdminBoard extends Board {
   catalog_error?: string | null;
 }
 
-/** Итоговые цифры системы (в админке). */
+/** ── Админка: реестр источников и журнал прогонов ─────────────────── */
+
+/** Состояние прогона источника (ключи `parser:{code}:*` в Redis). */
+export interface SourceStatus {
+  code: string;
+  /** Источник запущен кнопкой «Запустить» в админке. */
+  enabled: boolean;
+  /** Контейнер источника жив (heartbeat). */
+  up: boolean;
+  /** Идёт работа прямо сейчас. */
+  alive: boolean;
+  /** Текущий раздел (доска) прогона. */
+  current: string | null;
+  /** Прогресс текущего прохода (phase, thread_id, files_done/files_total). */
+  progress: ParserProgress | null;
+}
+
+/** Один прогон источника (таблица `parse_runs`). */
+export interface ParseRun {
+  id: number;
+  started_at: string | null;
+  finished_at: string | null;
+  status: string; // running | ok | error | stopped
+  phase: string | null;
+  stats: Record<string, unknown>;
+  error: string | null;
+}
+
+/** Источник контента в реестре (вкладка «Источники», вкладки в «Контенте»). */
+export interface SourceInfo {
+  id: number;
+  code: string;
+  title: string;
+  kind: string; // json | html — какой адаптер обслуживает источник
+  base_url: string;
+  is_enabled: boolean;
+  schedule_minutes: number;
+  rate_limit_rps: number;
+  budget_minutes: number;
+  sort_order: number;
+  config: Record<string, unknown>;
+  boards_total: number;
+  media_total: number;
+  status: SourceStatus;
+  runs: ParseRun[];
+}
+
 export interface SystemTotals {
   boards_total: number;
   boards_parsed: number;

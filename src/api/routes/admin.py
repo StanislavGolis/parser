@@ -35,6 +35,7 @@ from src.api.schemas import (
     BoardUpdate,
     ForumBoardOut,
     ResetResult,
+    SourceUpdate,
     SystemTotals,
     ThreadBulkUpdate,
     ThreadDeleteRequest,
@@ -55,6 +56,7 @@ from src.core.db import async_session_factory, get_session
 from src.core.config import settings
 from src.core.models import Board, Media, ThreadState
 from src.core.redis_client import redis_client
+from src.services.analytics import record_audit
 from src.services.catalog_health import catalog_errors, mark_catalog_error, mark_catalog_ok
 from src.services.media_cache import get_media_cache
 from src.services.s3_storage import S3Storage
@@ -98,6 +100,7 @@ def _admin_out(
         parse_enabled=board.parse_enabled,
         parse_mode=board.parse_mode,
         sort_order=board.sort_order,
+        source_id=board.source_id,
         media_total=int(m.get("media_total", 0)),
         media_downloaded=int(m.get("media_downloaded", 0)),
         media_in_s3=int(m.get("media_in_s3", 0)),
@@ -1304,6 +1307,7 @@ async def admin_sources(
         boards_total, media_total = await _source_totals(session, source.id)
         items.append(
             {
+                "id": source.id,
                 "code": source.code,
                 "title": source.title,
                 "kind": source.kind,
@@ -1353,6 +1357,75 @@ async def source_stop(
     source = await _require_source(session, code)
     await sources_service.set_enabled(source.code, False)
     return {"ok": True, "code": source.code, "enabled": False}
+
+
+@router.patch("/sources/{code}")
+async def source_update(
+    code: str,
+    payload: SourceUpdate,
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Правка источника в реестре: включение, адрес, расписание, лимиты, конфиг.
+
+    Меняются только переданные поля. `is_enabled` — «источник может работать»,
+    это отдельный тумблер от флага прогона (`parser:{code}:enabled`, кнопка
+    «Запустить»): выключенный в реестре источник не запустится даже кнопкой.
+    """
+    source = await _require_source(session, code)
+
+    changed: dict = {}
+    if payload.title is not None:
+        source.title = payload.title.strip()[:100]
+        changed["title"] = source.title
+    if payload.base_url is not None:
+        source.base_url = payload.base_url.strip()[:255]
+        changed["base_url"] = source.base_url
+    if payload.is_enabled is not None:
+        source.is_enabled = payload.is_enabled
+        changed["is_enabled"] = payload.is_enabled
+    if payload.schedule_minutes is not None:
+        source.schedule_minutes = max(1, int(payload.schedule_minutes))
+        changed["schedule_minutes"] = source.schedule_minutes
+    if payload.rate_limit_rps is not None:
+        source.rate_limit_rps = max(0.1, float(payload.rate_limit_rps))
+        changed["rate_limit_rps"] = source.rate_limit_rps
+    if payload.budget_minutes is not None:
+        source.budget_minutes = max(0, int(payload.budget_minutes))
+        changed["budget_minutes"] = source.budget_minutes
+    if payload.sort_order is not None:
+        source.sort_order = int(payload.sort_order)
+        changed["sort_order"] = source.sort_order
+    if payload.config is not None:
+        source.config = payload.config
+        changed["config"] = sorted(payload.config.keys())
+
+    # Выключили источник — снимаем и флаг прогона, иначе контейнер остался бы «жив»
+    if payload.is_enabled is False:
+        await sources_service.set_enabled(source.code, False)
+
+    if changed:
+        await record_audit(
+            session,
+            action="source.update",
+            target=source.code,
+            details=json.dumps(changed, ensure_ascii=False)[:500],
+        )
+    await session.commit()
+    return {"ok": True, "code": source.code, "changed": sorted(changed.keys())}
+
+
+@router.get("/sources/{code}/runs")
+async def source_runs(
+    code: str,
+    limit: int = Query(20, ge=1, le=200),
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """История прогонов источника (журнал `parse_runs`) — для вкладки «Источники»."""
+    source = await _require_source(session, code)
+    runs = await sources_service.last_runs(session, source.id, limit=limit)
+    return {"code": source.code, "items": [_run_out(run) for run in runs]}
 
 
 @router.get("/parser/status")
