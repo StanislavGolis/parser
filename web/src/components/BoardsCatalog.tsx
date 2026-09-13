@@ -155,7 +155,7 @@ export default function BoardsCatalog({ boards }: { boards: Board[] }) {
                     /{b.slug}
                   </span>
                   <p className="mt-0.5 truncate text-xs text-text-secondary" title={b.title || b.slug}>
-                    {b.title || b.slug}
+                    {b.title && b.title !== b.slug && b.title !== `/${b.slug}` ? b.title : b.slug}
                   </p>
                 </div>
                 {b.is_premium ? (
