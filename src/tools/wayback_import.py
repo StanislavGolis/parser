@@ -414,6 +414,25 @@ async def import_file(
     file_name = urllib.parse.unquote(match.group(3))
     media_type = "video" if file_name.rsplit(".", 1)[-1].lower() in VIDEO_EXTS else "image"
 
+    # Быстрый пропуск до скачивания: этот файл уже сохранён в этом треде.
+    # Проверяем по имени (источник даёт его в пути), иначе повторный запуск
+    # качал бы из архива всё заново только чтобы сверить md5.
+    if not dry_run:
+        known = (
+            await session.execute(
+                select(Media.id).where(
+                    Media.board_id == board.id,
+                    Media.thread_id == thread_num,
+                    Media.original_name == file_name,
+                    Media.s3_key.isnot(None),
+                ).limit(1)
+            )
+        ).scalar_one_or_none()
+        if known is not None:
+            stats.skipped += 1
+            print(f"   [skip] уже сохранён: {file_name} (ID {known})")
+            return
+
     blob = fetch_snapshot(snapshot, delay=delay)
     if not blob:
         stats.missing += 1
@@ -442,6 +461,7 @@ async def import_file(
     same = await repo.get_by_board_thread_md5(board.id, thread_num, md5)
     if same is not None and same.s3_key:
         stats.skipped += 1
+        print(f"   [skip] уже сохранён: {file_name} (ID {same.id})")
         return
 
     # 2. Такой контент уже лежит в бакете (другой тред/доска) — делаем ссылку
