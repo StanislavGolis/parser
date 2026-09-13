@@ -4,12 +4,12 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 /**
- * Онбординг новичка: одна короткая модалка при первом визите.
+ * Онбординг новичка: одно окно при первом визите, сразу со всеми пояснениями
+ * (закладка, аккаунт, премиум) — без промежуточной кнопки «подробнее».
  *
- * Зачем: с витрины не видно, что такое закладка, зачем аккаунт и чем премиум
- * отличается от бесплатного доступа. Показываем один раз (cookie `dv_onboard`),
- * после подтверждения 18+ — иначе две модалки накладывались бы друг на друга.
- * Поисковым роботам окно не отдаётся: см. `layout.tsx`.
+ * Показываем один раз (cookie `dv_onboard`), после подтверждения 18+ — иначе
+ * два окна накладывались бы друг на друга. Поисковым роботам окно не отдаётся:
+ * см. `layout.tsx`.
  */
 
 const COOKIE = "dv_onboard";
@@ -26,7 +26,6 @@ function rememberOnboarded(): void {
 
 export default function Onboarding() {
   const [open, setOpen] = useState(false);
-  const [details, setDetails] = useState(false);
 
   useEffect(() => {
     function maybeOpen() {
@@ -62,60 +61,46 @@ export default function Onboarding() {
           dredger — автоматический медиа-архив
         </h2>
         <p className="mt-3 text-sm leading-relaxed text-text-secondary">
-          Смотри бесплатно, отмечай лучшее, скачивай нужное. Файлы собираются из
-          архивов автоматически и обновляются каждый день.
+          Смотри бесплатно, отмечай лучшее, скачивай нужное. Файлы обновляются каждый день.
         </p>
 
-        {details ? (
-          <ul className="mt-4 space-y-2.5 text-sm text-text-secondary">
-            <li className="rounded border border-line bg-ink-primary/40 px-3 py-2">
-              <span className="font-mono text-[11px] uppercase tracking-wider text-accent-primary">
-                закладка
-              </span>
-              <p className="mt-1 text-[13px] leading-relaxed">
-                Личный список лучшего: нажмите 🔖 на карточке или пробел в просмотре —
-                файл появится на странице <span className="text-text-primary">«Закладки»</span>.
-                Нужен аккаунт.
-              </p>
-            </li>
-            <li className="rounded border border-line bg-ink-primary/40 px-3 py-2">
-              <span className="font-mono text-[11px] uppercase tracking-wider text-accent-primary">
-                аккаунт
-              </span>
-              <p className="mt-1 text-[13px] leading-relaxed">
-                Бесплатно: закладки, свои настройки лент и продолжение просмотра на любом
-                устройстве. Регистрация занимает минуту.
-              </p>
-            </li>
-            <li className="rounded border border-line bg-ink-primary/40 px-3 py-2">
-              <span className="font-mono text-[11px] uppercase tracking-wider text-accent-warning">
-                премиум
-              </span>
-              <p className="mt-1 text-[13px] leading-relaxed">
-                Закрытые разделы, скачивание файлов и оригиналы. Выдаётся вручную по заявке
-                в профиле — стоимость и срок видно там же.
-              </p>
-            </li>
-          </ul>
-        ) : null}
+        <ul className="mt-4 space-y-2.5 text-sm text-text-secondary">
+          <li className="rounded border border-line bg-ink-primary/40 px-3 py-2">
+            <span className="font-mono text-[11px] uppercase tracking-wider text-accent-primary">
+              закладка
+            </span>
+            <p className="mt-1 text-[13px] leading-relaxed">
+              Личный список лучшего: нажмите 🔖 на карточке или пробел в просмотре — файл
+              появится на странице <span className="text-text-primary">«Закладки»</span>. Нужен
+              аккаунт.
+            </p>
+          </li>
+          <li className="rounded border border-line bg-ink-primary/40 px-3 py-2">
+            <span className="font-mono text-[11px] uppercase tracking-wider text-accent-primary">
+              аккаунт
+            </span>
+            <p className="mt-1 text-[13px] leading-relaxed">
+              Закладки, настройки лент и продолжение просмотра на любом устройстве. Регистрация
+              занимает минуту.
+            </p>
+          </li>
+          <li className="rounded border border-line bg-ink-primary/40 px-3 py-2">
+            <span className="font-mono text-[11px] uppercase tracking-wider text-accent-warning">
+              премиум
+            </span>
+            <p className="mt-1 text-[13px] leading-relaxed">
+              Закрытые разделы, скачивание файлов и оригиналы.
+            </p>
+          </li>
+        </ul>
 
         <div className="mt-5 flex flex-wrap gap-2">
           <button type="button" onClick={close} className="btn-primary px-4 py-2 text-xs">
             Понятно
           </button>
-          {details ? (
-            <Link href="/boards" className="btn-ghost px-4 py-2 text-xs">
-              К разделам архива →
-            </Link>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setDetails(true)}
-              className="btn-ghost px-4 py-2 text-xs"
-            >
-              Подробнее
-            </button>
-          )}
+          <Link href="/boards" className="btn-ghost px-4 py-2 text-xs">
+            К разделам архива →
+          </Link>
         </div>
       </div>
     </div>
