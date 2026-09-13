@@ -50,6 +50,7 @@ from src.core.models import (
     ViewStat,
 )
 from src.services.media_cache import MediaCache, get_media_cache
+from src.services.premium import premium_active
 from src.services.s3_storage import S3Storage
 
 router = APIRouter(prefix="/api/v1", tags=["media"])
@@ -619,14 +620,21 @@ async def media_raw(
     session: AsyncSession = Depends(get_session),
     s3: S3Storage = Depends(get_s3),
     cache: MediaCache = Depends(get_media_cache),
-    user: User = Depends(require_premium),
+    user: Optional[User] = Depends(get_current_user),
 ):
-    """Отдаёт ОРИГИНАЛ файла через наш API (только премиум-подписка).
+    """Отдаёт ОРИГИНАЛ файла. Скачивание и премиум-контент — только по подписке.
 
-    Публично доступны только деривативы (`/asset/thumb|thumb_blur|web|video`),
-    причём `thumb_blur` — публичное размытое превью премиум-контента.
-    Аноним получает 401, зарегистрированный без подписки — 403.
-    Поддерживает Range и Content-Disposition при `?download=1`.
+    Публично доступны деривативы (`/asset/thumb|thumb_blur|web|video`), причём
+    `thumb_blur` — публичное размытое превью премиум-контента.
+
+    Инлайн-просмотр (без `?download=1`) разрешён и без подписки, но только если у
+    файла **нет** публичного варианта (`web`/`video`): иначе такое видео или
+    картинку зритель не увидит вообще — дериватив не сгенерирован, а превью для
+    полного размера не хватает. Если публичный вариант есть, оригинал не нужен
+    для просмотра: он остаётся за подпиской (и разгружает хранилище).
+
+    Аноним получает 401 на премиум-файлы и на скачивание, зарегистрированный без
+    подписки — 403. Поддерживает Range и Content-Disposition при `?download=1`.
     """
     await check_rate_limit(client_ip(request), limit=settings.MEDIA_RATE_LIMIT, scope="media")
 
@@ -635,7 +643,19 @@ async def media_raw(
         raise HTTPException(status_code=404, detail="File not available")
 
     board = await _check_media_access(session, media)
-    _require_premium(media, user, board)
+    variants = media.variants or {}
+    has_public_view = bool(variants.get("video") or variants.get("web"))
+
+    # Подписка нужна: премиум-файлу, при скачивании и когда публичный вариант есть
+    premium_only = (
+        bool(media.is_premium) or bool(board.is_premium) or download or has_public_view
+    )
+    if premium_only:
+        if user is None:
+            raise HTTPException(status_code=401, detail="Требуется вход")
+        if not premium_active(user):
+            raise HTTPException(status_code=403, detail="Нужна премиум-подписка")
+
     return await _stream_object(
         media=media,
         key=media.s3_key,
@@ -644,7 +664,9 @@ async def media_raw(
         cache=cache,
         download=download,
         cache_control=(
-            "private, no-store" if media.is_premium else "public, max-age=3600"
+            "private, no-store"
+            if (media.is_premium or board.is_premium or download)
+            else "public, max-age=3600"
         ),
     )
 
