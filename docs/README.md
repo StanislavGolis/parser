@@ -987,6 +987,34 @@ perceptual hash. Что понадобится:
    (~11 МБ/с на объект, при параллелизме падает). Если станет критично: multipart
    для крупных файлов, CDN/другой эндпоинт или меньше деривативов на файл.
 
+**Архивный импорт раздела (`src/tools/wayback_import.py`).** Нужен, когда раздел
+недоступен вживую, но его контент сохранился в Wayback Machine:
+
+```bash
+# проверка без записи: что архив отдаёт по разделу
+docker compose -f docker-compose.prod.yml exec -T api \
+  python -m src.tools.wayback_import --board e --limit 5 --dry-run
+# боевой прогон (в фоне, лог в файл — процесс длинный)
+docker compose -f docker-compose.prod.yml exec -T api \
+  python -m src.tools.wayback_import --board e --limit 400 --no-video-transcode
+```
+
+Как работает: CDX API архива → список снапшотов `/board/src/*`; метаданные (тема
+треда, просмотры, число постов, размеры и md5 файлов) берутся из архивного
+`catalog.json` того же формата, что отдаёт живой 2ch; файл скачивается как
+`/<timestamp>im_/<url>` (оригинальные байты); далее всё как в обычном конвейере —
+S3, деривативы (`thumb`, `thumb_blur`, `web`/`video`), записи `boards`,
+`threads_state`, `media`. Повторный запуск идемпотентен: файлы, уже сохранённые
+в треде, пропускаются по имени, остальные — по md5/SHA-256 (дубли становятся
+ссылками `duplicate_of_id`). Раздел создаётся с `parse_enabled=false` — планировщик
+его не трогает, наполняет только импортёр; источник `wayback` в админке виден
+отдельной вкладкой.
+
+Полезные ключи: `--host` (откуда брать медиа, по умолчанию `2ch.su` — там нет
+Cloudflare), `--hosts` (где искать `catalog.json`), `--limit`, `--delay`,
+`--no-video-transcode` (не перекодировать видео в 720p — для архива это экономит
+десятки минут на файл), `--images-only` / `--videos-only`, `--hidden`, `--premium`.
+
 **Мульти-источники (новые сайты для парсинга, следующий — `slivach.com`)**
 1. ~~Реестр источников~~ — сделано (миграция `v7w8x9y0z1a2`): таблица `sources`
    (base_url, kind, config JSONB, расписание, лимиты, бюджет), `boards.source_id`,
