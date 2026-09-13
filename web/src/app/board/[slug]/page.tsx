@@ -20,22 +20,21 @@ interface BoardPageProps {
 }
 
 export async function generateMetadata({ params }: BoardPageProps): Promise<Metadata> {
-  const boards = await getBoards();
-  const board = boards.find((b) => b.slug === params.slug);
+  const board = await getBoards();
+  const current = board.find((b) => b.slug === params.slug);
+  // Скрытый/несуществующий раздел: 404 из метаданных — статус уходит до
+  // стриминга страницы (иначе Next отдаёт «мягкий» 200, а это плохо для поиска).
+  if (!current) notFound();
   // Название добавляем, только если оно не повторяет слаг: иначе в выдаче выходило
   // «/e — e» (у разделов, где нет отдельного имени).
   const named =
-    Boolean(board?.title) && board?.title !== board?.slug && board?.title !== `/${board?.slug}`;
-  const title = board
-    ? named
-      ? `/${board.slug} — ${board.title}`
-      : `/${board.slug}`
-    : `Раздел /${params.slug}`;
-  const files = board?.media_count ? `${formatNumber(board.media_count)} файлов — ` : "";
+    Boolean(current.title) && current.title !== current.slug && current.title !== `/${current.slug}`;
+  const title = named ? `/${current.slug} — ${current.title}` : `/${current.slug}`;
+  const files = current.media_count ? `${formatNumber(current.media_count)} файлов — ` : "";
   return {
     title,
-    description: `Раздел /${params.slug}: ${files}фото и видео в архиве, треды, превью и оригиналы файлов.`,
-    alternates: { canonical: `/board/${params.slug}` },
+    description: `Раздел /${current.slug}: ${files}фото и видео в архиве, треды, превью и оригиналы файлов.`,
+    alternates: { canonical: `/board/${current.slug}` },
     // Возрастная метка: контент раздела 18+
     other: { rating: "adult" },
   };
