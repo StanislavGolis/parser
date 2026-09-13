@@ -89,6 +89,13 @@ class Settings(BaseSettings):
     # Ключ IndexNow (32+ символов): файл с ним отдаёт web по /indexnow-key.txt,
     # уведомления о новых страницах отправляет `python -m src.tools.indexnow`
     INDEXNOW_KEY: str = ""
+    # Пул соединений к БД: под нагрузкой (скан каталогов + прогрева кэша + SSR)
+    # дефолтных 5+10 не хватало — API отдавал 500 «QueuePool limit ... timeout»
+    DB_POOL_SIZE: int = 10
+    DB_MAX_OVERFLOW: int = 20
+    DB_POOL_TIMEOUT: int = 15
+    # Переоткрывать соединение раз в 30 минут: защита от «призрачных» сокетов
+    DB_POOL_RECYCLE: int = 1800
     # SMTP для писем восстановления. Пусто — почта выключена, останется
     # восстановление через CLI на сервере (см. DEPLOY.md).
     SMTP_HOST: str = ""

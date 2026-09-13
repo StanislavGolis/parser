@@ -38,6 +38,19 @@ x-backend: &backend
     S3_SECRET_KEY: ${S3_SECRET_KEY:-}
     S3_ADDRESSING_STYLE: ${S3_ADDRESSING_STYLE:-path}
     S3_SIGNED_URL_TTL: ${S3_SIGNED_URL_TTL:-3600}
+
+    # Пул соединений к БД. Дефолтных 5+10 не хватало: под нагрузкой (скан
+    # каталогов + прогрев кэша + SSR) API отдавал 500 «QueuePool limit …
+    # connection timed out», а страницы висели.
+    DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+    DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+    DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-15}
+    DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-1800}
+
+    # Перекодирование видео в 720p. По умолчанию выключено: ffmpeg на слабом VPS
+    # забивает CPU/диск, а плеер играет оригинал инлайном (см. DEPLOY.md про /raw).
+    # Включается одной переменной: PARSER_VIDEO_WEB_ENABLED=1 в .env.
+    VIDEO_WEB_ENABLED: ${PARSER_VIDEO_WEB_ENABLED:-0}
     MEDIA_DELIVERY: ${MEDIA_DELIVERY:-proxy}
 
     # API (общие настройки нужны и парсеру тоже)
