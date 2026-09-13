@@ -24,7 +24,7 @@
   запросами и меняется, когда в записи появляются новые файлы (планировщик
   сравнивает fingerprint вместо счётчиков, которых сайт не отдаёт).
 
-Маппинг (M2): категория → раздел («доска», slug `slivach-<категория>`),
+Маппинг (M2): категория → раздел («доска», slug = сама категория: `/asmr`),
 запись-«слив» → «тред» (`external_id` = `alena-omovich-sliv`), файлы записи → файлы.
 """
 import asyncio
@@ -98,12 +98,13 @@ class SlivachAdapter:
 
     @property
     def default_boards(self) -> List[str]:
-        """Разделы источника по умолчанию — категории сайта со своим префиксом.
+        """Разделы источника по умолчанию — категории сайта.
 
-        Префикс нужен, чтобы слаги не пересекались с досками других источников
-        (на 2ch, например, есть раздел `/asmr`): `slivach-asmr`.
+        Slug раздела = категория (`asmr`, `modeli`, …): префикс источника не нужен,
+        адрес раздела короткий и совпадает с сайтом-источником. Уникальность слагов
+        контролирует БД (`boards.slug` UNIQUE).
         """
-        return [f"{self.code}-{category}" for category in DEFAULT_CATEGORIES]
+        return list(DEFAULT_CATEGORIES)
 
     async def __aenter__(self) -> "SlivachAdapter":
         self.http_session = aiohttp.ClientSession()
@@ -143,7 +144,7 @@ class SlivachAdapter:
             seen.add(category)
             items.append(
                 BoardNode(
-                    slug=f"{self.code}-{category}",
+                    slug=category,
                     title=self._clean(anchor.text()),
                     group="категория сайта",
                 )
@@ -152,7 +153,7 @@ class SlivachAdapter:
         if not items:
             print("   [warn] В меню главной нет категорий — отдаю известный список")
             items = [
-                BoardNode(slug=f"{self.code}-{category}", title=category, group="категория сайта")
+                BoardNode(slug=category, title=category, group="категория сайта")
                 for category in DEFAULT_CATEGORIES
             ]
         return items
@@ -185,8 +186,9 @@ class SlivachAdapter:
     def _category(self, board_slug: str) -> str:
         """Slug раздела → категория сайта.
 
-        Разделы источника называются `slivach-<категория>`; если префикса нет,
-        slug считается самой категорией (ручное создание раздела в админке).
+        Обычно slug и есть категория (`asmr`). Префикс `slivach-` поддерживаем для
+        разделов, созданных до его снятия: старые настройки источников и ссылки
+        продолжают работать.
         """
         prefix = f"{self.code}-"
         return board_slug[len(prefix):] if board_slug.startswith(prefix) else board_slug

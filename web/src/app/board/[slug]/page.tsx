@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 
 import BoardThreads from "@/components/BoardThreads";
 import { LockIcon, StarIcon } from "@/components/icons";
@@ -44,6 +44,18 @@ export default async function BoardPage({ params, searchParams }: BoardPageProps
 
   const [boards] = await Promise.all([getBoards()]);
   const board = boards.find((b) => b.slug === slug);
+
+  // Старые адреса разделов slivach (`/board/slivach-asmr`) ведём на короткий
+  // (`/board/asmr`): префикс источника убран миграцией `c4d5e6f7a8b9`, а ссылки
+  // уже живут в поиске и в закладках зрителей. 308 — постоянный редирект.
+  const legacy = /^slivach-(.+)$/.exec(slug);
+  if (!board && legacy && boards.some((b) => b.slug === legacy[1])) {
+    const query = new URLSearchParams();
+    if (sort !== "new") query.set("sort", sort);
+    if (threadId) query.set("thread", String(threadId));
+    const qs = query.toString();
+    permanentRedirect(`/board/${legacy[1]}${qs ? `?${qs}` : ""}`);
+  }
 
   let list: ThreadList = { items: [], page: 1, per_page: PER_PAGE, total: 0 };
   try {

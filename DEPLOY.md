@@ -470,7 +470,7 @@ docker compose -f docker-compose.prod.yml exec -T web \
 # 1. код и образ: selectolax должен быть внутри
 docker compose -f docker-compose.prod.yml exec parser-slivach python -c \
   "import selectolax, src.parsers.slivach as s; print(s.SlivachAdapter().default_boards[:3])"
-# → ['slivach-modeli', 'slivach-asmr', 'slivach-aktrisy']
+# → ['modeli', 'asmr', 'aktrisy']
 
 # 2. в админке: вкладка «Контент» → источник slivach
 #    - «Разделы сайта» → «Обновить список» → «Добавить» у нужных категорий
@@ -496,9 +496,9 @@ docker compose -f docker-compose.prod.yml logs -f parser-slivach
 - **оригиналов на сайте нет**: «оригинал» = то, что отдаёт сайт (webp ~2000 px, mp4);
 - **`max_records`** ограничивает число записей на категорию за прогон, `max_pages` —
   страниц пагинации; ими удобно дозировать первый проход;
-- после прогона записи становятся «тредами» раздела `/board/slivach-<категория>`,
-  а файлы — обычными карточками (галерея, лайтбокс, премиум-тумблеры работают как
-  для 2ch);
+- после прогона записи становятся «тредами» раздела `/board/<категория>`
+  (например `/board/asmr`), а файлы — обычными карточками (галерея, лайтбокс,
+  премиум-тумблеры работают как для 2ch);
 - источник можно в любой момент остановить, не трогая 2ch (у них разные контейнеры
   и разные ключи `parser:{code}:*`).
 
