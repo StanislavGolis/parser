@@ -36,7 +36,9 @@ class MediaValidator:
             return False, "тип файла не совпадает с расширением"
 
         min_size = cls.MIN_IMAGE_SIZE if media_type == "image" else cls.MIN_VIDEO_SIZE
-        if size_bytes < min_size:
+        # Размер может быть неизвестен (сайты без метаданных): 0/None — «не знаем»,
+        # по весу не режем, реальная проверка идёт после скачивания (Pillow/SHA-256)
+        if size_bytes and size_bytes < min_size:
             return False, f"слишком маленький файл: {size_bytes} байт (мин. {min_size})"
 
         if media_type == "image" and width and height:

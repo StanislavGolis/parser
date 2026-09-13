@@ -232,10 +232,12 @@ class FilePipeline:
                     return "err"
 
             # 4. Целостность: md5 из API должен совпасть с фактическим
-            #    (CDN может пережимать картинки, поэтому для image не фатально)
+            #    (CDN может пережимать картинки, поэтому для image не фатально).
+            #    У источников без md5 (сайты) он синтетический (`md5(url)`) —
+            #    сверять нечего: точная проверка идёт по SHA-256 ниже
             file_md5 = MediaValidator.compute_md5(file_data)
             integrity_ok = file_md5 == meta["md5"]
-            if not integrity_ok and meta["media_type"] == "video":
+            if not integrity_ok and not meta.get("md5_synthetic") and meta["media_type"] == "video":
                 print(f"   [del]  Битый файл (md5 не совпал): {meta['original_name']}")
                 return "invalid"
 

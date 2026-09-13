@@ -336,7 +336,18 @@ S3 у провайдера отдаёт ~3 МБ/с (4 потока — ~8 МБ/�
 - **Адаптер источника** (`src/parsers/base.py`, реализация — `parsers/dvach.py`)
   знает только свой сайт: каталог → «треды» (`ThreadNode`) и файлы «треда»
   (`FileNode`, у 2ch с md5/размером до скачивания). Реестр адаптеров —
-  `build_adapter(code)` в `src/parsers/__init__.py`.
+  `build_adapter(code)` в `src/parsers/__init__.py`. Есть два адаптера:
+  - `dvach` — JSON-API 2ch (md5/размеры отдаёт API; `Referer` не нужен);
+  - `slivach` — HTML сайта-источника (selectolax): категории → разделы
+    (`slivach-<категория>`), записи-«сливы» → «треды», галереи → файлы.
+    Особенности: **видео отдаётся только с `Referer`**, **md5 и размеров нет**
+    (дедуп до скачивания — по `md5(url)`, `md5_synthetic`; валидатор не режет по
+    весу, проверка — после скачивания), оригиналов нет (максимум webp ~2000 px и
+    mp4), одна фотография лежит в нескольких размерах (оставляем самый крупный),
+    а «отпечаток» записи (`fingerprint`) — имя обложки в карточке категории:
+    по нему видно, что запись обновилась. Лимиты обхода — в `sources.config`:
+    `boards` (категории), `max_pages`, `max_records`, `include_images`,
+    `include_video`.
 - **Планировщик** (`services/scan_planner.py`) — общий для всех источников:
   каталоги, очередь `pending_scan`, гигиена выпавших тредов, бюджет цикла,
   `round-robin` по доскам, инкрементальный проход, прогресс. «Треды» опознаются
@@ -581,7 +592,8 @@ S3 у провайдера отдаёт ~3 МБ/с (4 потока — ~8 МБ/�
 - **boards**: `id, slug, title, description, is_visible, parse_enabled, is_premium,
   parse_mode (all|selected), sort_order, source_id, created_at, updated_at`
 - **threads_state**: `board_id, thread_id, external_id (номер 2ch / слаг записи),
-  subject, comment, thread_timestamp, posts_count, files_count, files_detected,
+  fingerprint (метка изменения у источника), subject, comment, thread_timestamp,
+  posts_count, files_count, files_detected,
   views_count, last_scanned_at, is_active, parse_enabled, is_visible, is_premium` —
   уникально `board_id + thread_id` и `board_id + external_id`
 - **media**: `id, board_id, thread_id, source_id, original_name, source_url, source_md5,
@@ -633,7 +645,9 @@ r3s4t5u6v7w8  threads_state.pending_scan/pending_reason/last_scan_attempt_at
 s4t5u6v7w8x9  threads_state.last_post_num/last_scan_errors/last_scan_note
 t5u6v7w8x9y0  вход в админку по email+паролю, восстановление пароля, аудит
 u6v7w8x9y0z1  аналитика посещаемости, след сессий, статистика по аккаунту
-v7w8x9y0z1a2  sources + parse_runs + boards.source_id / threads_state.external_id / media.source_id  ← head
+v7w8x9y0z1a2  sources + parse_runs + boards.source_id / threads_state.external_id / media.source_id
+w8x9y0z1a2b3  источник slivach в реестре (выключенным)
+x9y0z1a2b3c4  threads_state.fingerprint (отпечаток «треда» у источников без счётчиков)  ← head
 ```
 
 Полезные запросы:
@@ -819,13 +833,18 @@ DELETE /api/v1/admin/reset                           полный сброс (Б
 4. Админка: вкладки по источникам внутри «Контента» (строятся из
    `GET /admin/sources`) + отдельная вкладка «Источники» (реестр), панели
    `DvachPanel` / `SlivachPanel` / `SourcesPanel`, каркас без 2ch-специфики.
-5. Адаптер `slivach`: категории (`/category/<slug>/`, пагинация `/page/N/`) →
-   разделы, записи-«сливы» (`/<model>-sliv/`) → «треды», галерея и видео →
-   файлы; обязательный `Referer` для mp4 (иначе 403), `md5(url)` + SHA-256 как
-   дедуп, fingerprint записи из `<title>` («N фото | M видео»); лимиты и выбор
-   категорий — в `sources.config`, HTML-парсер (`selectolax`/`lxml`) в зависимости.
-   Ожидаемый объём при полном обходе: ~100–130 тыс. файлов, 30–40 ГБ (обсудить
-   лимиты, приоритеты и место в S3/диске до включения боевого прогона).
+5. ~~Адаптер `slivach`~~ — сделано: `src/parsers/slivach.py` (selectolax, в
+   `requirements.txt`), маппинг M2 (категория → раздел `slivach-<категория>`,
+   запись-«слив» → «тред»), `Referer` для mp4, `md5(url)` + SHA-256 как дедуп,
+   «отпечаток» записи из имени обложки (`threads_state.fingerprint` — миграция
+   `x9y0z1a2b3c4`), лимиты обхода в `sources.config` (`max_pages`, `max_records`,
+   `include_images`, `include_video`), один снимок в нескольких размерах
+   сворачивается в самый крупный. Проверки — `test_slivach.py`: юнит на реальных
+   страницах сайта + сквозной цикл на синтетическом сайте (каталог → записи →
+   файлы → БД → fingerprint → повторный проход без дублей).
+   Остаётся решить перед боевым включением: **объём** (полный обход — порядка
+   100–130 тыс. файлов и 30–40 ГБ) — включение источника в админке и лимиты
+   (`max_records` на категорию) задаются из вкладки «Источники».
 
 **Премиум и деньги**
 7. Подключить оплату (тарифы/сроки), история активаций (`premium_orders`),

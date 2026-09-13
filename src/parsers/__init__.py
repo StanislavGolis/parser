@@ -9,9 +9,11 @@ from typing import Dict, Type
 
 from src.parsers.base import CatalogResult, FileNode, SourceAdapter, ThreadNode
 from src.parsers.dvach import DvachAdapter
+from src.parsers.slivach import SlivachAdapter
 
 ADAPTERS: Dict[str, Type] = {
     "dvach": DvachAdapter,
+    "slivach": SlivachAdapter,
 }
 
 

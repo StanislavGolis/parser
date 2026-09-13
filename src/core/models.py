@@ -62,6 +62,10 @@ class ThreadState(Base):
     board_id = Column(Integer, ForeignKey("boards.id", ondelete="CASCADE"), nullable=False)
     thread_id = Column(Integer, nullable=False)  # внутренний ID треда (у сайтов — синтетический)
     external_id = Column(String(64), nullable=False)  # внешний ID у источника (номер/слаг)
+    # Отпечаток «треда» у источника: у сайтов нет ни постов, ни числа файлов,
+    # зато есть своя метка изменения (например, имя обложки записи) — по ней
+    # планировщик понимает, что запись обновилась, и ставит её в очередь.
+    fingerprint = Column(String(120), nullable=True)
 
     # Метаданные треда (для отображения списка тредов на сайте/в админке)
     subject = Column(String(500), nullable=True)          # тема треда (catalog.subject)

@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Protocol, runtime_checkable
@@ -34,6 +35,10 @@ class ThreadNode:
     posts_count: int = 0
     files_count: int = 0                # сколько файлов заявляет источник
     views_count: int = 0
+    # Метка изменения «треда» у источника (у сайтов вместо счётчиков): например,
+    # имя обложки записи. Планировщик сравнивает её, чтобы понять, что запись
+    # обновилась, и поставить её в очередь.
+    fingerprint: Optional[str] = None
     # Дополнительные поля сайта (сохраняются в stats/логах, в БД не обязательны)
     extra: Dict[str, object] = field(default_factory=dict)
 
@@ -67,7 +72,16 @@ class FileNode:
 
         Конвейер намеренно работает со словарями от адаптера — так перенос из
         2ch-парсера остался дословным, а адаптеры типизированы снаружи.
+
+        Если сайт не отдаёт md5 (у картинок без метаданных), считаем `md5(url)` и
+        помечаем его синтетическим: по нему работает дедупликация **до** скачивания,
+        а проверку содержимого конвейер для таких файлов не делает (SHA-256 после
+        скачивания остаётся точной проверкой).
         """
+        md5 = self.md5
+        synthetic = not md5
+        if synthetic:
+            md5 = hashlib.md5(self.source_url.encode("utf-8")).hexdigest()
         return {
             "filename": self.filename,
             "original_name": self.original_name,
@@ -75,7 +89,8 @@ class FileNode:
             "media_type": self.media_type,
             "mime_type": self.mime_type,
             "size_bytes": self.size_bytes,
-            "md5": self.md5 or "",
+            "md5": md5,
+            "md5_synthetic": synthetic,
             "width": self.width,
             "height": self.height,
             "post_num": self.post_num,

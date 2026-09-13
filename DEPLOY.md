@@ -433,6 +433,40 @@ docker compose -f docker-compose.prod.yml exec -T web \
 - [ ] `docker compose ps` показывает `parser-dvach` и `parser-slivach`,
       контейнера `parser` нет; ключи `parser:{code}:*` живые, `parse_runs` пополняется.
 
+## Включение источника slivach (этап 5)
+
+Адаптер сайта уже в образе (`src/parsers/slivach.py`, зависимость `selectolax`),
+контейнер `parser-slivach` поднят, а источник в реестре **выключен** — включать
+нужно осознанно, потому что объём большой (полный обход — порядка 100–130 тыс.
+файлов и 30–40 ГБ).
+
+```bash
+# 1. код и образ: selectolax должен быть внутри
+docker compose -f docker-compose.prod.yml exec parser-slivach python -c \
+  "import selectolax, src.parsers.slivach as s; print(s.SlivachAdapter().default_boards[:3])"
+# → ['slivach-modeli', 'slivach-asmr', 'slivach-aktrisy']
+
+# 2. в админке: вкладка «Источники» → slivach
+#    - «Вернуть в реестр» (is_enabled=true)
+#    - конфиг адаптера: категории и лимиты, пример аккуратного старта:
+#      {"boards": ["slivach-modeli"], "max_pages": 2, "max_records": 5, "include_video": false}
+#    - «Запустить прогон» (флаг parser:slivach:enabled)
+# 3. смотреть прогресс и журнал там же, логи — в контейнере:
+docker compose -f docker-compose.prod.yml logs -f parser-slivach
+```
+
+Что важно помнить:
+
+- **видео требует `Referer`** — он уже отправляется адаптером (иначе сайт отдаёт 403);
+- **оригиналов на сайте нет**: «оригинал» = то, что отдаёт сайт (webp ~2000 px, mp4);
+- **`max_records`** ограничивает число записей на категорию за прогон, `max_pages` —
+  страниц пагинации; ими удобно дозировать первый проход;
+- после прогона записи становятся «тредами» раздела `/board/slivach-<категория>`,
+  а файлы — обычными карточками (галерея, лайтбокс, премиум-тумблеры работают как
+  для 2ch);
+- источник можно в любой момент остановить, не трогая 2ch (у них разные контейнеры
+  и разные ключи `parser:{code}:*`).
+
 ## Переход на контейнер на источник (этап 3)
 
 Раньше парсер был одним сервисом `parser`. Теперь на каждый источник свой

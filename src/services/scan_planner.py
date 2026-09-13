@@ -209,6 +209,7 @@ class ScanPlanner:
                     external_id=node.external_id,
                     posts_count=node.posts_count,
                     files_count=node.files_count,
+                    fingerprint=node.fingerprint,
                     is_active=True,
                     parse_enabled=parse_new,
                     pending_scan=parse_new,
@@ -245,9 +246,16 @@ class ScanPlanner:
             # Очередь на докачку. Приоритет задаёт фаза B: «новый»/«изменения»/
             # «файлы» — свежие, «просрочен»/«не скачивался» — плановый догон.
             # Уже помеченную свежую причину не перебиваем.
+            # Кроме счётчиков сравниваем fingerprint: сайты не отдают ни постов,
+            # ни числа файлов, зато дают «отпечаток» записи (например, обложку).
+            changed = (
+                state.posts_count != node.posts_count
+                or state.files_count != node.files_count
+                or bool(node.fingerprint and state.fingerprint != node.fingerprint)
+            )
             if is_new:
                 pass  # помечен как «новый» при создании
-            elif state.posts_count != node.posts_count or state.files_count != node.files_count:
+            elif changed:
                 state.pending_scan = True
                 state.pending_reason = "изменения"
             elif state.last_scanned_at is None:
@@ -257,9 +265,11 @@ class ScanPlanner:
                 state.pending_scan = True
                 state.pending_reason = state.pending_reason or "просрочен"
 
-            # Счётчики каталога — источник истины для «есть ли новые файлы»
+            # Счётчики каталога и отпечаток — источник истины для «есть ли новое»
             state.posts_count = node.posts_count
             state.files_count = node.files_count
+            if node.fingerprint:
+                state.fingerprint = node.fingerprint
             if state.pending_scan:
                 queued += 1
 

@@ -113,8 +113,13 @@ async def run_source_cycle(session: AsyncSession, source: Source) -> dict:
     await adapter.__aenter__()
     try:
         # Доски, заданные конфигурацией источника (только при первом запуске):
-        # у 2ch это BOARDS_TO_PARSE, у сайтов — `sources.config["boards"]`
-        slugs = ENV_BOARDS.get(source.code) or list(config.get("boards") or [])
+        # у 2ch это BOARDS_TO_PARSE, у сайтов — `sources.config["boards"]`,
+        # а если и его нет — список разделов по умолчанию из адаптера
+        slugs = (
+            ENV_BOARDS.get(source.code)
+            or list(config.get("boards") or [])
+            or list(getattr(adapter, "default_boards", []) or [])
+        )
         if slugs:
             await planner.ensure_configured_boards([str(slug) for slug in slugs])
 
