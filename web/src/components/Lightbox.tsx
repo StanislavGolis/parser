@@ -31,6 +31,7 @@ import type { BoardsById, MediaItem, ViewResult } from "@/lib/types";
 const WHEEL_STEP = 40; // px накопленной дельты = один файл
 const WHEEL_COOLDOWN_MS = 300; // пауза после перелистывания
 const TOAST_MS = 1400; // сколько показываем плашку про метку
+const HINT_MS = 2200; // сколько висит подсказка по клавишам (или до первого действия)
 
 interface LightboxProps {
   items: MediaItem[];
@@ -43,11 +44,26 @@ interface LightboxProps {
   onSelect?: (index: number) => void;
 }
 
+/** Строка подсказки «клавиша — что делает» в оверлее лайтбокса. */
+function HintRow({ keys, text }: { keys: string; text: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="inline-flex min-w-16 justify-center rounded border border-line bg-ink-tertiary px-1.5 py-0.5 font-mono text-[11px] text-text-primary">
+        {keys}
+      </span>
+      <span>{text}</span>
+    </div>
+  );
+}
+
 export default function Lightbox({ items, index, boardsById, onClose, onPrev, onNext, onSelect }: LightboxProps) {
   const media = items[index];
   const board = media ? boardsById?.[media.board_id] : undefined;
   const [failed, setFailed] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // Подсказка по клавишам: показывается при открытии, гаснет сама или по первому
+  // действию (клик / клавиша / колесо); кнопка «?» в шапке — показать снова.
+  const [showHint, setShowHint] = useState(true);
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Локальные правки метки: при листании «вперёд-назад» данные приходят из
   // исходной выборки, поэтому запоминаем изменения, сделанные в просмотре.
@@ -67,6 +83,26 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
   useEffect(() => {
     setFailed(false);
   }, [media?.id, media?.url]);
+
+  // Подсказка: автоскрытие по таймеру…
+  useEffect(() => {
+    if (!showHint) return;
+    const timer = window.setTimeout(() => setShowHint(false), HINT_MS);
+    return () => window.clearTimeout(timer);
+  }, [showHint]);
+
+  // …и скрытие по первому действию: клик/тап или колесо (клавиши — в onKeyDown,
+  // чтобы «?» успевал показать подсказку заново).
+  useEffect(() => {
+    if (!showHint) return;
+    const hide = () => setShowHint(false);
+    window.addEventListener("pointerdown", hide);
+    window.addEventListener("wheel", hide);
+    return () => {
+      window.removeEventListener("pointerdown", hide);
+      window.removeEventListener("wheel", hide);
+    };
+  }, [showHint]);
 
   useEffect(() => {
     const prevOverflow = document.body.style.overflow;
@@ -104,6 +140,13 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
 
   const onKeyDown = useCallback(
     (e: KeyboardEvent) => {
+      // «?» (или h) — снова показать подсказку; любая другая клавиша её убирает
+      if (e.key === "?" || e.key === "h" || e.key === "H") {
+        setShowHint(true);
+        return;
+      }
+      setShowHint(false);
+
       if (e.key === "Escape") onClose();
       else if (e.key === "ArrowLeft") onPrev();
       else if (e.key === "ArrowRight") onNext();
@@ -169,7 +212,8 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
   return (
     <div
       ref={containerRef}
-      className="fixed inset-0 z-50 flex flex-col bg-[#050708]"
+      // Затемнение вокруг окна: клик по нему закрывает просмотр (как Esc).
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-2 sm:p-4 md:p-6"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -177,6 +221,9 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
       aria-modal="true"
       aria-label={media.original_name}
     >
+      {/* Окно плеера: не «на весь экран» — с отступами, поэтому и крестик, и файл
+          рядом с курсором; клик по затемнению вокруг закрывает просмотр */}
+      <div className="relative flex h-full max-h-[92vh] w-full max-w-[1500px] flex-col overflow-hidden rounded-lg border border-line bg-[#050708] shadow-2xl">
       <div className="flex items-start justify-between gap-4 border-b border-line px-4 py-2.5 sm:px-6">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] text-text-secondary">
@@ -217,18 +264,39 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
             </div>
           ) : null}
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="shrink-0 rounded p-2 text-text-secondary transition-colors hover:bg-ink-tertiary hover:text-text-primary"
-          aria-label="Закрыть (Esc)"
-        >
-          <CloseIcon className="h-5 w-5" />
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setShowHint(true)}
+            className={`rounded p-2 font-mono text-sm text-text-secondary transition-colors hover:bg-ink-tertiary hover:text-text-primary ${
+              showHint ? "ring-1 ring-accent-primary/50" : ""
+            }`}
+            aria-label="Подсказка по клавишам (?)"
+            title="Подсказка по клавишам: ?"
+          >
+            ?
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className={`rounded p-2 text-text-secondary transition-colors hover:bg-ink-tertiary hover:text-text-primary ${
+              showHint ? "ring-1 ring-accent-primary/50" : ""
+            }`}
+            aria-label="Закрыть (Esc)"
+            title="Закрыть: Esc или клик по фону"
+          >
+            <CloseIcon className="h-5 w-5" />
+          </button>
+        </div>
       </div>
 
-      {/* Медиа */}
-      <div className="flex min-h-0 flex-1 items-center justify-center p-3 sm:p-6">
+      {/* Медиа: клик по пустому месту вокруг файла тоже закрывает окно */}
+      <div
+        className="relative flex min-h-0 flex-1 items-center justify-center p-2 sm:p-4"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
+      >
         {canShow ? (
           isVideo ? (
             <video
@@ -237,7 +305,7 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
               autoPlay
               playsInline
               onError={() => setFailed(true)}
-              className="max-h-full w-auto max-w-full rounded"
+              className="max-h-[min(74vh,100%)] w-auto max-w-full rounded"
             >
               Ваш браузер не поддерживает HTML5-видео.
             </video>
@@ -248,7 +316,7 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
               alt={media.original_name}
               referrerPolicy="no-referrer"
               onError={() => setFailed(true)}
-              className="max-h-full w-auto max-w-full rounded object-contain"
+              className="max-h-[min(74vh,100%)] w-auto max-w-full rounded object-contain"
             />
           )
         ) : locked ? (
@@ -276,6 +344,25 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
             </p>
           </div>
         )}
+
+        {/* Подсказка по клавишам: только подсказка, клики проходят сквозь неё
+            (первый же клик работает как обычно и убирает её) */}
+        {showHint ? (
+          <div className="pointer-events-none absolute inset-x-0 top-1/2 z-10 -translate-y-1/2 px-4">
+            <div className="mx-auto max-w-md rounded-lg border border-accent-primary/40 bg-black/85 p-4 backdrop-blur-sm">
+              <div className="font-mono text-[10px] uppercase tracking-wider text-accent-primary">
+                управление с клавиатуры
+              </div>
+              <div className="mt-2 flex flex-col gap-1.5 text-xs text-text-secondary">
+                <HintRow keys="← →" text="предыдущий / следующий файл" />
+                <HintRow keys="колесо" text="листать файлы" />
+                <HintRow keys="пробел" text="поставить или снять метку" />
+                <HintRow keys="Esc" text="закрыть — как и клик по фону" />
+                <HintRow keys="?" text="показать эту подсказку" />
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {/* Карусель файлов треда (быстрая навигация) */}
@@ -293,7 +380,11 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
             {formatCompact(media.downloads_count)} скачиваний
           </span>
           {/* Метка («отличный контент») — общий хук: пробел делает то же самое. */}
-          <MarkButton mediaId={media.id} state={mark} />
+          <span
+            className={showHint ? "inline-flex rounded ring-1 ring-accent-primary/50" : "inline-flex"}
+          >
+            <MarkButton mediaId={media.id} state={mark} />
+          </span>
         </div>
 
         <div className="flex items-center gap-2">
@@ -301,7 +392,7 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
             type="button"
             onClick={onPrev}
             disabled={items.length < 2}
-            className="btn-small px-2.5 py-1.5"
+            className={`btn-small px-2.5 py-1.5 ${showHint ? "ring-1 ring-accent-primary/50" : ""}`}
             aria-label="Предыдущий (←)"
             title="Предыдущий: ← или колесо вверх"
           >
@@ -314,7 +405,7 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
             type="button"
             onClick={onNext}
             disabled={items.length < 2}
-            className="btn-small px-2.5 py-1.5"
+            className={`btn-small px-2.5 py-1.5 ${showHint ? "ring-1 ring-accent-primary/50" : ""}`}
             aria-label="Следующий (→)"
             title="Следующий: → или колесо вниз"
           >
@@ -331,12 +422,13 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
         </div>
       </div>
 
-      {/* Плашка-подтверждение (метка): показывается поверх, не перехватывает клики */}
-      {toast ? (
-        <div className="pointer-events-none absolute bottom-20 left-1/2 -translate-x-1/2 rounded bg-black/85 px-3 py-1.5 font-mono text-[11px] text-accent-primary">
-          {toast}
-        </div>
-      ) : null}
+        {/* Плашка-подтверждение (метка): показывается поверх, не перехватывает клики */}
+        {toast ? (
+          <div className="pointer-events-none absolute bottom-20 left-1/2 -translate-x-1/2 rounded bg-black/85 px-3 py-1.5 font-mono text-[11px] text-accent-primary">
+            {toast}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
