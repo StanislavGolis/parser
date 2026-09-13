@@ -22,7 +22,15 @@ interface BoardPageProps {
 export async function generateMetadata({ params }: BoardPageProps): Promise<Metadata> {
   const boards = await getBoards();
   const board = boards.find((b) => b.slug === params.slug);
-  const title = board ? `/${board.slug} — ${board.title ?? board.slug}` : `Раздел /${params.slug}`;
+  // Название добавляем, только если оно не повторяет слаг: иначе в выдаче выходило
+  // «/e — e» (у разделов, где нет отдельного имени).
+  const named =
+    Boolean(board?.title) && board?.title !== board?.slug && board?.title !== `/${board?.slug}`;
+  const title = board
+    ? named
+      ? `/${board.slug} — ${board.title}`
+      : `/${board.slug}`
+    : `Раздел /${params.slug}`;
   const files = board?.media_count ? `${formatNumber(board.media_count)} файлов — ` : "";
   return {
     title,
@@ -64,7 +72,11 @@ export default async function BoardPage({ params, searchParams }: BoardPageProps
     {
       "@context": "https://schema.org",
       "@type": "CollectionPage",
-      name: board ? `/${slug} — ${board.title ?? slug}` : `Раздел /${slug}`,
+      name: board
+        ? board.title && board.title !== slug && board.title !== `/${slug}`
+          ? `/${slug} — ${board.title}`
+          : `/${slug}`
+        : `Раздел /${slug}`,
       description: board?.description ?? undefined,
       url: `${SITE_URL}/board/${slug}`,
       inLanguage: "ru-RU",
@@ -106,7 +118,9 @@ function BoardHeader({ board, slug, threadsTotal }: { board?: Board; slug: strin
         <h1 className="font-mono text-lg font-bold uppercase tracking-[0.12em] text-text-primary">
           /{slug}
         </h1>
-        {board?.title ? <span className="text-sm text-text-secondary">— {board.title}</span> : null}
+        {board?.title && board.title !== slug && board.title !== `/${slug}` ? (
+          <span className="text-sm text-text-secondary">— {board.title}</span>
+        ) : null}
         {board?.is_premium ? (
           <span
             className="badge badge-warn"
