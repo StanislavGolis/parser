@@ -84,11 +84,17 @@ function CoverMosaic({ board, eager = false }: { board: Board; eager?: boolean }
 export default function BoardsCatalog({ boards }: { boards: Board[] }) {
   const [filter, setFilter] = useState<Filter>("all");
 
+  // Автосортировка: разделы по количеству файлов, крупные — первыми. Сортировка
+  // устойчивая, поэтому разделы с равным числом файлов остаются в порядке API
+  // (по слагу) — сетка не «дрожит» между рендерами и фильтрами. `filter` уже
+  // вернул новый массив, так что проп `boards` не мутируется.
   const visible = useMemo(
     () =>
-      boards.filter((b) =>
-        filter === "premium" ? b.is_premium : filter === "free" ? !b.is_premium : true,
-      ),
+      boards
+        .filter((b) =>
+          filter === "premium" ? b.is_premium : filter === "free" ? !b.is_premium : true,
+        )
+        .sort((a, b) => (b.media_count || 0) - (a.media_count || 0)),
     [boards, filter],
   );
 
@@ -121,8 +127,11 @@ export default function BoardsCatalog({ boards }: { boards: Board[] }) {
             {f.label}
           </button>
         ))}
-        <span className="ml-auto font-mono text-[11px] text-text-muted">
-          {formatNumber(visible.length)} показано
+        <span
+          className="ml-auto font-mono text-[11px] text-text-muted"
+          title="Разделы отсортированы по количеству файлов: крупные сверху"
+        >
+          {formatNumber(visible.length)} показано · сортировка: файлов ↓
         </span>
       </div>
 
