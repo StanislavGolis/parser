@@ -63,14 +63,12 @@ function threadDescription(thread: ThreadDetail): string {
 
 export async function generateMetadata({ params }: ThreadPageProps): Promise<Metadata> {
   const id = parseThreadId(params.id);
-  const notFoundMeta: Metadata = {
-    title: "Тред не найден",
-    robots: { index: false, follow: false },
-  };
-  if (!Number.isFinite(id)) return notFoundMeta;
+  if (!Number.isFinite(id)) notFound();
 
   const thread = await getThreadDetail(id).catch(() => null);
-  if (!thread) return notFoundMeta;
+  // notFound() именно здесь: так 404 уходит до стриминга страницы, иначе
+  // Next отдал бы «мягкий» 200 для несуществующего или скрытого треда.
+  if (!thread) notFound();
 
   const title = threadTitle(thread);
   const description = threadDescription(thread);

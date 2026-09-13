@@ -23,16 +23,17 @@ interface DetailProps {
 
 export async function generateMetadata({ params }: DetailProps): Promise<Metadata> {
   const numericId = Number(params.id);
-  const notFoundMeta: Metadata = { title: "Файл не найден", robots: { index: false, follow: false } };
-  if (!Number.isFinite(numericId)) return notFoundMeta;
+  // 404 именно из метаданных: статус уходит до стриминга страницы (иначе Next
+  // отдаёт «мягкий» 200 на несуществующий файл, а это плохо для поиска).
+  if (!Number.isFinite(numericId)) notFound();
 
   let media;
   try {
     media = await getMediaDetail(numericId);
   } catch {
-    return notFoundMeta;
+    notFound();
   }
-  if (!media) return notFoundMeta;
+  if (!media) notFound();
 
   const kind = media.media_type === "video" ? "видео" : "изображение";
   const size = media.file_size ? `${formatBytes(media.file_size)}, ` : "";
