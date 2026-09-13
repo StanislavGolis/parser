@@ -114,12 +114,13 @@ async def get_current_user(
     now = datetime.utcnow()
     stale = session_row.last_seen_at is None or (now - session_row.last_seen_at) > ACTIVE_TOUCH
     if stale:
+        # Обновляем след сессии целиком: IP (хешем) и браузер могли измениться,
+        # а у сессий, созданных до появления этих полей, они вообще пустые.
         session_row.last_seen_at = now
-        if not session_row.ip_hash:
-            session_row.ip_hash = ip_hash(client_ip(request))
-        if not session_row.user_agent:
-            agent = request.headers.get("user-agent")
-            session_row.user_agent = agent[:255] if agent else None
+        session_row.ip_hash = ip_hash(client_ip(request))
+        agent = request.headers.get("user-agent")
+        if agent:
+            session_row.user_agent = agent[:255]
         await session.commit()
     return user
 

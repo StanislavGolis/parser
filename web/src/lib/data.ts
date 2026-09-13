@@ -7,7 +7,7 @@
  * ВНИМАНИЕ: файл предназначен только для Server Components; в клиентских
  * компонентах используйте src/lib/api.ts.
  */
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 
 import { ApiError } from "./api";
 import { SERVER_API_BASE } from "./env";
@@ -39,6 +39,11 @@ async function serverFetch<T>(path: string, revalidate: number, fallback?: T): P
     // Пробрасываем cookie браузера в SSR-запрос: приватные разделы
     // проверяют доступ по cookie ba_{slug} на стороне API.
     const cookieStore = cookies();
+    // Заодно пробрасываем реальные IP и User-Agent: иначе API видит запрос
+    // из контейнера web (и в след сессии в админке попадали бы docker-IP и UA node).
+    const incoming = headers();
+    const clientIp = incoming.get("x-forwarded-for");
+    const userAgent = incoming.get("user-agent");
     // Ответ зависит от зрителя (`marked`, `locked`), а Data Cache Next.js общий
     // для всех: с пользовательскими cookie кэш отключаем, иначе чужой «лайк»
     // и чужой премиум-статус попали бы в чужую страницу. Единственное
@@ -52,6 +57,8 @@ async function serverFetch<T>(path: string, revalidate: number, fallback?: T): P
       headers: {
         accept: "application/json",
         cookie: cookieStore.toString(),
+        ...(clientIp ? { "x-forwarded-for": clientIp } : {}),
+        ...(userAgent ? { "user-agent": userAgent } : {}),
       },
     });
   } catch {
