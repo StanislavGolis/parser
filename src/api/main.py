@@ -28,6 +28,7 @@ from src.api.routes import (
     resume,
     search,
     status,
+    threads,
     top,
     track,
 )
@@ -154,6 +155,7 @@ app.add_middleware(
 
 # Роуты
 app.include_router(boards.router)
+app.include_router(threads.router)
 app.include_router(media.router)
 app.include_router(auth.router)
 app.include_router(marks.router)
