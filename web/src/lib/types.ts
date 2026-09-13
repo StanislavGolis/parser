@@ -183,6 +183,8 @@ export interface BoardThread {
   media_visible: number;
   /** Из них добавлено за текущие отчётные сутки (МСК) — «+N за сутки» на карточке. */
   media_today?: number;
+  /** Когда в тред последний раз добавился видимый файл (на карточке — вместо даты треда). */
+  last_media_at?: string | null;
   preview: MediaItem[];
 }
 

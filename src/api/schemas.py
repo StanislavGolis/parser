@@ -401,6 +401,9 @@ class ThreadOut(BaseModel):
     media_missing: int = 0        # файл потерян
     media_visible: int = 0        # видимых на сайте
     media_today: int = 0          # из них добавлено за текущие отчётные сутки (МСК)
+    # Когда в тред последний раз добавился видимый файл (на карточке треда
+    # показываем именно это время — видно, когда тред обновлялся)
+    last_media_at: Optional[datetime] = None
 
     # Несколько последних файлов треда для превью
     preview: List[MediaOut] = []

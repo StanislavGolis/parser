@@ -322,6 +322,11 @@ async def _media_stats(session: AsyncSession, board_id: int) -> Dict[int, dict]:
             .filter(Media.download_status == "missing")
             .label("media_missing"),
             func.count().filter(Media.is_visible.is_(True)).label("media_visible"),
+            # Время последнего видимого файла треда: показываем его на карточке
+            # вместо даты создания треда — видно, когда тред обновлялся
+            func.max(Media.created_at)
+            .filter(Media.is_visible.is_(True), Media.is_active.is_(True))
+            .label("last_media_at"),
             func.count()
             .filter(
                 Media.is_visible.is_(True),
@@ -342,6 +347,7 @@ async def _media_stats(session: AsyncSession, board_id: int) -> Dict[int, dict]:
             "media_missing": int(r.media_missing or 0),
             "media_visible": int(r.media_visible or 0),
             "media_today": int(r.media_today or 0),
+            "last_media_at": r.last_media_at,
         }
     return stats
 
@@ -447,6 +453,7 @@ async def build_thread_outs(
             media_missing=s.get("media_missing", 0),
             media_visible=s.get("media_visible", 0),
             media_today=s.get("media_today", 0),
+            last_media_at=s.get("last_media_at"),
             preview=[],
         )
 

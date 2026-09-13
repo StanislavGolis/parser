@@ -425,7 +425,19 @@ function ThreadCard({
                 premium
               </span>
             ) : null}
-            {thread.thread_timestamp ? <When iso={thread.thread_timestamp} /> : null}
+            {/* Дата последнего загруженного файла: видно, когда тред обновлялся
+                (если файлов ещё нет — показываем дату треда у источника) */}
+            {thread.last_media_at || thread.thread_timestamp ? (
+              <span
+                title={
+                  thread.last_media_at
+                    ? "Дата последнего загруженного файла — когда тред обновлялся"
+                    : "Дата треда у источника (файлов ещё нет)"
+                }
+              >
+                <When iso={(thread.last_media_at ?? thread.thread_timestamp) as string} />
+              </span>
+            ) : null}
             {thread.comment ? (
               <span className="normal-case text-text-secondary">
                 <span className="hidden sm:inline">· </span>
