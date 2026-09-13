@@ -28,6 +28,7 @@ export const metadata: Metadata = {
   description:
     "Полный поток свежих файлов архива: новые фото и видео, фильтры по типу, автоподгрузка. Обновляется постоянно.",
   alternates: { canonical: "/new" },
+  other: { rating: "adult" },
 };
 
 export default async function NewPage({

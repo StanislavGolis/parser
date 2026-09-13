@@ -59,6 +59,8 @@ export async function generateMetadata(): Promise<Metadata> {
     title: { absolute: "DREDGER — медиа-архив: свежие фото и видео" },
     description,
     alternates: { canonical: "/" },
+    // Возрастная метка: архив целиком 18+, честная маркировка для поисковиков
+    other: { rating: "adult" },
     openGraph: {
       title: "DREDGER — медиа-архив",
       description,

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { Inter, JetBrains_Mono } from "next/font/google";
 
 import AgeGate from "@/components/AgeGate";
@@ -49,7 +50,20 @@ export const metadata: Metadata = {
   },
 };
 
+/**
+ * Маркеры поисковых роботов: им возрастное окно не показываем — иначе бот видит
+ * интерстициал, закрывающий контент, и за это сайт понижается в выдаче.
+ */
+const BOT_RE =
+  /(googlebot|google-inspectiontool|yandex|bingbot|msnbot|applebot|duckduckbot|baiduspider|slurp|sogou|exabot|petalbot|semrushbot|ahrefsbot|mj12bot|dotbot|crawler|spider|bot)/i;
+
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  // Поисковым роботам возрастное окно не показываем: контент они должны получать
+  // без шлюза (Google понижает за интерстициалы, закрывающие контент). Проверка
+  // серверная — компонент вообще не попадает в разметку и RSC-пейлоад для бота.
+  const userAgent = headers().get("user-agent") ?? "";
+  const isBot = BOT_RE.test(userAgent);
+
   return (
     <html lang="ru" className={`${inter.variable} ${jetbrains.variable}`}>
       <body className="flex min-h-screen flex-col bg-ink-primary font-sans text-text-primary antialiased">
@@ -61,7 +75,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <MobileNav />
         <Tracker />
         {/* Предупреждение 18+: раз в сутки, подтверждение — в cookie `dv_age` */}
-        <AgeGate />
+        {isBot ? null : <AgeGate />}
       </body>
     </html>
   );
