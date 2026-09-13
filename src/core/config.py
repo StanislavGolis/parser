@@ -86,6 +86,16 @@ class Settings(BaseSettings):
     SMTP_FROM: str = ""
     SMTP_TLS: str = "ssl"  # ssl | starttls | none
 
+    # ── Ежедневный отчёт на почту (за прошедшие отчётные сутки по МСК) ──
+    DAILY_REPORT: bool = True
+    # Вариант состава: short — одна строка, standard — цифры и топ разделов,
+    # full — плюс ошибки прогонов (см. src/services/daily_report.py)
+    DAILY_REPORT_MODE: str = "standard"
+    # Кому отправлять. Пусто — админам из ADMIN_EMAILS
+    DAILY_REPORT_EMAILS: str = ""
+    # Задержка после 00:00 МСК: даём парсеру дописать прогон и статистику
+    DAILY_REPORT_DELAY_MINUTES: int = 5
+
     @property
     def admin_emails(self) -> list[str]:
         """Список админских email'ов (нормализованный, без пустых)."""

@@ -34,6 +34,7 @@ def user_out(user: User) -> UserOut:
         email=user.email,
         premium_until=user.premium_until,
         is_premium=premium_active(user),
+        created_at=user.created_at,
     )
 
 
@@ -190,23 +191,4 @@ async def me(
     user: User = Depends(require_user),
 ):
     """Текущий пользователь + счётчик меток (401, если не вошёл)."""
-    return await user_out_with_counts(session, user)
-
-
-@router.post("/premium/activate", response_model=UserOut)
-async def activate_premium(
-    request: Request,
-    session: AsyncSession = Depends(get_session),
-    user: User = Depends(require_user),
-):
-    """Промо-активация премиума на PROMO_PREMIUM_DAYS дней.
-
-    Пока платёжной системы нет — кнопка в профиле выдаёт премиум бесплатно;
-    повторная активация продлевает срок от текущего (накопление).
-    """
-    await check_rate_limit(client_ip(request))
-
-    grant_premium(user, PROMO_PREMIUM_DAYS)
-    await session.commit()
-    await session.refresh(user)
     return await user_out_with_counts(session, user)

@@ -12,6 +12,7 @@ const TABS: Array<{ href: string; label: string; match: (p: string) => boolean }
     match: (p) => p.startsWith("/admin/content") || p.startsWith("/admin/boards"),
   },
   { href: "/admin/sources", label: "Источники", match: (p) => p.startsWith("/admin/sources") },
+  { href: "/admin/feedback", label: "Обратная связь", match: (p) => p.startsWith("/admin/feedback") },
   { href: "/admin/users", label: "Пользователи", match: (p) => p.startsWith("/admin/users") },
   { href: "/admin/stats", label: "Статистика", match: (p) => p.startsWith("/admin/stats") },
 ];

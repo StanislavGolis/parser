@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request
-from sqlalchemy import func, select
+from sqlalchemy import func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.common import (
@@ -33,6 +33,20 @@ def _as_naive_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
+def encode_cursor(created_at: datetime, media_id: int) -> str:
+    """Курсор догрузки: `<created_at ISO>|<id>` — позиция последней карточки."""
+    return f"{created_at.isoformat()}|{media_id}"
+
+
+def decode_cursor(raw: str) -> Optional[tuple[datetime, int]]:
+    """Разбирает курсор. `None` — мусор (выдаём первую страницу, не падаем)."""
+    try:
+        moment, raw_id = raw.split("|", 1)
+        return datetime.fromisoformat(moment), int(raw_id)
+    except (ValueError, TypeError):
+        return None
+
+
 @router.get("", response_model=MediaListOut)
 async def media_feed(
     request: Request,
@@ -49,6 +63,14 @@ async def media_feed(
             "блок «новое с прошлого визита»"
         ),
     ),
+    cursor: Optional[str] = Query(
+        None,
+        description=(
+            "Курсор догрузки ленты (`<created_at>|<id>` из `next_cursor`): "
+            "берём то, что **старее** курсора. Пока ленту листают, парсер добавляет "
+            "файлы сверху — с курсором выдача не сдвигается и ничего не теряется."
+        ),
+    ),
     session: AsyncSession = Depends(get_session),
     s3: S3Storage = Depends(get_s3),
     user: Optional[User] = Depends(get_current_user),
@@ -58,6 +80,9 @@ async def media_feed(
     Премиум-файлы тоже попадают в ленту, но с размытым превью (locked).
     `free=1` оставляет только файлы без подписки (чип «без подписки» на главной),
     `since=<ISO>` — только то, что появилось после указанного момента.
+
+    Догрузка — по курсору (`cursor`), а не по offset: лента «живая», и без курсора
+    новые файлы сдвигали бы страницы (часть карточек дублировалась, часть терялась).
     """
     await check_rate_limit(client_ip(request))
 
@@ -71,6 +96,18 @@ async def media_feed(
         filters.append(Media.is_premium.is_(False))
     if since:
         filters.append(Media.created_at > _as_naive_utc(since))
+
+    # Курсор: всё, что строго старее последней показанной карточки
+    anchor = decode_cursor(cursor) if cursor else None
+    if anchor:
+        anchor_ts, anchor_id = anchor
+        filters.append(
+            tuple_(Media.created_at, Media.id) < tuple_(anchor_ts, anchor_id)
+        )
+        # При курсорной догрузке страница всегда «первая»: позицию задаёт курсор
+        offset = 0
+    else:
+        offset = (page - 1) * per_page
 
     # Подсчёт только видимых записей видимых досок
     count_q = (
@@ -86,7 +123,7 @@ async def media_feed(
         .join(Board, Board.id == Media.board_id)
         .where(*filters)
         .order_by(Media.created_at.desc(), Media.id.desc())
-        .offset((page - 1) * per_page)
+        .offset(offset)
         .limit(per_page)
     )
     result = await session.execute(query)
@@ -97,9 +134,16 @@ async def media_feed(
     # Метка текущего пользователя: без этого «лайк» на карточке гас после
     # перезагрузки страницы (в ленте marked всегда приходил false).
     await apply_user_flags(session, out, user)
+
+    # Курсор следующей порции: берём позицию последней карточки этой страницы
+    next_cursor = (
+        encode_cursor(items[-1].created_at, items[-1].id) if len(items) == per_page else None
+    )
     return MediaListOut(
         items=out,
         page=page,
         per_page=per_page,
         total=int(total or 0),
+        next_cursor=next_cursor,
+        has_more=bool(next_cursor),
     )

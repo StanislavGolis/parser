@@ -340,7 +340,7 @@ SMTP_FROM=shksns35@gmail.com
 восстанавливают доступ независимо.
 
 В письмах заполняются `Date` и `Message-ID`, а отправитель подписан именем
-`DREDGE` — так письма реже попадают в спам у Gmail и Яндекса.
+`Dredger` — так письма реже попадают в спам у Gmail и Яндекса.
 
 Проверенный случай (Яндекс): если SMTP отвечает
 `535 5.7.8 ... This user does not have access rights to this service`, значит
@@ -354,7 +354,7 @@ SMTP_FROM=shksns35@gmail.com
 docker compose -f docker-compose.prod.yml exec -T api python -c "
 from src.services import mailer
 import asyncio
-print(asyncio.run(mailer.send_mail('shksns35@gmail.com', 'DREDGE: проверка почты', 'Проверка отправки.')))"
+print(asyncio.run(mailer.send_mail('shksns35@gmail.com', 'Dredger: проверка почты', 'Проверка отправки.')))"
 ```
 
 ## Примечания
@@ -431,7 +431,17 @@ docker compose -f docker-compose.prod.yml exec -T web \
 - [ ] в бандле web есть «продолжить» (точка возврата треда, localStorage) и
       «сортировка: файлов ↓» в каталоге разделов;
 - [ ] `docker compose ps` показывает `parser-dvach` и `parser-slivach`,
-      контейнера `parser` нет; ключи `parser:{code}:*` живые, `parse_runs` пополняется.
+      контейнера `parser` нет; ключи `parser:{code}:*` живые, `parse_runs` пополняется;
+- [ ] сводка на главной показывает прирост «за сутки» с 00:00 МСК
+      (`GET /api/v1/status` → `files_today`, `period_label`); на карточках разделов
+      в каталоге виден «+N за сутки» (`media_today`);
+- [ ] форма `/feedback` принимает обращение (201) и оно появляется во вкладке
+      «Обратная связь» админки; письмо админам уходит (если SMTP настроен);
+- [ ] `GET /api/v1/admin/reports/daily?period=yesterday` отдаёт текст отчёта
+      за прошедшие сутки; при `DAILY_REPORT=true` письмо уходит после 00:00 МСК
+      (в логах API: «Ежедневный отчёт за … отправлен»);
+- [ ] вход/выход из аккаунта сразу меняет интерфейс (без ручной перезагрузки):
+      шапка, премиум-превью, метки.
 
 ## Включение источника slivach (этап 5)
 

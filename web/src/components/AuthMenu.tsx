@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { apiSend } from "@/lib/api";
@@ -8,6 +9,7 @@ import type { UserOut } from "@/lib/types";
 
 /** Кто вошёл: «Войти» / email + «Выйти». */
 export default function AuthMenu() {
+  const router = useRouter();
   const [user, setUser] = useState<UserOut | null>(null);
   const [ready, setReady] = useState(false);
 
@@ -32,6 +34,9 @@ export default function AuthMenu() {
       /* всё равно сбрасываем локальное состояние */
     }
     setUser(null);
+    // Обновляем серверные компоненты: без этого в SSR-разметке оставались
+    // данные вошедшего пользователя (премиум-превью, метки, кнопки).
+    router.refresh();
   }
 
   if (!ready) return null;

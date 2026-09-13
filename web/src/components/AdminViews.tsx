@@ -103,7 +103,9 @@ function BoardRow({
     parser?.alive && parser.current_board === board.slug ? parser.progress : null;
   const filesDone = progress?.files_done ?? 0;
   const filesTotal = progress?.files_total ?? 0;
-  const stalled = (parser?.stall_seconds ?? 0) > 60;
+  // «Завис» — это когда процесс молчит (нет живости), а не когда давно не было
+  // новой порции прогресса: большой файл может качаться минутами.
+  const stalled = Boolean(progress && parser && !parser.alive);
   const percent =
     progress?.phase === "files" && filesTotal > 0
       ? Math.min(100, Math.round((filesDone / filesTotal) * 100))
@@ -306,11 +308,13 @@ function BoardRow({
                 : "сканируем каталог доски…"}
             </span>
             <span className={stalled ? "text-accent-danger" : "text-text-muted"}>
-              {parser?.stall_seconds != null
-                ? stalled
-                  ? `простой ${parser.stall_seconds} с — возможно завис`
-                  : `обновлено ${parser.stall_seconds} с назад`
-                : ""}
+              {stalled
+                ? `нет связи с парсером${
+                    parser?.stall_seconds != null ? ` · ${parser.stall_seconds} с` : ""
+                  }`
+                : parser?.stall_seconds != null
+                  ? `обновлено ${parser.stall_seconds} с назад`
+                  : ""}
             </span>
           </div>
           <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded bg-ink-tertiary">

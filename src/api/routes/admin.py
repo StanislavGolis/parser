@@ -60,6 +60,7 @@ from src.core.redis_client import redis_client
 from src.parsers import build_adapter
 from src.services.analytics import record_audit
 from src.services.catalog_health import catalog_errors, mark_catalog_error, mark_catalog_ok
+from src.services import daily_report, reporting
 from src.services.media_cache import get_media_cache
 from src.services.media_validator import MediaValidator
 from src.services.s3_storage import S3Storage
@@ -1542,6 +1543,49 @@ async def source_runs(
     source = await _require_source(session, code)
     runs = await sources_service.last_runs(session, source.id, limit=limit)
     return {"code": source.code, "items": [_run_out(run) for run in runs]}
+
+
+# ─────────── Ежедневный отчёт: предпросмотр и ручная отправка ───────────
+
+
+@router.get("/reports/daily")
+async def daily_report_preview(
+    period: str = Query("today", pattern="^(today|yesterday)$"),
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Текст ежедневного отчёта без отправки — видно, что попадёт в письмо.
+
+    Период — отчётные сутки по МСК (00:00–24:00): `today` — текущие (ещё идут),
+    `yesterday` — прошедшие (это же уходит письмом в 00:05 МСК).
+    """
+    if period == "yesterday":
+        start, end = reporting.previous_period()
+    else:
+        start, end = reporting.period_bounds()
+    return await daily_report.build_report(session, start, end)
+
+
+@router.post("/reports/daily/send")
+async def daily_report_send(
+    period: str = Query("yesterday", pattern="^(today|yesterday)$"),
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Отправляет отчёт сейчас (то же письмо, что уходит автоматически в 00:05 МСК)."""
+    if period == "yesterday":
+        start, end = reporting.previous_period()
+    else:
+        start, end = reporting.period_bounds()
+    report = await daily_report.build_report(session, start, end)
+    sent = await daily_report.send_report(report["text"], report["subject"])
+    return {
+        "period_label": report["period_label"],
+        "subject": report["subject"],
+        "sent": sent,
+        "mail_configured": report["mail_configured"],
+        "recipients": report["recipients"],
+    }
 
 
 @router.get("/parser/status")

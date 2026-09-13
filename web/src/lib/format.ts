@@ -12,7 +12,19 @@ export function formatNumber(n: number): string {
   return new Intl.NumberFormat("ru-RU").format(n);
 }
 
-/** Компактные счётчики в стиле DREDGE: 340 / 1.2к / 15.3к / 1.1М. */
+/**
+ * Разбирает время из API как UTC даже без суффикса `Z`.
+ *
+ * В БД время хранится «наивным» UTC, а `new Date("2026-09-13T03:51:00")` в
+ * браузере читается как **местное** — из-за этого админка показывала сдвиг на
+ * часовой пояс (в МСК «простой 3 часа» у живого парсера).
+ */
+export function parseUtc(value: string): number {
+  const hasZone = /(Z|[+-]\d{2}:?\d{2})$/.test(value);
+  return new Date(hasZone ? value : `${value}Z`).getTime();
+}
+
+/** Компактные счётчики в стиле DREDGER: 340 / 1.2к / 15.3к / 1.1М. */
 export function formatCompact(n: number): string {
   if (!Number.isFinite(n)) return "0";
   const abs = Math.abs(n);

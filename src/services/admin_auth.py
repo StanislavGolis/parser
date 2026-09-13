@@ -19,7 +19,7 @@ from src.core.config import settings
 from src.core.models import AdminPasswordReset, User, UserSession
 from src.services import auth as auth_service
 
-RESET_SUBJECT = "DREDGE: восстановление доступа в админку"
+RESET_SUBJECT = "DREDGER: восстановление доступа в админку"
 
 
 def is_admin_email(email: str) -> bool:
@@ -36,7 +36,7 @@ def reset_email_text(link: str, ttl_minutes: int) -> str:
     """Текст письма со ссылкой восстановления."""
     return (
         "Здравствуйте!\n\n"
-        "Запрошено восстановление доступа в админку DREDGE.\n"
+        "Запрошено восстановление доступа в админку DREDGER.\n"
         f"Ссылка действует {ttl_minutes} мин и срабатывает один раз:\n\n"
         f"{link}\n\n"
         "Если это не вы — просто проигнорируйте письмо.\n"
@@ -164,7 +164,7 @@ def user_reset_email_text(link: str, ttl_minutes: int) -> str:
     """Текст письма со ссылкой смены пароля для аккаунта посетителя."""
     return (
         "Здравствуйте!\n\n"
-        "Для вашего аккаунта на DREDGE запрошена смена пароля.\n"
+        "Для вашего аккаунта на DREDGER запрошена смена пароля.\n"
         f"Ссылка действует {ttl_minutes} мин и срабатывает один раз:\n\n"
         f"{link}\n\n"
         "Если это не вы — просто проигнорируйте письмо.\n"

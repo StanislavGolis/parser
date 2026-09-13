@@ -69,6 +69,11 @@ async def heartbeat_loop(async_session) -> None:
                             running=running,
                             current=CURRENT_BOARD.get(source.code) if running else None,
                         )
+                        # Пока идёт прогон, освежаем метку прогресса: админка не
+                        # должна решать, что парсер «завис», если долго качается
+                        # один большой файл (см. touch_progress).
+                        if running:
+                            await sources_service.touch_progress(source.code)
             except Exception as exc:  # noqa: BLE001 — heartbeat не должен падать
                 print(f"[warn] heartbeat: {exc}")
             await asyncio.sleep(HEARTBEAT_INTERVAL)

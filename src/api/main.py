@@ -16,11 +16,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.api.routes import (
     admin,
     admin_auth,
+    admin_feedback,
     admin_stats,
     admin_users,
     auth,
     boards,
     feed,
+    feedback,
     marks,
     media,
     search,
@@ -32,6 +34,7 @@ from src.api.services import recalc_popularity
 from src.core.config import settings
 from src.core.db import async_session_factory
 from src.core.redis_client import redis_client
+from src.services import reporting
 from src.services.analytics import cleanup_analytics
 
 logging.basicConfig(level=logging.INFO)
@@ -72,11 +75,54 @@ async def _analytics_worker() -> None:
             logger.exception("Ошибка ретеншна аналитики")
 
 
+async def _daily_report_worker() -> None:
+    """Фоновая задача: ежедневный отчёт на почту после закрытия отчётных суток.
+
+    Отчётные сутки — по МСК (00:00–24:00). Просыпаемся через
+    `DAILY_REPORT_DELAY_MINUTES` после 00:00 МСК, считаем прошедшие сутки и
+    отправляем письмо адресатам (`DAILY_REPORT_EMAILS`, иначе — админам).
+
+    Задержка нужна, чтобы парсер успел дописать прогон: иначе итоги ночной
+    докачки попадут в следующий отчёт.
+    """
+    if not settings.DAILY_REPORT:
+        logger.info("Ежедневный отчёт выключен (DAILY_REPORT=false)")
+        return
+
+    from src.services import daily_report
+
+    if not daily_report.recipients():
+        logger.info("Ежедневный отчёт: получатели не заданы (ADMIN_EMAILS пуст) — выключен")
+        return
+    if not daily_report.mailer.is_configured():
+        logger.info("Ежедневный отчёт: SMTP не настроен — письма не будет (доступен предпросмотр в админке)")
+
+    logger.info("Ежедневный отчёт: ждём 00:%02d МСК", settings.DAILY_REPORT_DELAY_MINUTES)
+    while True:
+        try:
+            delay = reporting.seconds_until_next_period() + settings.DAILY_REPORT_DELAY_MINUTES * 60
+            await asyncio.sleep(max(30.0, delay))
+            start, end = reporting.previous_period()
+            async with async_session_factory() as session:
+                report = await daily_report.build_report(session, start, end)
+            sent = await daily_report.send_report(report["text"], report["subject"])
+            logger.info(
+                "Ежедневный отчёт за %s отправлен: %s",
+                report["period_label"],
+                ", ".join(sent) or "нет получателей/почта не настроена",
+            )
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            logger.exception("Ошибка ежедневного отчёта")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     tasks = [
         asyncio.create_task(_popularity_worker()),
         asyncio.create_task(_analytics_worker()),
+        asyncio.create_task(_daily_report_worker()),
     ]
     yield
     for task in tasks:
@@ -114,8 +160,10 @@ app.include_router(top.router)
 app.include_router(feed.router)
 app.include_router(status.router)
 app.include_router(search.router)
+app.include_router(feedback.router)
 app.include_router(admin.router)
 app.include_router(admin_auth.router)
+app.include_router(admin_feedback.router)
 app.include_router(admin_stats.router)
 app.include_router(admin_users.router)
 app.include_router(track.router)

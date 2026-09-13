@@ -132,6 +132,31 @@ async def write_progress(code: str, payload: Dict[str, Any]) -> None:
         pass  # прогресс — не повод ронять прогон
 
 
+async def touch_progress(code: str) -> None:
+    """Освежает `updated_at` прогресса, пока прогон жив.
+
+    Вызывается heartbeat-таском демона: скачивание большого видео может занимать
+    минуты, за которые прогресс не переписывается, и админка показывала «простой
+    N с — возможно завис» у работающего парсера. Если процесс умрёт, ключ истечёт
+    по TTL и живость (`parser:{code}:alive`) пропадёт — это и есть честный признак
+    «связи нет».
+    """
+    key = keys(code).progress
+    try:
+        raw = await redis_client.get(key)
+        if not raw:
+            return
+        payload = json.loads(raw)
+        payload["updated_at"] = datetime.utcnow().isoformat() + "Z"
+        fresh = json.dumps(payload, ensure_ascii=False)
+        await redis_client.set(key, fresh, ex=PROGRESS_TTL)
+        legacy = LEGACY_KEYS.get(code, {}).get("progress")
+        if legacy:
+            await redis_client.set(legacy, fresh, ex=PROGRESS_TTL)
+    except Exception:
+        pass  # прогресс — не повод ронять прогон
+
+
 async def clear_progress(code: str) -> None:
     """Снимает прогресс источника (прогон закончился/остановлен)."""
     try:

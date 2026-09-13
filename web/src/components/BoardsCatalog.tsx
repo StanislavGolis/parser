@@ -181,6 +181,15 @@ export default function BoardsCatalog({ boards }: { boards: Board[] }) {
               <div className="flex items-center justify-between">
                 <span className="font-mono text-[10px] text-text-muted">
                   {formatNumber(b.media_count)} файлов
+                  {/* Прирост за текущие отчётные сутки (МСК, с 00:00) */}
+                  {b.media_today ? (
+                    <span
+                      className="ml-1.5 text-accent-secondary"
+                      title={`+${b.media_today} за текущие сутки (после 00:00 МСК)`}
+                    >
+                      +{formatNumber(b.media_today)}
+                    </span>
+                  ) : null}
                 </span>
                 {b.is_premium ? (
                   <span className="font-mono text-[10px] text-accent-warning">по подписке</span>

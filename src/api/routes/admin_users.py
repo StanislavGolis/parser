@@ -412,7 +412,7 @@ async def create_user_reset_link(
     if send_email:
         sent = await mailer.send_mail(
             user.email,
-            "DREDGE: смена пароля",
+            "DREDGER: смена пароля",
             admin_auth.user_reset_email_text(link, settings.ADMIN_RESET_TTL_MINUTES),
         )
     await record_audit(

@@ -25,6 +25,9 @@ export default function LoginPage() {
         method: "POST",
         body: { email, password },
       });
+      // Серверные компоненты (шапка, премиум-превью, метки) должны увидеть вход:
+      // без refresh страница оставалась «гостевой» до ручной перезагрузки.
+      router.refresh();
       router.push("/");
     } catch (err) {
       setError(err instanceof ApiError ? (err.detail ?? err.message) : "Ошибка");

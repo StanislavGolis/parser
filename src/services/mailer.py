@@ -19,7 +19,7 @@ from email.utils import formataddr, formatdate, make_msgid
 from src.core.config import settings
 
 # Имя отправителя в письмах (в Gmail/Яндексе отображается вместо адреса).
-SENDER_NAME = "DREDGE"
+SENDER_NAME = "DREDGER"
 
 
 def is_configured() -> bool:

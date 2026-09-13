@@ -439,11 +439,11 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
               премиум-контент
             </p>
             <p className="max-w-sm text-xs text-text-secondary">
-              Файл доступен по премиум-подписке. Активируйте премиум в профиле, чтобы смотреть и
+              Файл доступен по премиум-подписке. Запросите доступ — его включают вручную, чтобы смотреть и
               скачивать полные версии.
             </p>
-            <Link href="/profile" className="btn-primary px-4 py-2 text-xs">
-              Активировать премиум
+            <Link href="/feedback?topic=premium" className="btn-primary px-4 py-2 text-xs">
+              Запросить доступ
             </Link>
           </div>
         ) : (
@@ -545,7 +545,7 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
             <ChevronRightIcon className="h-4 w-4" />
           </button>
           {locked ? (
-            <Link href="/profile" className="btn-primary px-3 py-1.5 text-xs">
+            <Link href="/feedback?topic=premium" className="btn-primary px-3 py-1.5 text-xs">
               <LockIcon className="h-4 w-4" />
               Premium
             </Link>

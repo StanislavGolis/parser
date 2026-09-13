@@ -14,6 +14,8 @@ class BoardOut(BaseModel):
     title: str
     description: Optional[str] = None
     media_count: int = 0
+    # Сколько файлов прибавилось за текущие отчётные сутки (МСК): «+N за сегодня»
+    media_today: int = 0
     is_premium: bool = False
     # Премиум-контент, но подписки у зрителя нет (превью размыто)
     locked: bool = False
@@ -149,11 +151,19 @@ class AdminResetOut(BaseModel):
 
 
 class StatusOut(BaseModel):
-    """Публичная сводка архива для главной страницы (только цифры о контенте)."""
+    """Публичная сводка архива для главной страницы (только цифры о контенте).
+
+    «За сутки» — это отчётные сутки по МСК (00:00–24:00), см. `services/reporting`:
+    тот же период используется в админке, на карточках разделов и в письме-отчёте.
+    """
     files_total: int
-    files_24h: int
+    files_today: int = 0
     threads_active: int
     boards_visible: int
+    # Границы отчётного периода: ISO (UTC, как в БД) и подпись для интерфейса
+    period_start: Optional[datetime] = None
+    period_end: Optional[datetime] = None
+    period_label: str = ""
 
 
 class BoardCreate(BaseModel):
@@ -255,6 +265,7 @@ class UserOut(BaseModel):
     premium_until: Optional[datetime] = None
     is_premium: bool = False  # премиум активен прямо сейчас
     marks_count: int = 0      # сколько меток поставил пользователь («мои метки»)
+    created_at: Optional[datetime] = None  # дата регистрации («с нами с …»)
 
 
 class MarkResult(BaseModel):
@@ -262,6 +273,45 @@ class MarkResult(BaseModel):
     media_id: int
     marked: bool       # стоит ли метка теперь
     marks_count: int   # всего меток у файла
+
+
+class FeedbackIn(BaseModel):
+    """Обращение из формы обратной связи (в том числе анонимно)."""
+    topic: str = "other"            # bug | idea | premium | content | other
+    message: str
+    email: Optional[str] = None     # контакт для ответа (может не быть)
+    page_url: Optional[str] = None  # откуда написали
+    website: Optional[str] = None   # ловушка для ботов: люди это поле не видят
+
+
+class FeedbackOut(BaseModel):
+    """Обращение для админки: текст, контакт, статус и заметка-ответ."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    topic: str
+    topic_label: Optional[str] = None
+    message: str
+    email: Optional[str] = None
+    page_url: Optional[str] = None
+    user_id: Optional[int] = None
+    status: str = "new"
+    admin_note: Optional[str] = None
+    answered_at: Optional[datetime] = None
+
+
+class FeedbackListOut(BaseModel):
+    items: List[FeedbackOut]
+    total: int
+    # Сколько заявок в каждом статусе — цифры на чипах-фильтрах админки
+    counts: Dict[str, int] = {}
+
+
+class FeedbackUpdate(BaseModel):
+    """Что админ может поменять у обращения."""
+    status: Optional[str] = None   # new | in_progress | answered | closed
+    admin_note: Optional[str] = None
 
 
 class MediaOut(BaseModel):
@@ -302,6 +352,11 @@ class MediaListOut(BaseModel):
     page: int
     per_page: int
     total: int
+    # Курсорная пагинация «лент» (новинки): `next_cursor` — позиция последней
+    # карточки. Пока ленту листают, парсер добавляет файлы сверху; с курсором
+    # выдача не сдвигается, поэтому догрузка всегда идёт вниз и ничего не теряется.
+    next_cursor: Optional[str] = None
+    has_more: bool = False
 
 
 class ThreadOut(BaseModel):

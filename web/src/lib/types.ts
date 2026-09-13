@@ -8,6 +8,8 @@ export interface Board {
   title: string;
   description: string | null;
   media_count: number;
+  /** Сколько файлов прибавилось за текущие отчётные сутки (МСК): «+N за сегодня». */
+  media_today?: number;
   /** Премиум-раздел: превью размыты, полный контент — по подписке. */
   is_premium: boolean;
   /** Премиум, но подписки у зрителя нет (контент закрыт). */
@@ -245,6 +247,13 @@ export interface MediaList {
   page: number;
   per_page: number;
   total: number;
+  /**
+   * Позиция последней карточки для догрузки «лент» (новинки). Пока ленту листают,
+   * парсер добавляет файлы сверху: с курсором выдача не сдвигается, поэтому
+   * догрузка всегда идёт вниз и ничего не теряется.
+   */
+  next_cursor?: string | null;
+  has_more?: boolean;
 }
 
 export interface MediaDetail extends MediaItem {
@@ -321,6 +330,29 @@ export interface UserOut {
   is_premium: boolean;
   /** Сколько меток поставил пользователь («мои метки»). */
   marks_count?: number;
+  /** Дата регистрации (ISO) — «с нами с …» в профиле. */
+  created_at?: string | null;
+}
+
+/** Обращение обратной связи (форма `/feedback`). */
+export interface FeedbackItem {
+  id: number;
+  created_at: string;
+  topic: string;
+  topic_label: string | null;
+  message: string;
+  email: string | null;
+  page_url: string | null;
+  user_id: number | null;
+  status: string; // new | in_progress | answered | closed
+  admin_note: string | null;
+  answered_at: string | null;
+}
+
+export interface FeedbackList {
+  items: FeedbackItem[];
+  total: number;
+  counts: Record<string, number>;
 }
 
 /** Результат переключения метки («отличный контент»). */
@@ -336,9 +368,14 @@ export type BoardsById = Record<number, Board>;
 /** Публичная сводка архива для главной (см. `GET /api/v1/status`). */
 export interface SiteStatus {
   files_total: number;
-  files_24h: number;
+  /** Прирост файлов за текущие отчётные сутки (МСК, 00:00–24:00). */
+  files_today: number;
   threads_active: number;
   boards_visible: number;
+  /** Границы отчётного периода (UTC, ISO) и подпись для интерфейса. */
+  period_start?: string | null;
+  period_end?: string | null;
+  period_label?: string;
 }
 
 /** Прогресс прогрева дискового кэша медиа. */

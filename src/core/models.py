@@ -315,6 +315,30 @@ class AdminAudit(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
 
 
+class Feedback(Base):
+    """Обращение посетителя: идея, баг, запрос премиум-доступа, вопрос по контенту.
+
+    Пишется из формы `/feedback` (в том числе анонимно — тогда сохраняем
+    контактный email, если его указали). Ответ администратора — в поле
+    `admin_note`, статус ведёт приёмную в админке.
+    """
+
+    __tablename__ = "feedback"
+    __table_args__ = (Index("ix_feedback_status_created", "status", "created_at"),)
+
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    topic = Column(String(24), nullable=False, default="other")  # bug|idea|premium|content|other
+    message = Column(Text, nullable=False)
+    email = Column(String(255), nullable=True)          # контакт для ответа (может не быть)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    page_url = Column(String(255), nullable=True)       # откуда написали
+    ip_hash = Column(String(64), nullable=True)
+    status = Column(String(16), nullable=False, default="new")  # new|in_progress|answered|closed
+    admin_note = Column(Text, nullable=True)            # ответ/заметка администратора
+    answered_at = Column(DateTime, nullable=True)
+
+
 class Source(Base):
     """Источник контента для парсинга (2ch.hk, slivach.com, …).
 

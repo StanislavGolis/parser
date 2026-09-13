@@ -16,6 +16,7 @@ from src.api.schemas import BoardOut, ThreadListOut
 from src.api.threads_service import build_thread_outs, list_threads
 from src.core.db import get_session
 from src.core.models import Board, Media, User
+from src.services import reporting
 from src.services.s3_storage import S3Storage
 
 router = APIRouter(prefix="/api/v1/boards", tags=["boards"])
@@ -113,6 +114,10 @@ async def list_boards(
         board.id for board, _cnt in rows if is_locked(board.is_premium, user)
     }
     covers = await _cover_thumbs(session, [board.id for board, _cnt in rows], locked_ids)
+    # «+N за сегодня» — прирост за текущие отчётные сутки (МСК): тем же периодом
+    # считают главная, админка и письмо-отчёт, поэтому цифры не расходятся
+    start, end = reporting.period_bounds()
+    today = await reporting.media_today_by_board(session, start, end)
 
     boards = []
     for board, cnt in rows:
@@ -122,6 +127,7 @@ async def list_boards(
             title=board.title,
             description=board.description,
             media_count=int(cnt or 0),
+            media_today=int(today.get(board.id, 0)),
             is_premium=board.is_premium,
             locked=is_locked(board.is_premium, user),
             cover_thumbs=covers.get(board.id, []),

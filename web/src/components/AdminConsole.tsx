@@ -8,7 +8,7 @@ import { PlusIcon, SpinnerIcon } from "@/components/icons";
 import { BoardsTable, CatalogTab } from "@/components/AdminViews";
 import { ApiError, apiDelete, apiPatch, apiPost, apiSend } from "@/lib/api";
 import { useAdminToken } from "@/lib/adminAuth";
-import { formatBytes, formatNumber } from "@/lib/format";
+import { formatBytes, formatNumber, parseUtc } from "@/lib/format";
 import type {
   AdminBoard,
   AdminOverview,
@@ -102,7 +102,9 @@ export default function AdminConsole() {
           { token: t },
         );
         const updatedAt = data.progress?.updated_at;
-        const ts = typeof updatedAt === "string" ? new Date(updatedAt).getTime() : NaN;
+        // Время из API — UTC (иногда без суффикса Z): parseUtc не даёт сдвинуть
+        // «простой» на часовой пояс браузера
+        const ts = typeof updatedAt === "string" ? parseUtc(updatedAt) : NaN;
         setParserStatus({
           up: data.up,
           enabled: data.enabled,

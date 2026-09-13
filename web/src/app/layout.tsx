@@ -24,12 +24,12 @@ export const metadata: Metadata = {
   // Базовый адрес для canonical/Open Graph: страницы задают относительные пути.
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "DREDGE — медиа-архив: фото и видео",
-    template: "%s · DREDGE",
+    default: "DREDGER — медиа-архив: фото и видео",
+    template: "%s · DREDGER",
   },
   description:
-    "DREDGE — автоматический медиа-архив: фото и видео с разделов, свежие поступления, топ за день и неделю, поиск по файлам.",
-  applicationName: "DREDGE",
+    "DREDGER — автоматический медиа-архив: фото и видео с разделов, свежие поступления, топ за день и неделю, поиск по файлам.",
+  applicationName: "DREDGER",
   // Коды подтверждения для панелей вебмастера задаются через env — тогда в HTML
   // появляется нужный meta-тег (альтернатива DNS-TXT при регистрации сайта).
   verification: {
@@ -38,7 +38,7 @@ export const metadata: Metadata = {
   },
   robots: { index: true, follow: true },
   openGraph: {
-    siteName: "DREDGE",
+    siteName: "DREDGER",
     locale: "ru_RU",
     type: "website",
   },

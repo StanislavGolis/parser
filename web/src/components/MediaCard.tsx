@@ -36,7 +36,7 @@ function aspectOf(media: MediaItem): string {
 }
 
 /**
- * Карточка медиа в стиле DREDGE: превью фото/видео (браузерный кадр) +
+ * Карточка медиа в стиле DREDGER: превью фото/видео (браузерный кадр) +
  * строка метаданных mono. При недоступности файла — аккуратный плейсхолдер.
  */
 export default function MediaCard({ media, board, showTop = false, eager = false, onOpen }: MediaCardProps) {

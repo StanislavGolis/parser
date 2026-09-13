@@ -96,7 +96,7 @@ export async function getFeedPage(
 
 const EMPTY_STATUS: SiteStatus = {
   files_total: 0,
-  files_24h: 0,
+  files_today: 0,
   threads_active: 0,
   boards_visible: 0,
 };

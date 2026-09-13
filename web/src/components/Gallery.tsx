@@ -61,11 +61,16 @@ export default function Gallery({
   const [error, setError] = useState<string | null>(null);
   const [autoPaused, setAutoPaused] = useState(false);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
+  // Курсорная догрузка: позиция последней карточки. Лента «живая» — новые файлы
+  // приходят сверху, поэтому при offset-пагинации страницы сдвигались бы и часть
+  // карточек терялась. С курсором догружаем строго то, что ниже последней карточки.
+  const [cursor, setCursor] = useState<string | null>(initial.next_cursor ?? null);
+  const [cursorMode, setCursorMode] = useState<boolean>(Boolean(initial.next_cursor));
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const busyRef = useRef(false);
 
-  const hasMore = items.length < total;
+  const hasMore = cursorMode ? cursor !== null : items.length < total;
   const queryKey = useMemo(() => Object.entries(params).map(([k, v]) => `${k}=${v}`).join("&"), [params]);
 
   const loadMore = useCallback(async () => {
@@ -74,7 +79,13 @@ export default function Gallery({
     setLoading(true);
     setError(null);
 
-    const q = new URLSearchParams({ page: String(page + 1), per_page: String(perPage) });
+    // Курсорный режим: позицию задаёт курсор (page не участвует)
+    const q = new URLSearchParams({ page: "1", per_page: String(perPage) });
+    if (cursorMode && cursor) {
+      q.set("cursor", cursor);
+    } else if (!cursorMode) {
+      q.set("page", String(page + 1));
+    }
     Object.entries(params).forEach(([k, v]) => {
       if (v) q.set(k, v);
     });
@@ -84,10 +95,13 @@ export default function Gallery({
       setItems((prev) => {
         const seen = new Set(prev.map((m) => m.id));
         const fresh = data.items.filter((m) => !seen.has(m.id));
+        // Новые карточки добавляем строго в конец: список не «прыгает»
         return fresh.length > 0 ? [...prev, ...fresh] : prev;
       });
       setPage(data.page);
       setTotal(data.total);
+      if (data.next_cursor) setCursorMode(true);
+      setCursor(data.next_cursor ?? null);
       setAutoPaused(false);
     } catch (err) {
       setError(err instanceof ApiError && err.status ? `Не удалось загрузить (HTTP ${err.status})` : "Нет соединения с сервером");
@@ -96,7 +110,7 @@ export default function Gallery({
       busyRef.current = false;
       setLoading(false);
     }
-  }, [apiPath, page, perPage, params]);
+  }, [apiPath, page, perPage, params, cursor, cursorMode]);
 
   const retry = useCallback(() => {
     setAutoPaused(false);

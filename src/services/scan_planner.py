@@ -84,10 +84,15 @@ class ScanPlanner:
     # ── Прогресс и живость (ключи источника: parser:{code}:*) ─────────
 
     async def _progress(self, **fields) -> None:
-        """Публикует прогресс прогона (админка источника опрашивает его)."""
+        """Публикует прогресс прогона (админка источника опрашивает его).
+
+        `updated_at` пишем в UTC **с суффиксом Z**: без него браузер трактует
+        время как местное, и админка показывала «простой 3 ч / возможно завис»
+        при живом парсере (сдвиг часового пояса).
+        """
         await sources_service.write_progress(
             self.source_code,
-            {"updated_at": datetime.utcnow().isoformat(), **fields},
+            {"updated_at": datetime.utcnow().isoformat() + "Z", **fields},
         )
 
     async def _clear_progress(self) -> None:

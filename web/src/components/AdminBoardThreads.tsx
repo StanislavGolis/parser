@@ -635,9 +635,7 @@ export default function AdminBoardThreads({
                     <div className="h-1 w-full overflow-hidden rounded bg-ink-tertiary">
                       <div
                         className={`h-full transition-all ${
-                          (parserStatus.stall_seconds ?? 0) > 60
-                            ? "bg-accent-danger"
-                            : "bg-accent-primary"
+                          !parserStatus.alive ? "bg-accent-danger" : "bg-accent-primary"
                         }`}
                         style={{
                           width: `${

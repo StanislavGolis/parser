@@ -119,7 +119,7 @@ export default async function MediaDetailPage({ params }: DetailProps) {
                 скачивать полные версии.
               </p>
               <Link href="/profile" className="btn-primary px-4 py-2 text-xs">
-                Активировать премиум
+                Запросить доступ
               </Link>
             </div>
           ) : media.url ? (

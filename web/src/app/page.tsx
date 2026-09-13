@@ -56,11 +56,11 @@ export async function generateMetadata(): Promise<Metadata> {
 
   return {
     // Абсолютный заголовок: главная — основная точка входа из поиска.
-    title: { absolute: "DREDGE — медиа-архив: свежие фото и видео" },
+    title: { absolute: "DREDGER — медиа-архив: свежие фото и видео" },
     description,
     alternates: { canonical: "/" },
     openGraph: {
-      title: "DREDGE — медиа-архив",
+      title: "DREDGER — медиа-архив",
       description,
       type: "website",
       images: image ? [image] : undefined,
@@ -97,8 +97,8 @@ export default async function HomePage({
   const siteJsonLd = {
     "@context": "https://schema.org",
     "@type": "WebSite",
-    name: "DREDGE",
-    alternateName: "DREDGE — медиа-архив",
+    name: "DREDGER",
+    alternateName: "DREDGER — медиа-архив",
     url: SITE_URL,
     inLanguage: "ru-RU",
     potentialAction: {
@@ -121,7 +121,10 @@ export default async function HomePage({
         <h1 className="dredge-title">архив // новое</h1>
         <span className="font-mono text-[11px] text-text-muted">
           {formatNumber(status.files_total)} файлов · {formatNumber(status.threads_active)} тредов ·{" "}
-          +{formatNumber(status.files_24h)} за сутки
+          {/* Отчётные сутки по МСК: +N с 00:00 — тот же период, что в админке и письме */}
+          <span title={status.period_label || "отчётные сутки (МСК)"}>
+            +{formatNumber(status.files_today)} за сутки
+          </span>
         </span>
       </div>
 
