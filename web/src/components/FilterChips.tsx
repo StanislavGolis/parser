@@ -1,9 +1,8 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
 
-import { readHidePremium, writeHidePremium } from "@/lib/prefs";
+import HidePremiumToggle from "@/components/HidePremiumToggle";
 import { trackEvent } from "@/lib/track";
 
 interface FilterChipsProps {
@@ -30,11 +29,6 @@ export default function FilterChips({
 
   const type = params.get("type") ?? "";
 
-  // Cookie читаем после монтирования: на сервере её нет, иначе SSR и первый
-  // рендер разошлись бы (hydration mismatch).
-  const [hidePremium, setHidePremium] = useState(false);
-  useEffect(() => setHidePremium(readHidePremium()), []);
-
   function push(next: URLSearchParams) {
     const qs = next.toString();
     // Событие для статистики: видно, какими фильтрами пользуются
@@ -49,14 +43,6 @@ export default function FilterChips({
     // Переходим на cookie-модель: старый параметр `free` из ссылок больше не пишем
     next.delete("free");
     push(next);
-  }
-
-  function toggleHidePremium(on: boolean) {
-    writeHidePremium(on);
-    setHidePremium(on);
-    trackEvent("filter_hide_premium", on ? "on" : "off");
-    // Ленту фильтрует сервер: просим его перечитать cookie
-    router.refresh();
   }
 
   return (
@@ -74,20 +60,7 @@ export default function FilterChips({
           {opt.label}
         </button>
       ))}
-      {showFree ? (
-        <label
-          className="filter-btn inline-flex cursor-pointer items-center gap-1.5 font-mono text-[11px]"
-          title="Убрать из лент премиум-файлы — останутся только доступные без подписки"
-        >
-          <input
-            type="checkbox"
-            checked={hidePremium}
-            onChange={(e) => toggleHidePremium(e.target.checked)}
-            className="h-3 w-3 cursor-pointer accent-accent-primary"
-          />
-          скрыть премиум
-        </label>
-      ) : null}
+      {showFree ? <HidePremiumToggle /> : null}
     </div>
   );
 }

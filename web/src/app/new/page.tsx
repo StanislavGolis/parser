@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 
 import Gallery from "@/components/Gallery";
+import HidePremiumToggle from "@/components/HidePremiumToggle";
 import QueryTabs from "@/components/QueryTabs";
 import { getBoards, getFeedPage } from "@/lib/data";
 import { formatNumber, plural } from "@/lib/format";
@@ -70,8 +71,10 @@ export default async function NewPage({
           </Link>
         </p>
       ) : null}
-      <div className="mb-5">
+      <div className="mb-5 flex flex-wrap items-center gap-3">
         <QueryTabs param="type" options={TYPE_OPTIONS} defaultValue="" ariaLabel="Тип контента" />
+        {/* Личная настройка: прячет премиум-файлы (cookie), см. HidePremiumToggle */}
+        <HidePremiumToggle />
       </div>
 
       <Gallery
