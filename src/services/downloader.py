@@ -17,16 +17,23 @@ class DownloaderService:
         if self.session:
             await self.session.close()
     
-    async def download(self, url: str) -> Optional[bytes]:
-        """Скачивает файл с ограничением размера"""
+    async def download(self, url: str, headers: Optional[dict] = None) -> Optional[bytes]:
+        """Скачивает файл с ограничением размера.
+
+        `headers` — дополнительные заголовки источника (например `Referer`:
+        некоторые сайты не отдают видео без него). User-Agent по умолчанию
+        всегда браузерный, переданные заголовки его дополняют или заменяют.
+        """
         async with self.semaphore:
             try:
                 async with aiohttp.ClientSession() as session:
-                    headers = {
+                    request_headers = {
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
                     }
-                    
-                    async with session.get(url, headers=headers) as response:
+                    if headers:
+                        request_headers.update(headers)
+
+                    async with session.get(url, headers=request_headers) as response:
                         response.raise_for_status()
                         
                         content_length = response.headers.get('Content-Length')
