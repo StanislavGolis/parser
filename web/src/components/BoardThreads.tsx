@@ -17,7 +17,7 @@ import When from "@/components/When";
 import { apiGet } from "@/lib/api";
 import { mediaUrl } from "@/lib/env";
 import { thumbSrc, premiumState } from "@/lib/media";
-import { formatDuration, formatNumber, formatRelative, plural } from "@/lib/format";
+import { formatDuration, formatNumber, formatRelative } from "@/lib/format";
 import { clearResume, getResume, readResumes, resumeIndex } from "@/lib/resume";
 import type { ResumeMap, ResumePoint } from "@/lib/resume";
 import type { BoardThread, MediaItem, MediaList, ThreadList } from "@/lib/types";
@@ -174,29 +174,37 @@ export default function BoardThreads({ slug, initial, sort: initialSort = "new" 
    * Точка возврата может лежать дальше первой порции (в треде бывает 800+ файлов),
    * поэтому порции догружаются, пока не дойдём до нужного места.
    */
-  async function openThread(threadId: number, startIndex?: number) {
+  async function openThread(
+    threadId: number,
+    opts?: { startIndex?: number; mediaId?: number },
+  ) {
     setOpeningThread(threadId);
     try {
       const first = await fetchThreadMedia(threadId, 1);
       if (first.items.length === 0) return;
 
       const point = getResume(threadId);
+      // Что ищем в порциях: конкретный файл (клик по превью) или точку возврата
+      const wantId = opts?.mediaId ?? (opts?.startIndex === undefined ? point?.id : undefined);
       let items = first.items;
       let page = first.page;
-      // Файл из точки возврата может лежать во второй/третьей порции (в треде
-      // бывает 800+ файлов при порции 300): догружаем, пока он не появится.
-      if (!startIndex && point && !items.some((m) => m.id === point.id)) {
+      // Нужный файл может лежать во второй/третьей порции (в треде бывает 800+
+      // файлов при порции 300): догружаем, пока он не появится.
+      if (wantId && !items.some((m) => m.id === wantId)) {
         while (items.length < first.total && page < 20) {
           const next = await fetchThreadMedia(threadId, page + 1);
           if (next.items.length === 0) break;
           const seen = new Set(items.map((m) => m.id));
           items = [...items, ...next.items.filter((m) => !seen.has(m.id))];
           page = next.page;
-          if (items.some((m) => m.id === point.id)) break;
+          if (items.some((m) => m.id === wantId)) break;
         }
       }
 
-      const index = startIndex ?? resumeIndex(point, items);
+      // Приоритет: явный индекс → конкретный файл → точка возврата
+      const byId = wantId ? items.findIndex((m) => m.id === wantId) : -1;
+      const index =
+        opts?.startIndex ?? (byId >= 0 ? byId : resumeIndex(point, items));
       setLightbox({
         items,
         index: Math.min(Math.max(index, 0), items.length - 1),
@@ -256,8 +264,8 @@ export default function BoardThreads({ slug, initial, sort: initialSort = "new" 
             thread={t}
             opening={openingThread === t.thread_id}
             resume={resumes[`t${t.thread_id}`] ?? null}
-            onOpenAll={() => void openThread(t.thread_id, 0)}
-            onOpenAt={(i) => void openThread(t.thread_id, i)}
+            onOpenAll={() => void openThread(t.thread_id, { startIndex: 0 })}
+            onOpenAt={(mediaId) => void openThread(t.thread_id, { mediaId })}
             onResume={() => void openThread(t.thread_id)}
             onForget={() => {
               clearResume(t.thread_id);
@@ -340,7 +348,8 @@ function ThreadCard({
   /** Последний просмотренный файл треда (или null — треда нет в истории). */
   resume: ResumePoint | null;
   onOpenAll: () => void;
-  onOpenAt: (index: number) => void;
+  /** Клик по превью: открыть тред именно на этом файле. */
+  onOpenAt: (mediaId: number) => void;
   onResume: () => void;
   onForget: () => void;
 }) {
@@ -383,9 +392,6 @@ function ThreadCard({
               </span>
             ) : null}
             {thread.thread_timestamp ? <When iso={thread.thread_timestamp} /> : null}
-            <span>
-              {formatNumber(thread.posts_count)} {plural(thread.posts_count, ["пост", "поста", "постов"])}
-            </span>
             {thread.comment ? (
               <span className="normal-case text-text-secondary">
                 <span className="hidden sm:inline">· </span>
@@ -396,7 +402,7 @@ function ThreadCard({
         </div>
         <div className="flex shrink-0 items-center gap-2 font-mono text-[11px]">
           {/* Сколько файлов треда добавилось с начала отчётных суток (00:00 МСК):
-              тот же период, что у счётчика «+N за сутки» на карточке раздела.
+              тот же период и тот же вид счётчика («+N»), что на карточке раздела.
               Идёт первым — прирост важнее общего числа. */}
           {thread.media_today ? (
             <span
@@ -460,11 +466,11 @@ function ThreadCard({
       {/* Превью файлов */}
       {preview.length > 0 ? (
         <div className="flex gap-2 overflow-x-auto px-4 py-3 sm:px-4">
-          {preview.map((m, i) => (
+          {preview.map((m) => (
             <button
               key={m.id}
               type="button"
-              onClick={() => onOpenAt(i)}
+              onClick={() => onOpenAt(m.id)}
               aria-label={`Открыть: ${m.original_name}`}
               className={`group relative h-20 w-20 shrink-0 overflow-hidden rounded border bg-ink-tertiary transition-colors hover:border-accent-primary ${
                 resume?.id === m.id ? "border-accent-primary/70" : "border-line"

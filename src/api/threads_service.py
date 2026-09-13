@@ -338,13 +338,17 @@ async def _previews(
     board_id: int,
     thread_ids: List[int],
 ) -> Dict[int, List[Media]]:
-    """Последние PREVIEW_SIZE видимых файлов (с S3-ключом) по каждому треду."""
+    """Первые PREVIEW_SIZE видимых файлов треда (с S3-ключом).
+
+    Показываем **начало** треда: просмотр в лайтбоксе тоже идёт с начала (файлы
+    упорядочены по `source_order`), поэтому превью совпадает с тем, что зритель
+    увидит, кликнув по нему. Раньше здесь были последние файлы, и клик по
+    картинке открывал совсем другое место треда.
+    """
     if not thread_ids:
         return {}
-    rn = func.row_number().over(
-        partition_by=Media.thread_id,
-        order_by=(Media.created_at.desc(), Media.id.desc()),
-    ).label("rn")
+    order = (Media.source_order.asc().nullslast(), Media.id.asc())
+    rn = func.row_number().over(partition_by=Media.thread_id, order_by=order).label("rn")
     sub = (
         select(Media.id.label("mid"), Media.thread_id.label("thread_id"), rn)
         .where(
@@ -358,7 +362,7 @@ async def _previews(
         select(Media)
         .join(sub, sub.c.mid == Media.id)
         .where(sub.c.rn <= PREVIEW_SIZE, sub.c.thread_id.in_(thread_ids))
-        .order_by(Media.created_at.desc(), Media.id.desc())
+        .order_by(*order)
     )
     result: Dict[int, List[Media]] = defaultdict(list)
     for media in rows.scalars().all():
