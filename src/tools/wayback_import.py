@@ -167,21 +167,24 @@ def _http_get_json(url: str, **kwargs) -> Any:
         return None
 
 
-def cdx_snapshots(host: str, path: str, board: str, limit: int, delay: float) -> List[Snapshot]:
-    """Список снапшотов со статусом 200 (по одному на URL, свежие первыми).
+def cdx_snapshots(
+    host: str, path: str, board: str, limit: int, delay: float, collapse: bool = True
+) -> List[Snapshot]:
+    """Список снапшотов со статусом 200.
 
-    `collapse=urlkey` убирает повторные сохранения одного адреса, а
-    `filter=statuscode:200` — редиректы и ошибки архива.
+    `collapse=urlkey` оставляет по одному сохранению на адрес (нужно для файлов:
+    нам важен сам факт наличия). Для каталога это вредно — остаётся самый старый
+    снапшот, поэтому там `collapse=False`, а из списка берётся последний (свежий).
     """
-    query = urllib.parse.urlencode(
-        {
-            "url": f"{host}/{board}/{path}",
-            "output": "json",
-            "filter": "statuscode:200",
-            "collapse": "urlkey",
-            "limit": str(limit),
-        }
-    )
+    params = {
+        "url": f"{host}/{board}/{path}",
+        "output": "json",
+        "filter": "statuscode:200",
+        "limit": str(limit),
+    }
+    if collapse:
+        params["collapse"] = "urlkey"
+    query = urllib.parse.urlencode(params)
     rows = _http_get_json(f"{CDX_API}?{query}", timeout=180, accept="application/json")
     snapshot_list: List[Snapshot] = []
     if isinstance(rows, list) and len(rows) > 1:
@@ -262,8 +265,11 @@ def fetch_catalog(
     сохранились в разное время. Возвращает (треды по номерам, время снапшота).
     """
     for host in hosts:
-        snapshots = cdx_snapshots(host, "catalog.json", board_slug, limit=50, delay=delay)
-        for snapshot in reversed(snapshots):  # свежие в конце списка — берём их первыми
+        snapshots = cdx_snapshots(
+            host, "catalog.json", board_slug, limit=50, delay=delay, collapse=False
+        )
+        # Список идёт по возрастанию времени: последний — самый свежий каталог.
+        for snapshot in reversed(snapshots):
             blob = _http_get(f"{ARCHIVE_WEB}/{snapshot.timestamp}id_/{snapshot.url}", timeout=180)
             if not blob:
                 continue
