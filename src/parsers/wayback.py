@@ -40,17 +40,21 @@ class WaybackAdapter:
         self,
         base_url: Optional[str] = None,
         *,
+        boards: Optional[List[str]] = None,          # разделы из `sources.config["boards"]`
         media_host: str = "2ch.su",                 # где лежат медиафайлы (2ch.su — без Cloudflare)
         catalog_hosts: Optional[List[str]] = None,  # где искать архивный catalog.json
         delay: float = 1.0,                         # пауза между запросами к архиву
-        max_files: int = 3000,                      # лимит снапшотов файлов на раздел
+        max_files: int = 20000,                     # лимит снапшотов файлов на раздел
         **_options,
     ):
         self.base_url = (base_url or self.BASE_URL).rstrip("/")
         self.media_host = media_host
-        self.catalog_hosts = list(catalog_hosts or ["2ch.hk", "2ch.su"])
+        self.catalog_hosts = list(catalog_hosts or ["2ch.hk", "2ch.su", "2ch.life"])
         self.delay = float(delay or 0)
         self.max_files = int(max_files or 0)
+        # Список разделов приходит из конфига источника (`sources.config["boards"]`):
+        # так новый раздел архива добавляется без правок кода.
+        self.boards = [str(board).strip() for board in (boards or []) if str(board).strip()]
         # Архив отвечает медленно и лимитирует: каталог и список снапшотов держим
         # в памяти процесса — иначе админка дёргала бы архив на каждый запрос.
         self._catalog: Dict[str, Dict] = {}
@@ -59,7 +63,8 @@ class WaybackAdapter:
 
     @property
     def default_boards(self) -> List[str]:
-        return list(DEFAULT_BOARDS)
+        """Разделы для «Разделов сайта»: из конфига источника либо базовый список."""
+        return list(self.boards) or list(DEFAULT_BOARDS)
 
     async def __aenter__(self) -> "WaybackAdapter":
         return self

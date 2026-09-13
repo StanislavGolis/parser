@@ -242,9 +242,10 @@ def build_source_adapter(source: Source) -> SourceAdapter:
     options = {
         key: value
         for key, value in config.items()
-        # Служебные ключи конфига: адрес передаём отдельно, `boards`/`note` нужны
-        # планировщику и админке, а не адаптеру
-        if key not in ("base_url", "boards", "note")
+        # Служебные ключи конфига: адрес передаём отдельно, `note` — только для
+        # админки. `boards` отдаём и планировщику, и адаптеру: архивному источнику
+        # он нужен, чтобы показать в «Разделах сайта» все разделы, а не один.
+        if key not in ("base_url", "note")
     }
     return build_adapter(source.code, base_url=source.base_url or None, **options)
 
