@@ -1,17 +1,25 @@
 # src/services/mailer.py
 """Отправка почты (только stdlib: smtplib + asyncio.to_thread).
 
-Нужна для ссылок восстановления доступа в админку. Если SMTP не настроен
-(`SMTP_HOST` пуст) — `is_configured()` возвращает False, а вызывающий код
-предлагает резервный путь: восстановление командой на сервере
+Нужна для ссылок восстановления доступа (админка и посетители). Если SMTP не
+настроен (`SMTP_HOST` пуст) — `is_configured()` возвращает False, а вызывающий
+код предлагает резервный путь: восстановление командой на сервере
 (`python -m src.cli.admin set-password`, см. DEPLOY.md).
+
+Поддерживаются оба варианта провайдеров:
+* `SMTP_TLS=ssl` — порт 465 (Gmail, Яндекс);
+* `SMTP_TLS=starttls` — порт 587.
 """
 import asyncio
 import smtplib
 import ssl as ssl_module
 from email.message import EmailMessage
+from email.utils import formataddr, formatdate, make_msgid
 
 from src.core.config import settings
+
+# Имя отправителя в письмах (в Gmail/Яндексе отображается вместо адреса).
+SENDER_NAME = "DREDGE"
 
 
 def is_configured() -> bool:
@@ -20,12 +28,18 @@ def is_configured() -> bool:
 
 
 def _send_sync(to: str, subject: str, text: str) -> None:
-    """Синхронная отправка (вызывается в отдельном потоке)."""
+    """Синхронная отправка (вызывается в отдельном потоке).
+
+    Заголовки `Date` и `Message-ID` заполняем сами: без них крупные провайдеры
+    (в первую очередь Gmail) часто помечают письмо как подозрительное.
+    """
     sender = settings.SMTP_FROM or settings.SMTP_USER
     message = EmailMessage()
-    message["From"] = sender
+    message["From"] = formataddr((SENDER_NAME, sender))
     message["To"] = to
     message["Subject"] = subject
+    message["Date"] = formatdate(localtime=True)
+    message["Message-ID"] = make_msgid(domain=sender.split("@")[-1] or None)
     message.set_content(text)
 
     mode = (settings.SMTP_TLS or "ssl").lower()
