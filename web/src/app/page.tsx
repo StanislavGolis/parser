@@ -5,6 +5,7 @@ import Link from "next/link";
 import FilterChips from "@/components/FilterChips";
 import Gallery from "@/components/Gallery";
 import MediaShelf from "@/components/MediaShelf";
+import TrackedLink from "@/components/TrackedLink";
 import VisitStamp from "@/components/VisitStamp";
 import { getBoards, getFeedPage, getStatus, getTopMedia } from "@/lib/data";
 import { SITE_URL } from "@/lib/env";
@@ -126,14 +127,15 @@ export default async function HomePage({
 
       {/* «Новое с прошлого визита» — главный триггер вернуться (cookie dv_last) */}
       {lastVisit && freshCount > 0 ? (
-        <Link
+        <TrackedLink
           href={`/new?since=${encodeURIComponent(lastVisit.toISOString())}`}
+          event="new_since_click"
           className="mb-3 inline-flex items-center gap-1.5 rounded border border-accent-primary/50 bg-accent-primary/10 px-2.5 py-1 font-mono text-[11px] text-accent-primary transition-colors duration-150 hover:border-accent-primary hover:bg-accent-primary/20"
         >
           +{formatNumber(freshCount)}{" "}
           {plural(freshCount, ["новый файл", "новых файла", "новых файлов"])} с{" "}
           {visitLabel(lastVisit)} →
-        </Link>
+        </TrackedLink>
       ) : null}
 
       <div className="mb-4 flex flex-wrap items-center gap-2">

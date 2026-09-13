@@ -110,10 +110,22 @@ docker compose -f docker-compose.prod.yml up -d --build
 *Админ-центр (`/admin`)*
 - [x] **Вкладки-разделы**: `/admin` (обзор: цифры архива, парсер, кэш), `/admin/content`
       (центр управления контентом: разделы, форум, треды, хранилище, парсер),
-      `/admin/users` и `/admin/stats` — заготовки под этапы P2/P1. Вкладки — отдельные
-      адреса (ссылка шарится, F5 не сбрасывает); гейт по admin-токену один на всю
-      панель (`app/admin/(secure)/layout.tsx`), а служебная `/admin/reset` из письма
-      остаётся вне гейта. Раздел закрыт от индексации.
+      `/admin/stats` (посещаемость и поведение) и `/admin/users` (аккаунты, подписки,
+      блокировки, аудит). Вкладки — отдельные адреса (ссылка шарится, F5 не сбрасывает);
+      гейт по admin-токену один на всю панель (`app/admin/(secure)/layout.tsx`),
+      а служебная `/admin/reset` из письма остаётся вне гейта. Раздел закрыт от индексации.
+- [x] **Своя аналитика посещаемости** (`page_hits` + `POST /api/v1/hit`): посетители и
+      визиты (cookie `dv_sid`, пауза 30 мин), просмотры страниц, источники (реферер
+      хостом + utm), устройства/браузеры/ОС, события интерфейса (просмотр файла, фильтры,
+      скачивание, метки, клик по «новое с визита»), топ файлов и разделов, ошибки API
+      (429/5xx) по дням. IP не хранится — только sha256-хеш; боты пишутся, но в отчёты
+      не попадают; ретеншн чистит сырые посещения (`ANALYTICS_RETENTION_DAYS`).
+- [x] **Управление пользователями**: список с агрегатами (метки, просмотры, скачивания,
+      последний вход, активные сессии), карточка со следом сессий (хеш IP, User-Agent,
+      когда был) и историей меток/скачиваний, действия — премиум на срок, блокировка,
+      снятие всех сессий, ссылка смены пароля письмом (публичная страница
+      `/reset-password` + `POST /api/v1/auth/reset`), удаление аккаунта. Все действия
+      администраторов пишутся в `admin_audit` (кто, что, когда).
 - [x] «Мои разделы»: кнопка «Треды» перед «Парсить», переключатели `Парсить` /
       `published|unpublished` / `FREE|PREMIUM`, переименование, удаление (БД + S3),
       статистика, ▲/▼ очередь, прогресс парсера (опрос 1 с).
@@ -590,11 +602,34 @@ GET   /api/v1/marks?page=                  мои метки (аккаунт; /f
 POST  /api/v1/auth/register | /login | /logout
 GET   /api/v1/auth/me                      профиль + премиум + счётчик меток
 POST  /api/v1/auth/premium/activate        промо-активация премиума (1 день)
+POST  /api/v1/auth/reset                   смена пароля по ссылке из админки (token + password)
+
+# аналитика сайта (публично, своя: без внешних счётчиков):
+POST  /api/v1/hit                          просмотр страницы или событие интерфейса
+                                           {path, event?, session_id, referrer?, utm_source?, new_visit}
 
 # админ (Authorization: Bearer <ADMIN_TOKEN>):
 POST  /api/v1/admin/auth/login               вход админа по email+паролю → ADMIN_TOKEN
 POST  /api/v1/admin/auth/forgot              письмо со ссылкой восстановления пароля
 POST  /api/v1/admin/auth/reset               смена пароля по одноразовой ссылке
+# статистика посещаемости и поведения (вкладка «Статистика»):
+GET   /api/v1/admin/stats/overview?days=     посетители/визиты/страницы + сравнение с прошлым периодом
+GET   /api/v1/admin/stats/timeseries?days=&group=day|hour   ряд для графика
+GET   /api/v1/admin/stats/pages?days=        топ страниц (просмотры / посетители)
+GET   /api/v1/admin/stats/sources?days=      источники: рефереры + utm, «прямые заходы»
+GET   /api/v1/admin/stats/devices?days=      устройства, браузеры, ОС
+GET   /api/v1/admin/stats/events?days=       события интерфейса (lightbox, фильтры, скачивания, метки)
+GET   /api/v1/admin/stats/content?days=      топ файлов по просмотрам/скачиваниям/меткам + разделы
+GET   /api/v1/admin/stats/health?days=       счётчики ошибок API по дням (429 / 5xx)
+# пользователи (вкладка «Пользователи»):
+GET   /api/v1/admin/users?q=&filter=&sort=&page=   список аккаунтов с агрегатами
+GET   /api/v1/admin/users/{id}                     карточка: сессии (ip-хеш, UA), метки, скачивания, аудит
+POST  /api/v1/admin/users/{id}/premium             выдать премиум {days} или снять {days: null}
+POST  /api/v1/admin/users/{id}/active              блокировка/разблокировка (сессии снимаются)
+POST  /api/v1/admin/users/{id}/sessions/revoke     выйти со всех устройств
+POST  /api/v1/admin/users/{id}/reset-link[?send_email=]  одноразовая ссылка смены пароля (и письмо)
+DELETE /api/v1/admin/users/{id}                    удалить аккаунт (админ-аккаунты — нельзя)
+GET   /api/v1/admin/audit?limit=&action=           журнал действий администраторов
 GET   /api/v1/admin/overview               доски + статистика + статус парсера
 GET   /api/v1/admin/parser/status          лёгкий статус: жив, текущая доска, прогресс
 POST  /api/v1/admin/parser/start | /stop   включить/остановить парсинг

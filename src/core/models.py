@@ -160,6 +160,8 @@ class ViewStat(Base):
 
     id = Column(Integer, primary_key=True)
     media_id = Column(Integer, ForeignKey("media.id", ondelete="CASCADE"), nullable=False)
+    # Кто смотрел (если был вход): по нему считается статистика по аккаунту
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     ip_hash = Column(String(64), nullable=False)
     viewed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
@@ -173,6 +175,8 @@ class DownloadStat(Base):
 
     id = Column(Integer, primary_key=True)
     media_id = Column(Integer, ForeignKey("media.id", ondelete="CASCADE"), nullable=False)
+    # Кто скачал (скачивание доступно только премиум-подписке — всегда аккаунт)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     ip_hash = Column(String(64), nullable=False)
     downloaded_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
@@ -210,7 +214,13 @@ class AdminPasswordReset(Base):
 
 
 class UserSession(Base):
-    """Сессия пользователя (cookie sid → sha256(token))."""
+    """Сессия пользователя (cookie sid → sha256(token)).
+
+    Хранит след входа для админки: хеш IP (сам IP не пишем), браузер и время
+    последней активности. `last_seen_at` обновляется не чаще раза в несколько
+    минут, поэтому запись на каждый запрос не делается.
+    """
+
     __tablename__ = "sessions"
 
     id = Column(Integer, primary_key=True)
@@ -218,6 +228,9 @@ class UserSession(Base):
     token_hash = Column(String(64), unique=True, nullable=False, index=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     expires_at = Column(DateTime, nullable=False)
+    ip_hash = Column(String(64), nullable=True)
+    user_agent = Column(String(255), nullable=True)
+    last_seen_at = Column(DateTime, nullable=True, index=True)
 
 
 class MediaMark(Base):
@@ -237,3 +250,50 @@ class MediaMark(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     media_id = Column(Integer, ForeignKey("media.id", ondelete="CASCADE"), nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class PageHit(Base):
+    """Посещение сайта: просмотр страницы или событие в интерфейсе.
+
+    Пишется с фронтенда (`POST /api/v1/hit`) — это «своя» аналитика: наружу
+    ничего не уходит, IP не хранится (только sha256-хеш), реферер — только
+    хостом, а браузер/ОС/устройство разбираются из User-Agent на бэкенде.
+
+    * `kind = "page"` — просмотр страницы, `kind = "event"` — событие (`event`);
+    * `session_id` — анонимный идентификатор из cookie `dv_sid` (30 дней);
+    * `is_new_visit` — первое посещение в рамках визита (пауза > 30 мин).
+    """
+
+    __tablename__ = "page_hits"
+    __table_args__ = (Index("ix_page_hits_kind_path", "kind", "path"),)
+
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    kind = Column(String(16), nullable=False, default="page")
+    path = Column(String(255), nullable=False, default="/")
+    event = Column(String(64), nullable=True)
+    session_id = Column(String(40), nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    ip_hash = Column(String(64), nullable=True)
+    referrer_host = Column(String(120), nullable=True)
+    utm_source = Column(String(80), nullable=True)
+    device = Column(String(16), nullable=True)
+    browser = Column(String(32), nullable=True)
+    os = Column(String(32), nullable=True)
+    is_bot = Column(Boolean, nullable=False, default=False)
+    is_new_visit = Column(Boolean, nullable=False, default=False)
+
+
+class AdminAudit(Base):
+    """Аудит действий администратора: что и над чем меняли в админке."""
+
+    __tablename__ = "admin_audit"
+
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    actor = Column(String(255), nullable=True)   # email админа или "admin-token"
+    action = Column(String(64), nullable=False)  # например user.premium, thread.delete
+    target = Column(String(120), nullable=True)  # что изменили (id/слаг)
+    details = Column(Text, nullable=True)        # короткая сводка изменений
+    ip_hash = Column(String(64), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)

@@ -7,15 +7,32 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import AsyncIterator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import admin, admin_auth, auth, boards, feed, marks, media, search, status, top
+from src.api.routes import (
+    admin,
+    admin_auth,
+    admin_stats,
+    admin_users,
+    auth,
+    boards,
+    feed,
+    marks,
+    media,
+    search,
+    status,
+    top,
+    track,
+)
 from src.api.services import recalc_popularity
 from src.core.config import settings
 from src.core.db import async_session_factory
+from src.core.redis_client import redis_client
+from src.services.analytics import cleanup_analytics
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -41,15 +58,34 @@ async def _popularity_worker() -> None:
             logger.exception("Ошибка пересчёта популярности")
 
 
+async def _analytics_worker() -> None:
+    """Фоновая задача: ретеншн аналитики — чистим старые посещения, аудит и сессии."""
+    while True:
+        try:
+            await asyncio.sleep(6 * 3600)
+            async with async_session_factory() as session:
+                removed = await cleanup_analytics(session)
+            logger.info("Ретеншн аналитики: %s", removed)
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            logger.exception("Ошибка ретеншна аналитики")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    task = asyncio.create_task(_popularity_worker())
+    tasks = [
+        asyncio.create_task(_popularity_worker()),
+        asyncio.create_task(_analytics_worker()),
+    ]
     yield
-    task.cancel()
-    try:
-        await task
-    except (asyncio.CancelledError, Exception):
-        pass
+    for task in tasks:
+        task.cancel()
+    for task in tasks:
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
 
 
 app = FastAPI(
@@ -80,6 +116,28 @@ app.include_router(status.router)
 app.include_router(search.router)
 app.include_router(admin.router)
 app.include_router(admin_auth.router)
+app.include_router(admin_stats.router)
+app.include_router(admin_users.router)
+app.include_router(track.router)
+
+
+@app.middleware("http")
+async def count_api_errors(request: Request, call_next):
+    """Считает ошибки API по дням (Redis-хеш `err:<дата>`) для вкладки «Статистика».
+
+    Храним только счётчики по коду ответа — ни путей, ни адресов, ни тел ответов.
+    """
+    response = await call_next(request)
+    if response.status_code >= 400 and request.url.path.startswith("/api/"):
+        try:
+            key = f"err:{datetime.utcnow().date().isoformat()}"
+            pipe = redis_client.pipeline()
+            pipe.hincrby(key, str(response.status_code), 1)
+            pipe.expire(key, settings.ANALYTICS_ERROR_COUNTER_DAYS * 86400)
+            await pipe.execute()
+        except Exception:  # noqa: BLE001 — счётчик не должен ломать ответ
+            logger.debug("Счётчик ошибок API не записан", exc_info=True)
+    return response
 
 
 @app.get("/healthz")

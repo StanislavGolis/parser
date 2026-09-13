@@ -1,7 +1,7 @@
 # src/api/deps.py
 """Общие зависимости API: rate limiting, admin-токен, IP-хеш, S3."""
 import hashlib
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import Optional
 
@@ -22,6 +22,10 @@ from src.services.s3_storage import S3Storage
 def get_s3() -> S3Storage:
     """FastAPI-зависимость: загрузчик S3 (кэшируется, head_bucket один раз)."""
     return S3Storage()
+
+
+# Как часто обновляем «последнюю активность» сессии в БД (для карточки пользователя).
+ACTIVE_TOUCH = timedelta(minutes=5)
 
 
 def client_ip(request: Request) -> str:
@@ -84,12 +88,17 @@ async def get_current_user(
     request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> Optional[User]:
-    """Текущий пользователь по cookie-сессии, либо None (аноним)."""
+    """Текущий пользователь по cookie-сессии, либо None (аноним).
+
+    Заодно ведём след сессии для админки (`last_seen_at`, хеш IP, браузер) —
+    IP храним только хешем. Пишем не чаще раза в 5 минут, чтобы не делать
+    запись на каждый запрос.
+    """
     token = request.cookies.get(auth_service.COOKIE_NAME)
     if not token:
         return None
     result = await session.execute(
-        select(User)
+        select(User, UserSession)
         .join(UserSession, UserSession.user_id == User.id)
         .where(
             UserSession.token_hash == auth_service.token_hash(token),
@@ -97,7 +106,22 @@ async def get_current_user(
             User.is_active.is_(True),
         )
     )
-    return result.scalar_one_or_none()
+    row = result.first()
+    if row is None:
+        return None
+
+    user, session_row = row
+    now = datetime.utcnow()
+    stale = session_row.last_seen_at is None or (now - session_row.last_seen_at) > ACTIVE_TOUCH
+    if stale:
+        session_row.last_seen_at = now
+        if not session_row.ip_hash:
+            session_row.ip_hash = ip_hash(client_ip(request))
+        if not session_row.user_agent:
+            agent = request.headers.get("user-agent")
+            session_row.user_agent = agent[:255] if agent else None
+        await session.commit()
+    return user
 
 
 async def require_user(user: Optional[User] = Depends(get_current_user)) -> User:

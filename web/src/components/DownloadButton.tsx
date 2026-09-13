@@ -5,6 +5,7 @@ import { useState } from "react";
 import { DownloadIcon, SpinnerIcon } from "@/components/icons";
 import { ApiError, apiGet } from "@/lib/api";
 import { mediaUrl } from "@/lib/env";
+import { trackEvent } from "@/lib/track";
 import type { DownloadResult } from "@/lib/types";
 
 /**
@@ -22,6 +23,7 @@ export default function DownloadButton({
 
   async function handleDownload() {
     if (state === "loading") return;
+    trackEvent("download_click");
     setState("loading");
     try {
       const res = await apiGet<DownloadResult>(`/api/v1/media/${mediaId}/download`);

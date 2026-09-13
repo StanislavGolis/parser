@@ -21,6 +21,8 @@ interface SendOptions {
   body?: unknown;
   /** Admin-токен (Bearer) для админ-эндпоинтов. */
   token?: string;
+  /** Дополнительные заголовки (например, X-Admin-Actor для журнала действий). */
+  headers?: Record<string, string>;
   signal?: AbortSignal;
 }
 
@@ -29,10 +31,10 @@ interface SendOptions {
  * Не использует Data Cache Next.js; куки (тот же origin) передаются браузером.
  */
 export async function apiSend<T>(path: string, options: SendOptions = {}): Promise<T> {
-  const { method = "GET", body, token, signal } = options;
+  const { method = "GET", body, token, signal, headers: extra } = options;
   const url = apiPathForClient(path);
 
-  const headers: Record<string, string> = { accept: "application/json" };
+  const headers: Record<string, string> = { accept: "application/json", ...(extra ?? {}) };
   if (body !== undefined) headers["content-type"] = "application/json";
   if (token) headers["authorization"] = `Bearer ${token}`;
 

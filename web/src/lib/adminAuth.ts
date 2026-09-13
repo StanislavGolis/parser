@@ -5,6 +5,9 @@ import { useCallback, useEffect, useState } from "react";
 /** Ключ admin-токена в sessionStorage: живёт до закрытия вкладки браузера. */
 export const ADMIN_TOKEN_KEY = "admin_token";
 
+/** Email админа: нужен для журнала действий (`X-Admin-Actor`). */
+export const ADMIN_EMAIL_KEY = "admin_email";
+
 /** Событие «токен изменился» — синхронизирует гейт в layout и страницы админки. */
 const TOKEN_EVENT = "dredge:admin-token";
 
@@ -22,7 +25,20 @@ export function writeAdminToken(token: string): void {
 export function clearAdminToken(): void {
   if (typeof window === "undefined") return;
   window.sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+  window.sessionStorage.removeItem(ADMIN_EMAIL_KEY);
   window.dispatchEvent(new Event(TOKEN_EVENT));
+}
+
+/** Email, под которым вошёл админ (для аудита); пусто — вход по токену. */
+export function readAdminEmail(): string {
+  if (typeof window === "undefined") return "";
+  return window.sessionStorage.getItem(ADMIN_EMAIL_KEY) ?? "";
+}
+
+export function writeAdminEmail(email: string): void {
+  if (typeof window === "undefined") return;
+  if (email) window.sessionStorage.setItem(ADMIN_EMAIL_KEY, email);
+  else window.sessionStorage.removeItem(ADMIN_EMAIL_KEY);
 }
 
 /**

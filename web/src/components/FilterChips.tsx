@@ -2,6 +2,8 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
+import { trackEvent } from "@/lib/track";
+
 interface FilterChipsProps {
   /** Варианты типа контента: пустое значение — «всё». */
   typeOptions: Array<{ value: string; label: string }>;
@@ -29,6 +31,8 @@ export default function FilterChips({
 
   function push(next: URLSearchParams) {
     const qs = next.toString();
+    // Событие для статистики: видно, какими фильтрами пользуются
+    trackEvent("filter_click", qs ? `${pathname}?${qs}` : pathname);
     router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }
 

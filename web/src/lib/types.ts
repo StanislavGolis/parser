@@ -312,3 +312,140 @@ export interface MediaCacheStats {
   evicted_bytes: number;
   warm: MediaCacheWarm;
 }
+
+
+/** ── Админка: статистика посещаемости ─────────────────────────────── */
+
+export interface StatsTotals {
+  visitors: number;
+  visits: number;
+  pageviews: number;
+  events: number;
+  registered: number;
+}
+
+export interface StatsOverview extends StatsTotals {
+  days: number;
+  generated_at: string;
+  previous: StatsTotals;
+  delta: { visitors: number | null; visits: number | null; pageviews: number | null };
+  new_visitors: number;
+  returning_visitors: number;
+  pages_per_visit: number;
+}
+
+export interface StatsPoint {
+  t: string;
+  visitors: number;
+  visits: number;
+  pageviews: number;
+}
+
+export interface StatsTimeseries {
+  group: "day" | "hour";
+  days: number;
+  points: StatsPoint[];
+}
+
+export interface StatsPages {
+  days: number;
+  items: Array<{ path: string; views: number; visitors: number }>;
+}
+
+export interface StatsSources {
+  days: number;
+  referrers: Array<{ host: string; visits: number; visitors: number }>;
+  utm: Array<{ source: string; visits: number }>;
+}
+
+export interface StatsNameCount {
+  name: string;
+  hits: number;
+  visitors: number;
+}
+
+export interface StatsDevices {
+  days: number;
+  devices: StatsNameCount[];
+  browsers: StatsNameCount[];
+  os: StatsNameCount[];
+}
+
+export interface StatsEvents {
+  days: number;
+  items: Array<{ event: string; hits: number; visitors: number }>;
+}
+
+export interface StatsContentMedia {
+  id: number;
+  name: string;
+  board: string;
+  count: number;
+}
+
+export interface StatsContent {
+  days: number;
+  views: StatsContentMedia[];
+  downloads: StatsContentMedia[];
+  marks: StatsContentMedia[];
+  boards: Array<{ board: string; views: number }>;
+}
+
+export interface StatsHealth {
+  days: number;
+  statuses: string[];
+  items: Array<{ date: string; counters: Record<string, number>; total: number }>;
+}
+
+/** ── Админка: пользователи ────────────────────────────────────────── */
+
+export interface AdminUser {
+  id: number;
+  email: string;
+  is_active: boolean;
+  is_admin: boolean;
+  created_at: string | null;
+  premium_until: string | null;
+  premium_active: boolean;
+  marks_count: number;
+  views_count: number;
+  downloads_count: number;
+  last_seen_at: string | null;
+  sessions_active: number;
+}
+
+export interface AdminUserList {
+  items: AdminUser[];
+  page: number;
+  per_page: number;
+  total: number;
+}
+
+export interface AdminUserSession {
+  id: number;
+  created_at: string | null;
+  last_seen_at: string | null;
+  expires_at: string | null;
+  ip_hash: string | null;
+  user_agent: string | null;
+  active: boolean;
+}
+
+export interface AdminUserCard extends AdminUser {
+  sessions: AdminUserSession[];
+  marks: Array<{ at: string | null; media_id: number; name: string; board: string }>;
+  downloads: Array<{ at: string | null; media_id: number; name: string }>;
+  audit: Array<{ at: string | null; actor: string | null; action: string; details: string | null }>;
+}
+
+export interface AdminAuditItem {
+  at: string | null;
+  actor: string | null;
+  action: string;
+  target: string | null;
+  details: string | null;
+}
+
+export interface AdminAuditList {
+  items: AdminAuditItem[];
+}

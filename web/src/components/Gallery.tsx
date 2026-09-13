@@ -8,6 +8,7 @@ import Lightbox from "@/components/Lightbox";
 import MediaCard from "@/components/MediaCard";
 import { SpinnerIcon } from "@/components/icons";
 import { ApiError, apiGet } from "@/lib/api";
+import { trackEvent } from "@/lib/track";
 import type { BoardsById, MediaItem, MediaList } from "@/lib/types";
 
 interface GalleryProps {
@@ -146,7 +147,10 @@ export default function Gallery({
                   board={boardsById ? boardsById[media.board_id] : undefined}
                   showTop={showTop}
                   eager={idx < EAGER_CARDS}
-                  onOpen={() => setOpenIndex(idx)}
+                  onOpen={() => {
+                    trackEvent("lightbox_open");
+                    setOpenIndex(idx);
+                  }}
                 />
               </div>
             ))}

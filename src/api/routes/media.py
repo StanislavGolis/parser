@@ -203,8 +203,13 @@ async def media_view(
     media_id: int,
     request: Request,
     session: AsyncSession = Depends(get_session),
+    user: Optional[User] = Depends(get_current_user),
 ):
-    """Отметить просмотр файла (дедупликация по IP за 24 часа)."""
+    """Отметить просмотр файла (дедупликация по IP за 24 часа).
+
+    Если зритель вошёл, просмотр привязывается к аккаунту — так в админке
+    считается статистика по пользователю.
+    """
     await check_rate_limit(client_ip(request))
 
     media = await _get_visible_media(session, media_id)
@@ -222,7 +227,9 @@ async def media_view(
     already = dup_result.scalar_one_or_none() is not None
 
     if not already:
-        session.add(ViewStat(media_id=media.id, ip_hash=iph))
+        session.add(
+            ViewStat(media_id=media.id, ip_hash=iph, user_id=user.id if user else None)
+        )
         media.views_count += 1
         _recalc_popularity(media)
         await session.commit()
@@ -268,7 +275,9 @@ async def media_download(
     already = dup_result.scalar_one_or_none() is not None
 
     if not already:
-        session.add(DownloadStat(media_id=media.id, ip_hash=iph))
+        session.add(
+            DownloadStat(media_id=media.id, ip_hash=iph, user_id=user.id if user else None)
+        )
         media.downloads_count += 1
         _recalc_popularity(media)
         await session.commit()

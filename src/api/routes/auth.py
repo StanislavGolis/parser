@@ -6,16 +6,19 @@
 Размытые превью (`/asset/thumb_blur`) и деривативы обычных файлов публичны.
 """
 from datetime import datetime
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.deps import check_rate_limit, client_ip, require_user
+from src.api.deps import check_rate_limit, client_ip, ip_hash, require_user
 from src.api.schemas import AuthCredentials, UserOut
 from src.core.config import settings
 from src.core.db import get_session
 from src.core.models import MediaMark, User, UserSession
+from src.services import admin_auth
 from src.services import auth as auth_service
 from src.services.premium import PROMO_PREMIUM_DAYS, grant_premium, premium_active
 
@@ -46,14 +49,26 @@ async def user_out_with_counts(session: AsyncSession, user: User) -> UserOut:
     return data
 
 
-async def _issue_session(session: AsyncSession, response: Response, user: User) -> None:
-    """Создаёт сессию и ставит httpOnly-cookie."""
+async def _issue_session(
+    session: AsyncSession,
+    response: Response,
+    user: User,
+    request: Optional[Request] = None,
+) -> None:
+    """Создаёт сессию и ставит httpOnly-cookie.
+
+    Из запроса сохраняем след для админки: хеш IP (не сам IP) и User-Agent.
+    """
     token = auth_service.new_token()
+    agent = request.headers.get("user-agent") if request else None
     session.add(
         UserSession(
             user_id=user.id,
             token_hash=auth_service.token_hash(token),
             expires_at=datetime.utcnow() + auth_service.SESSION_TTL,
+            ip_hash=ip_hash(client_ip(request)) if request else None,
+            user_agent=agent[:255] if agent else None,
+            last_seen_at=datetime.utcnow(),
         )
     )
     await session.commit()
@@ -94,7 +109,7 @@ async def register(
     await session.commit()
     await session.refresh(user)
 
-    await _issue_session(session, response, user)
+    await _issue_session(session, response, user, request)
     return await user_out_with_counts(session, user)
 
 
@@ -117,7 +132,7 @@ async def login(
     ):
         raise HTTPException(status_code=401, detail="Неверный email или пароль")
 
-    await _issue_session(session, response, user)
+    await _issue_session(session, response, user, request)
     return await user_out_with_counts(session, user)
 
 
@@ -136,6 +151,37 @@ async def logout(
         await session.commit()
     response.delete_cookie(auth_service.COOKIE_NAME, path="/")
     return {"ok": True}
+
+
+class PasswordResetIn(BaseModel):
+    """Смена пароля по одноразовой ссылке, которую выдал админ."""
+
+    token: str = Field(min_length=10, max_length=200)
+    password: str = Field(min_length=6, max_length=200)
+
+
+@router.post("/reset")
+async def reset_password(
+    payload: PasswordResetIn,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    """Смена пароля посетителя по ссылке из админки.
+
+    Права админа при этом не выдаются (`promote_admin=False`): ссылка выдаётся
+    обычному аккаунту. Все прежние сессии аккаунта удаляются.
+    """
+    await check_rate_limit(client_ip(request))
+    try:
+        user = await admin_auth.consume_reset_token(
+            session,
+            payload.token,
+            payload.password,
+            promote_admin=False,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "email": user.email}
 
 
 @router.get("/me", response_model=UserOut)

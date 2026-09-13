@@ -98,6 +98,12 @@ class Settings(BaseSettings):
     API_CORS_ORIGINS: str = "http://localhost:3000,http://localhost:8080"
     POPULARITY_RECALC_MINUTES: int = 5        # период пересчёта popularity_score, в минутах
 
+    # ── Своя аналитика посещаемости (вкладка «Статистика») ────────
+    ANALYTICS_ENABLED: bool = True            # принимать хиты с сайта (/api/v1/hit)
+    ANALYTICS_RETENTION_DAYS: int = 120       # сколько дней хранить сырые посещения
+    ANALYTICS_SESSION_MINUTES: int = 30       # пауза, после которой визит считается новым
+    ANALYTICS_ERROR_COUNTER_DAYS: int = 14    # срок жизни счётчиков ошибок API в Redis
+
     # ── Объектное хранилище S3 (Timeweb Cloud) ────────────────────
     # Значения из панели Timeweb: S3 URL, бакет, Access/Secret Key, регион.
     S3_URL: str = "https://s3.twcstorage.ru"

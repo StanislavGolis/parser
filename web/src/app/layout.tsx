@@ -4,6 +4,7 @@ import { Inter, JetBrains_Mono } from "next/font/google";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
 import MobileNav from "@/components/MobileNav";
+import Tracker from "@/components/Tracker";
 import { SITE_URL } from "@/lib/env";
 import "./globals.css";
 
@@ -57,6 +58,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         </main>
         <Footer />
         <MobileNav />
+        <Tracker />
       </body>
     </html>
   );

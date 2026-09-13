@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { ApiError, apiPost } from "@/lib/api";
-import { writeAdminToken } from "@/lib/adminAuth";
+import { writeAdminEmail, writeAdminToken } from "@/lib/adminAuth";
 
 type Mode = "password" | "forgot" | "token";
 
@@ -41,6 +41,8 @@ export default function AdminLogin() {
     e.preventDefault();
     const value = tokenInput.trim();
     if (!value) return;
+    // Почты нет — в журнале действий будет «admin-token»
+    writeAdminEmail("");
     writeAdminToken(value);
   }
 
@@ -57,6 +59,7 @@ export default function AdminLogin() {
         password,
       });
       setPassword("");
+      writeAdminEmail(out.email);
       writeAdminToken(out.token);
     } catch (err) {
       setError(errText(err));

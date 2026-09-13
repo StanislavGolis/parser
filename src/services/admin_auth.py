@@ -99,12 +99,19 @@ async def create_reset_token(session: AsyncSession, user: User) -> str:
 
 
 async def consume_reset_token(
-    session: AsyncSession, raw_token: str, new_password: str
+    session: AsyncSession,
+    raw_token: str,
+    new_password: str,
+    *,
+    promote_admin: bool = True,
 ) -> User:
     """Меняет пароль по одноразовой ссылке.
 
     Бросает `ValueError` с понятным текстом: ссылка неизвестна, просрочена или
     уже использована. После смены пароля все сессии пользователя удаляются.
+
+    `promote_admin=False` — ссылка выдана обычному посетителю из админки: права
+    админа не выдаём (иначе любой сброс пароля повышал бы в админы).
     """
     token_hash = auth_service.token_hash(raw_token or "")
     result = await session.execute(
@@ -121,7 +128,8 @@ async def consume_reset_token(
         raise ValueError("Аккаунт не найден")
 
     user.password_hash = auth_service.hash_password(new_password)
-    user.is_admin = True
+    if promote_admin:
+        user.is_admin = True
     reset.used_at = datetime.utcnow()
     # Прежние сессии — вон: ссылка восстановления могла попасть к посторонним
     await session.execute(delete(UserSession).where(UserSession.user_id == user.id))
@@ -145,3 +153,20 @@ def new_password(length: int = 16) -> str:
     import secrets as secrets_module
 
     return "".join(secrets_module.choice(alphabet) for _ in range(length))
+
+
+def user_reset_link(base_url: str, token: str) -> str:
+    """Ссылка смены пароля для посетителя (публичная страница /reset-password)."""
+    return f"{base_url.rstrip('/')}/reset-password?token={token}"
+
+
+def user_reset_email_text(link: str, ttl_minutes: int) -> str:
+    """Текст письма со ссылкой смены пароля для аккаунта посетителя."""
+    return (
+        "Здравствуйте!\n\n"
+        "Для вашего аккаунта на DREDGE запрошена смена пароля.\n"
+        f"Ссылка действует {ttl_minutes} мин и срабатывает один раз:\n\n"
+        f"{link}\n\n"
+        "Если это не вы — просто проигнорируйте письмо.\n"
+    )
+

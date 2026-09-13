@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { ApiError, apiPost } from "./api";
+import { trackEvent } from "./track";
 import type { MarkResult } from "./types";
 
 /** Состояние и переключатель метки («отличный контент») для одного файла. */
@@ -45,6 +46,8 @@ export function useMarkToggle(
       setMarked(res.marked);
       setMarksCount(res.marks_count);
       setLastAction(res.marked ? "marked" : "unmarked");
+      // Событие для статистики: сколько меток ставят и снимают
+      trackEvent(res.marked ? "mark_add" : "mark_remove");
     } catch (err) {
       const status = err instanceof ApiError ? err.status : 0;
       if (status === 401) {
