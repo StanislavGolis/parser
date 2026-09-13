@@ -10,10 +10,13 @@ from typing import Dict, Type
 from src.parsers.base import BoardNode, CatalogResult, FileNode, SourceAdapter, ThreadNode
 from src.parsers.dvach import DvachAdapter
 from src.parsers.slivach import SlivachAdapter
+from src.parsers.wayback import WaybackAdapter
 
 ADAPTERS: Dict[str, Type] = {
     "dvach": DvachAdapter,
     "slivach": SlivachAdapter,
+    # Архивный источник: разделы, восстановленные из веб-архива (Wayback Machine)
+    "wayback": WaybackAdapter,
 }
 
 
@@ -34,5 +37,6 @@ __all__ = [
     "SlivachAdapter",
     "SourceAdapter",
     "ThreadNode",
+    "WaybackAdapter",
     "build_adapter",
 ]

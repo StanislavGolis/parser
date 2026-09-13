@@ -523,6 +523,8 @@ class FilePipeline:
                 media_type=meta["media_type"],
                 local_path=local_path,
                 file_data=file_data,
+                # Архивный источник отключает транскод видео (см. VIDEO_WEB_ENABLED)
+                video_web=settings.VIDEO_WEB_ENABLED,
             )
         except Exception as e:  # noqa: BLE001
             print(f"   [warn] деривативы не построены ({meta.get('original_name', '?')}): {e}")
