@@ -48,8 +48,11 @@ export default async function BoardPage({ params, searchParams }: BoardPageProps
   // Старые адреса разделов slivach (`/board/slivach-asmr`) ведём на короткий
   // (`/board/asmr`): префикс источника убран миграцией `c4d5e6f7a8b9`, а ссылки
   // уже живут в поиске и в закладках зрителей. 308 — постоянный редирект.
+  // Решаем по самому адресу, без обращения к списку разделов: список кэшируется
+  // и после переименования какое-то время ещё отдаёт слаги со префиксом.
   const legacy = /^slivach-(.+)$/.exec(slug);
-  if (!board && legacy && boards.some((b) => b.slug === legacy[1])) {
+  if (legacy) {
+    // Параметры просмотра переносим как есть: сортировка и открытый тред
     const query = new URLSearchParams();
     if (sort !== "new") query.set("sort", sort);
     if (threadId) query.set("thread", String(threadId));
