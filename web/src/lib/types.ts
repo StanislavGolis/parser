@@ -382,6 +382,44 @@ export interface SiteStatus {
   period_label?: string;
 }
 
+/** Публичная страница треда `/t/{id}`: метаданные и счётчики файлов. */
+export interface ThreadDetail {
+  thread_id: number;
+  board_id: number;
+  board_slug: string;
+  board_title: string | null;
+  subject: string | null;
+  comment: string | null;
+  posts_count: number;
+  files_count: number;
+  views_count: number;
+  /** Видимых файлов в архиве (галерея грузится отдельным запросом). */
+  media_total: number;
+  thread_timestamp: string | null;
+  /** Когда в тред добавился последний файл (для lastmod в карте сайта). */
+  last_media_at: string | null;
+  /** Премиум-тред или премиум-раздел. */
+  is_premium: boolean;
+  /** Подписки у зрителя нет — полный контент закрыт. */
+  locked: boolean;
+}
+
+/** Краткая ссылка на тред: карта сайта и блоки перелинковки. */
+export interface ThreadRef {
+  thread_id: number;
+  board_slug: string;
+  subject: string | null;
+  media_total: number;
+  last_media_at: string | null;
+}
+
+export interface ThreadRefList {
+  items: ThreadRef[];
+  page: number;
+  per_page: number;
+  total: number;
+}
+
 /** Прогресс прогрева дискового кэша медиа. */
 export interface MediaCacheWarm {
   status: "idle" | "running" | "done" | "interrupted" | string;

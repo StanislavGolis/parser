@@ -424,6 +424,46 @@ class ThreadListOut(BaseModel):
     files_downloaded_total: int = 0
 
 
+class ThreadDetailOut(BaseModel):
+    """Публичная страница треда: метаданные и счётчики файлов.
+
+    Файлы отдаются отдельным запросом (`/boards/{slug}/media?thread=…`) — так
+    страница треда переиспользует ту же ленту с догрузкой, что и раздел.
+    """
+
+    thread_id: int
+    board_id: int
+    board_slug: str
+    board_title: Optional[str] = None
+    subject: Optional[str] = None
+    comment: Optional[str] = None
+    posts_count: int = 0
+    files_count: int = 0
+    views_count: int = 0
+    media_total: int = 0            # видимых файлов в архиве
+    thread_timestamp: Optional[datetime] = None
+    last_media_at: Optional[datetime] = None
+    is_premium: bool = False        # премиум-тред или премиум-раздел
+    locked: bool = False            # подписки у зрителя нет — полный контент закрыт
+
+
+class ThreadRefOut(BaseModel):
+    """Краткая ссылка на тред: для карты сайта и перелинковки."""
+
+    thread_id: int
+    board_slug: str
+    subject: Optional[str] = None
+    media_total: int = 0
+    last_media_at: Optional[datetime] = None
+
+
+class ThreadRefListOut(BaseModel):
+    items: List[ThreadRefOut]
+    page: int
+    per_page: int
+    total: int
+
+
 class MediaDetailOut(MediaOut):
     board_slug: Optional[str] = None
     duplicate_of_id: Optional[int] = None

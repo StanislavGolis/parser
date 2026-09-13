@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import Lightbox from "@/components/Lightbox";
@@ -412,7 +413,14 @@ function ThreadCard({
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-4 py-2.5 sm:px-4">
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-sm font-semibold text-text-primary" title={title}>
-            {title}
+            {/* Тема ведёт на страницу треда: это посадочная под поиск, поэтому
+                ссылка есть и в списке раздела (сквозная перелинковка). */}
+            <Link
+              href={`/t/${thread.thread_id}`}
+              className="transition-colors hover:text-accent-primary"
+            >
+              {title}
+            </Link>
           </h2>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-text-muted">
             <span>№{thread.thread_id}</span>

@@ -21,7 +21,9 @@ import type {
   PeriodKey,
   SortKey,
   SiteStatus,
+  ThreadDetail,
   ThreadList,
+  ThreadRefList,
 } from "./types";
 
 const REVALIDATE = {
@@ -134,6 +136,23 @@ export async function getBoardThreads(
   });
   const fallback: ThreadList = { items: [], page, per_page: perPage, total: 0 };
   return serverFetch<ThreadList>(`/api/v1/boards/${encodeURIComponent(slug)}/threads?${q}`, REVALIDATE.board, fallback);
+}
+
+export async function getThreadDetail(threadId: number): Promise<ThreadDetail | null> {
+  try {
+    return await serverFetch<ThreadDetail>(`/api/v1/threads/${threadId}`, REVALIDATE.detail);
+  } catch (err) {
+    // Скрытый/несуществующий тред — честный 404, а не пустая страница
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+/** Треды для карты сайта (только видимые и непустые), постранично. */
+export async function getThreadRefPage(page: number, perPage: number): Promise<ThreadRefList> {
+  const q = new URLSearchParams({ page: String(page), per_page: String(perPage) });
+  const fallback: ThreadRefList = { items: [], page, per_page: perPage, total: 0 };
+  return serverFetch<ThreadRefList>(`/api/v1/threads?${q}`, REVALIDATE.board, fallback);
 }
 
 export async function getSearchPage(

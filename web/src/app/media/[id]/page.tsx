@@ -182,13 +182,9 @@ export default async function MediaDetailPage({ params }: DetailProps) {
                   →
                 </span>
                 <Link
-                  href={`/board/${board.slug}?thread=${media.thread_id}`}
+                  href={`/t/${media.thread_id}`}
                   className="rounded-md border border-neutral-700 bg-neutral-800 px-2 py-0.5 font-mono text-[11px] text-neutral-300 transition-colors hover:border-neutral-500 hover:text-white"
-                  title={
-                    board.title
-                      ? `Открыть тред в разделе /${board.slug} — ${board.title}`
-                      : `Открыть тред в разделе /${board.slug}`
-                  }
+                  title={`Страница треда #${media.thread_id} — все файлы и тема`}
                 >
                   тред #{media.thread_id}
                 </Link>

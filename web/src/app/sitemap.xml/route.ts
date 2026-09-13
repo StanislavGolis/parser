@@ -1,4 +1,4 @@
-import { getBoards, getFeedPage } from "@/lib/data";
+import { getBoards, getFeedPage, getThreadRefPage } from "@/lib/data";
 import { SITE_URL, absoluteUrl } from "@/lib/env";
 
 /**
@@ -16,6 +16,8 @@ import { SITE_URL, absoluteUrl } from "@/lib/env";
 const FEED_PAGE_MAX = 100;
 /** Сколько свежих файлов попадает в карту сайта (5 запросов к API). */
 const MEDIA_IN_SITEMAP = 500;
+/** Сколько тредов попадает в карту сайта: у них есть текст (тема/описание). */
+const THREADS_IN_SITEMAP = 1000;
 
 export const revalidate = 3600; // пересобираем раз в час
 // Генерируем по запросу: карта должна сразу содержать разделы и свежие файлы,
@@ -77,8 +79,9 @@ export async function GET(): Promise<Response> {
   // поэтому при сбое отдаём хотя бы статические адреса.
   try {
     const pagesCount = Math.ceil(MEDIA_IN_SITEMAP / FEED_PAGE_MAX);
-    const [boards, ...feeds] = await Promise.all([
+    const [boards, threadRefs, ...feeds] = await Promise.all([
       getBoards(),
+      getThreadRefPage(1, THREADS_IN_SITEMAP),
       ...Array.from({ length: pagesCount }, (_, i) => getFeedPage(i + 1, FEED_PAGE_MAX)),
     ]);
 
@@ -91,9 +94,23 @@ export async function GET(): Promise<Response> {
       });
     }
 
+    // Треды: у них есть текст (тема треда у 2ch, название и описание записи у
+    // сайтов) — это единственные посадочные страницы под поисковый запрос.
+    for (const thread of threadRefs.items) {
+      entries.push({
+        loc: `${SITE_URL}/t/${thread.thread_id}`,
+        lastmod: thread.last_media_at ? new Date(thread.last_media_at).toISOString() : now,
+        changefreq: "weekly",
+        priority: 0.6,
+      });
+    }
+
     for (const media of feeds.flatMap((feed) => feed.items).slice(0, MEDIA_IN_SITEMAP)) {
-      // Для видео оптимизированной версии нет — берём постер (thumb).
-      const preview = absoluteUrl(media.web_url ?? media.thumb_url);
+      // Размытое превью премиум-файлов в карту не отдаём: в Google Изображениях
+      // такая картинка выглядит как «дефект» и портит выдачу.
+      const preview = media.locked
+        ? undefined
+        : absoluteUrl(media.web_url ?? media.thumb_url);
       entries.push({
         loc: `${SITE_URL}/media/${media.id}`,
         lastmod: media.created_at ? new Date(media.created_at).toISOString() : now,
