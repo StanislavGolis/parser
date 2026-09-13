@@ -5,7 +5,20 @@ from sqlalchemy.orm import sessionmaker
 
 from src.core.config import settings
 
-engine = create_async_engine(settings.DATABASE_URL, echo=False, future=True)
+# Пул параметризован (см. DB_POOL_* в config): под нагрузкой дефолтных 5+10
+# соединений не хватало — запросы ждали по 30 с и падали с
+# `QueuePool limit ... connection timed out`, а API отдавал 500.
+engine = create_async_engine(
+    settings.DATABASE_URL,
+    echo=False,
+    future=True,
+    pool_size=settings.DB_POOL_SIZE,
+    max_overflow=settings.DB_MAX_OVERFLOW,
+    pool_timeout=settings.DB_POOL_TIMEOUT,
+    pool_recycle=settings.DB_POOL_RECYCLE,
+    # Проверяем соединение перед выдачей: после рестарта Postgres пул не «залипает»
+    pool_pre_ping=True,
+)
 async_session_factory = sessionmaker(
     engine,
     class_=AsyncSession,
