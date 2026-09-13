@@ -347,7 +347,9 @@ function ThreadCard({
   const title = thread.subject?.trim() || `Тред #${thread.thread_id}`;
   const preview = thread.preview;
   const visibleCount = thread.media_visible;
-  const totalInCatalog = thread.files_count;
+  // `thread.files_count` («в каталоге») больше не показываем: это число, которое
+  // заявляет сам источник в своём каталоге (у 2ch — из catalog.json), оно бывает
+  // устаревшим и меньше фактического, а у сайтов-источников вообще нулевое.
   // Сколько файлов в треде появилось после последнего просмотра. Они всегда
   // «в конце»: список треда идёт по порядку источника (`source_order`), а не по
   // времени скачивания, поэтому новые файлы не сдвигают уже просмотренное.
@@ -393,24 +395,23 @@ function ThreadCard({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2 font-mono text-[11px]">
-          <span className="rounded-[3px] bg-ink-tertiary px-1.5 py-0.5 text-text-primary">
-            {formatNumber(visibleCount)} в галерее
-          </span>
           {/* Сколько файлов треда добавилось с начала отчётных суток (00:00 МСК):
-              тот же период, что у счётчика «+N за сутки» на карточке раздела */}
+              тот же период, что у счётчика «+N за сутки» на карточке раздела.
+              Идёт первым — прирост важнее общего числа. */}
           {thread.media_today ? (
             <span
               className="rounded-[3px] bg-accent-secondary/15 px-1.5 py-0.5 text-accent-secondary"
               title={`+${thread.media_today} за текущие сутки (с 00:00 МСК)`}
             >
-              +{formatNumber(thread.media_today)} за сутки
+              +{formatNumber(thread.media_today)}
             </span>
           ) : null}
-          {totalInCatalog > 0 ? (
-            <span className="rounded-[3px] bg-ink-tertiary px-1.5 py-0.5 text-text-muted">
-              {formatNumber(totalInCatalog)} в каталоге
-            </span>
-          ) : null}
+          <span
+            className="rounded-[3px] bg-ink-tertiary px-1.5 py-0.5 text-text-primary"
+            title="Файлов треда в галерее"
+          >
+            {formatNumber(visibleCount)} в галерее
+          </span>
         </div>
       </div>
 
