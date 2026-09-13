@@ -261,25 +261,30 @@ def fetch_catalog(
 ) -> Tuple[Dict[str, CatalogThread], Optional[str]]:
     """Берёт самый свежий архивный `catalog.json` раздела и разбирает его.
 
-    Ищем по нескольким хостам (2ch.hk, 2ch.su) — база у них одна, но снапшоты
-    сохранились в разное время. Возвращает (треды по номерам, время снапшота).
+    Смотрим несколько хостов (2ch.hk, 2ch.su, 2ch.life): база у них одна, но
+    снапшоты сохранились в разное время — для разных разделов свежее оказывается
+    то одно зеркало, то другое (`/e` — 2ch.hk 2025-08, `/hc` — 2ch.su 2025-07).
+    Поэтому собираем кандидатов со всех хостов и идём от самого свежего.
     """
+    candidates: List[Snapshot] = []
     for host in hosts:
-        snapshots = cdx_snapshots(
-            host, "catalog.json", board_slug, limit=50, delay=delay, collapse=False
+        candidates.extend(
+            cdx_snapshots(host, "catalog.json", board_slug, limit=50, delay=delay, collapse=False)
         )
-        # Список идёт по возрастанию времени: последний — самый свежий каталог.
-        for snapshot in reversed(snapshots):
-            blob = _http_get(f"{ARCHIVE_WEB}/{snapshot.timestamp}id_/{snapshot.url}", timeout=180)
-            if not blob:
-                continue
-            try:
-                payload = json.loads(blob.decode("utf-8", "replace"))
-            except Exception as exc:  # noqa: BLE001
-                print(f"   [warn] каталог {host} не разобрался: {exc}")
-                continue
-            print(f"   [ok]   каталог взят из архива: {host}, снапшот {snapshot.timestamp}")
-            return index_catalog(payload), snapshot.timestamp
+    candidates.sort(key=lambda snapshot: snapshot.timestamp, reverse=True)
+
+    for snapshot in candidates:
+        blob = _http_get(f"{ARCHIVE_WEB}/{snapshot.timestamp}id_/{snapshot.url}", timeout=180)
+        if not blob:
+            continue
+        try:
+            payload = json.loads(blob.decode("utf-8", "replace"))
+        except Exception as exc:  # noqa: BLE001
+            print(f"   [warn] каталог {snapshot.url} не разобрался: {exc}")
+            continue
+        print(f"   [ok]   каталог взят из архива: {snapshot.url}, снапшот {snapshot.timestamp}")
+        return index_catalog(payload), snapshot.timestamp
+
     print("   [warn] архивный каталог раздела не найден — метаданные будут пустыми")
     return {}, None
 
