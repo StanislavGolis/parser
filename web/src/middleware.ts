@@ -107,5 +107,6 @@ export async function middleware(request: NextRequest) {
 export const config = {
   // Динамические адреса: разделы (в том числе старые), треды и файлы.
   // API и служебные страницы не трогаем.
-  matcher: ["/board/:slug", "/board/slivach-:rest*", "/t/:id", "/media/:id"],
+  // Формат `:path*` — единственный, который гарантированно матчится Next.
+  matcher: ["/board/:path*", "/t/:path*", "/media/:path*"],
 };
