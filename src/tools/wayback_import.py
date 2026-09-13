@@ -306,7 +306,9 @@ async def ensure_source(session, code: str, title: str, base_url: str) -> Source
     return source
 
 
-async def ensure_board(session, slug: str, title: str, source: Source, visible: bool) -> Board:
+async def ensure_board(
+    session, slug: str, title: str, source: Source, visible: bool, premium: bool = False
+) -> Board:
     """Раздел архива: показываем публично, но парсер его не трогает."""
     board = (
         await session.execute(select(Board).where(Board.slug == slug))
@@ -319,6 +321,7 @@ async def ensure_board(session, slug: str, title: str, source: Source, visible: 
             source_id=source.id,
             is_visible=visible,
             parse_enabled=False,
+            is_premium=premium,
         )
         session.add(board)
         await session.flush()
@@ -326,7 +329,9 @@ async def ensure_board(session, slug: str, title: str, source: Source, visible: 
     else:
         board.source_id = board.source_id or source.id
         board.is_visible = visible
+        # Архивный раздел не парсится: наполняется только этим импортёром
         board.parse_enabled = False
+        board.is_premium = premium
         if title and (not board.title or board.title == board.slug):
             board.title = title
     return board
@@ -391,6 +396,7 @@ async def import_file(
     *,
     visible: bool,
     premium: bool,
+    video_web: bool = True,
     delay: float,
     dry_run: bool,
     stats: Stats,
@@ -488,6 +494,7 @@ async def import_file(
                     media_type=media_type,
                     local_path=tmp_path,
                     file_data=blob if media_type == "image" else None,
+                    video_web=video_web,
                 )
             finally:
                 shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -542,7 +549,9 @@ async def import_board(args: argparse.Namespace) -> Stats:
             session, args.source, "Архив Wayback Machine", "https://web.archive.org"
         )
         title = args.title or f"/{args.board} (архив Wayback)"
-        board = await ensure_board(session, args.board, title, source, not args.hidden)
+        board = await ensure_board(
+            session, args.board, title, source, not args.hidden, premium=args.premium
+        )
         await session.commit()
 
         threads_meta, catalog_ts = fetch_catalog(args.board, args.hosts, args.delay)
@@ -592,6 +601,7 @@ async def import_board(args: argparse.Namespace) -> Stats:
                 meta_file,
                 visible=not args.hidden,
                 premium=args.premium,
+                video_web=not args.no_video_transcode,
                 delay=args.delay,
                 dry_run=args.dry_run,
                 stats=stats,
@@ -627,9 +637,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--limit", type=int, default=300, help="сколько файлов обработать (0 — все)")
     parser.add_argument("--delay", type=float, default=1.5, help="пауза между запросами к архиву, с")
-    parser.add_argument("--commit-every", type=int, default=10, help="коммит каждые N файлов")
+    parser.add_argument("--commit-every", type=int, default=5, help="коммит каждые N файлов")
     parser.add_argument("--hidden", action="store_true", help="не показывать раздел публично")
     parser.add_argument("--premium", action="store_true", help="пометить файлы как премиум")
+    parser.add_argument(
+        "--no-video-transcode",
+        action="store_true",
+        help="не перекодировать видео в 720p (быстрее; видео отдаётся оригиналом)",
+    )
     parser.add_argument("--images-only", action="store_true", help="только изображения")
     parser.add_argument("--videos-only", action="store_true", help="только видео")
     parser.add_argument("--dry-run", action="store_true", help="скачать и посчитать, ничего не писать")
