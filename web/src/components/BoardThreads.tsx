@@ -24,6 +24,8 @@ import type { BoardThread, MediaItem, MediaList, ThreadList } from "@/lib/types"
 
 const PER_PAGE = 15;
 const MAX_PREVIEW = 8;
+/** Порция файлов треда в лайтбоксе: 300 — максимум, который отдаёт API. */
+const THREAD_PAGE_SIZE = 300;
 
 interface BoardThreadsProps {
   slug: string;
@@ -41,8 +43,19 @@ export default function BoardThreads({ slug, initial }: BoardThreadsProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Lightbox с файлами конкретного треда
-  const [lightbox, setLightbox] = useState<{ items: MediaItem[]; index: number } | null>(null);
+  // Lightbox с файлами конкретного треда. Порция — 300 файлов (максимум API),
+  // но в треде их бывает больше: держим `total` (полный размер) и `page`, чтобы
+  // догружать следующие порции и не путать «размер треда» с «размером порции» —
+  // из-за этой путаницы «+N новых в конце» показывало лишнее (в треде из 882
+  // файлов выходило «+582»).
+  const [lightbox, setLightbox] = useState<{
+    items: MediaItem[];
+    index: number;
+    threadId: number;
+    total: number;
+    page: number;
+  } | null>(null);
+  const [lightboxBusy, setLightboxBusy] = useState(false);
   const [openingThread, setOpeningThread] = useState<number | null>(null);
 
   // Точки возврата «продолжить просмотр» (localStorage). Читаем после
@@ -76,23 +89,78 @@ export default function BoardThreads({ slug, initial }: BoardThreadsProps) {
     }
   }, [slug, page, loading]);
 
-  async function fetchThreadMedia(threadId: number): Promise<MediaList> {
-    const q = new URLSearchParams({ thread: String(threadId), per_page: "300", sort: "new" });
+  async function fetchThreadMedia(threadId: number, page = 1): Promise<MediaList> {
+    const q = new URLSearchParams({
+      thread: String(threadId),
+      per_page: String(THREAD_PAGE_SIZE),
+      sort: "new",
+      page: String(page),
+    });
     return apiGet<MediaList>(`/api/v1/boards/${encodeURIComponent(slug)}/media?${q}`);
   }
+
+  /** Догружает следующую порцию файлов уже открытого треда (кнопка/листание). */
+  const loadMoreLightbox = useCallback(async () => {
+    const current = lightbox;
+    if (!current || lightboxBusy) return;
+    if (current.items.length >= current.total) return;
+    setLightboxBusy(true);
+    try {
+      const next = await fetchThreadMedia(current.threadId, current.page + 1);
+      setLightbox((prev) => {
+        if (!prev || next.items.length === 0) return prev;
+        const seen = new Set(prev.items.map((m) => m.id));
+        return {
+          ...prev,
+          items: [...prev.items, ...next.items.filter((m) => !seen.has(m.id))],
+          page: next.page,
+        };
+      });
+    } catch {
+      setError("Не удалось догрузить файлы треда. Попробуйте позже.");
+    } finally {
+      setLightboxBusy(false);
+    }
+  }, [lightbox, lightboxBusy, slug]);
 
   /**
    * Открывает файлы треда в лайтбоксе. Без явного индекса продолжаем с того
    * файла, который зритель смотрел последним: файл ищем по id, сохранённая
    * позиция — только запасной вариант (см. lib/resume).
+   *
+   * Точка возврата может лежать дальше первой порции (в треде бывает 800+ файлов),
+   * поэтому порции догружаются, пока не дойдём до нужного места.
    */
   async function openThread(threadId: number, startIndex?: number) {
     setOpeningThread(threadId);
     try {
-      const data = await fetchThreadMedia(threadId);
-      if (data.items.length === 0) return;
-      const index = startIndex ?? resumeIndex(getResume(threadId), data.items);
-      setLightbox({ items: data.items, index: Math.min(index, data.items.length - 1) });
+      const first = await fetchThreadMedia(threadId, 1);
+      if (first.items.length === 0) return;
+
+      const point = getResume(threadId);
+      let items = first.items;
+      let page = first.page;
+      // Файл из точки возврата может лежать во второй/третьей порции (в треде
+      // бывает 800+ файлов при порции 300): догружаем, пока он не появится.
+      if (!startIndex && point && !items.some((m) => m.id === point.id)) {
+        while (items.length < first.total && page < 20) {
+          const next = await fetchThreadMedia(threadId, page + 1);
+          if (next.items.length === 0) break;
+          const seen = new Set(items.map((m) => m.id));
+          items = [...items, ...next.items.filter((m) => !seen.has(m.id))];
+          page = next.page;
+          if (items.some((m) => m.id === point.id)) break;
+        }
+      }
+
+      const index = startIndex ?? resumeIndex(point, items);
+      setLightbox({
+        items,
+        index: Math.min(Math.max(index, 0), items.length - 1),
+        threadId,
+        total: first.total,
+        page,
+      });
     } catch {
       setError("Не удалось открыть тред. Попробуйте ещё раз.");
     } finally {
@@ -152,6 +220,13 @@ export default function BoardThreads({ slug, initial }: BoardThreadsProps) {
         <Lightbox
           items={lightbox.items}
           index={lightbox.index}
+          // Полный размер треда для точки возврата и счётчика позиции: в порции
+          // максимум 300 файлов, а в треде бывает 800+ (см. loadMoreLightbox)
+          resumeThreadId={lightbox.threadId}
+          resumeTotal={lightbox.total}
+          hasMore={lightbox.items.length < lightbox.total}
+          loadingMore={lightboxBusy}
+          onLoadMore={() => void loadMoreLightbox()}
           // при закрытии обновляем чипы «продолжить»: точка возврата сдвинулась
           onClose={() => {
             setLightbox(null);
@@ -164,11 +239,17 @@ export default function BoardThreads({ slug, initial }: BoardThreadsProps) {
                 : lb,
             )
           }
-          onNext={() =>
-            setLightbox((lb) =>
-              lb && lb.items.length > 1 ? { ...lb, index: (lb.index + 1) % lb.items.length } : lb,
-            )
-          }
+          onNext={() => {
+            // Дошли до последнего загруженного файла — подтягиваем следующую порцию,
+            // чтобы зритель мог листать тред дальше (в треде бывает 800+ файлов)
+            const lb = lightbox;
+            if (lb && lb.index >= lb.items.length - 1 && lb.items.length < lb.total) {
+              void loadMoreLightbox();
+            }
+            setLightbox((cur) =>
+              cur && cur.items.length > 1 ? { ...cur, index: (cur.index + 1) % cur.items.length } : cur,
+            );
+          }}
           onSelect={(i) => setLightbox((lb) => (lb ? { ...lb, index: i } : lb))}
         />
       ) : null}
@@ -204,7 +285,11 @@ function ThreadCard({
   // Сколько файлов в треде появилось после последнего просмотра. Они всегда
   // «в конце»: список треда идёт по порядку источника (`source_order`), а не по
   // времени скачивания, поэтому новые файлы не сдвигают уже просмотренное.
-  const freshCount = resume ? Math.max(0, visibleCount - resume.total) : 0;
+  //
+  // Считаем только по точной точке возврата (`exact`): прежний формат хранил
+  // размер загруженной порции (300), и счётчик показывал выдуманные «+582».
+  const freshCount =
+    resume && resume.exact !== false ? Math.max(0, visibleCount - resume.total) : 0;
 
   return (
     <article className="overflow-hidden rounded border border-line bg-ink-secondary">

@@ -9,7 +9,7 @@
  * функции молча ничего не делают: фича деградирует, сайт не ломается.
  */
 
-const KEY = "dredge.resume.v1";
+const KEY = "dredge.resume.v2";
 /** Сколько тредов помним: более старые вытесняются по времени просмотра. */
 const MAX_THREADS = 200;
 /** Старше этого срока точка возврата считается забытой. */
@@ -20,8 +20,17 @@ export interface ResumePoint {
   id: number;
   /** Позиция файла в списке треда на момент сохранения (0-based). */
   index: number;
-  /** Сколько файлов было в том списке — понятно, изменился ли он. */
+  /**
+   * Сколько файлов **в треде** было на момент просмотра (не размер порции!).
+   * Именно по нему считается «+N новых в конце».
+   */
   total: number;
+  /**
+   * `true` — `total` это размер треда (точный). Старые записи формата v1 хранили
+   * размер загруженной порции (300) и давали ложные «+582 новых», поэтому такие
+   * точки игнорируются (см. `v1` → `v2` в ключе хранилища).
+   */
+  exact?: boolean;
   /** Когда смотрели (мс) — для «5 мин назад» и вытеснения старых записей. */
   at: number;
 }
@@ -36,6 +45,9 @@ function storage(): Storage | null {
     const probe = "__dredge_probe__";
     localStorage.setItem(probe, "1");
     localStorage.removeItem(probe);
+    // Следы старого формата (v1): он хранил размер загруженной порции вместо
+    // размера треда и давал ложные «+N новых в конце» — убираем раз и навсегда.
+    localStorage.removeItem("dredge.resume.v1");
     return localStorage;
   } catch {
     return null;
@@ -97,7 +109,9 @@ export function saveResume(
   if (!store || !threadId || !mediaId) return;
 
   const map = readResumes();
-  map[key(threadId)] = { id: mediaId, index, total, at: Date.now() };
+  // `total` — размер треда на момент просмотра (передаёт вызывающий, а не размер
+  // загруженной порции): иначе «+N новых в конце» считалось бы неверно.
+  map[key(threadId)] = { id: mediaId, index, total, exact: true, at: Date.now() };
 
   // Вытеснение: держим только MAX_THREADS самых свежих тредов
   const entries = Object.entries(map);

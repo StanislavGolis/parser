@@ -9,6 +9,7 @@ import DownloadButton from "@/components/DownloadButton";
 import MarkButton from "@/components/MarkButton";
 import MediaFilmstrip from "@/components/MediaFilmstrip";
 import {
+  ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   CloseIcon,
@@ -18,6 +19,7 @@ import {
   HelpIcon,
   ImageIcon,
   LockIcon,
+  SpinnerIcon,
   StarIcon,
 } from "@/components/icons";
 import { apiGet } from "@/lib/api";
@@ -48,6 +50,18 @@ interface LightboxProps {
   onNext: () => void;
   /** Перейти к произвольному файлу (клик по миниатюре карусели). */
   onSelect?: (index: number) => void;
+  /**
+   * Контекст «треда» для точки возврата: id и **полный** размер треда (файлов).
+   * Размер передаём отдельно: в порции из API приходит максимум 300 файлов, и
+   * если считать по ней, «+N новых в конце» показывало бы лишнее (например,
+   * «+582» в треде из 882 файлов).
+   */
+  resumeThreadId?: number;
+  resumeTotal?: number;
+  /** Есть ли ещё не загруженные файлы (тредовые галереи грузятся порциями). */
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
 }
 
 /** Чип клавиши/жеста в строке подсказок. */
@@ -71,7 +85,20 @@ function HintRow({ keys, text }: { keys: string; text: string }) {
   );
 }
 
-export default function Lightbox({ items, index, boardsById, onClose, onPrev, onNext, onSelect }: LightboxProps) {
+export default function Lightbox({
+  items,
+  index,
+  boardsById,
+  onClose,
+  onPrev,
+  onNext,
+  onSelect,
+  resumeThreadId,
+  resumeTotal,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore,
+}: LightboxProps) {
   const media = items[index];
   const board = media ? boardsById?.[media.board_id] : undefined;
   const [failed, setFailed] = useState(false);
@@ -103,18 +130,21 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
   // сейчас, чтобы в следующий заход открыть тред на нём. Пишем только для
   // тредовой галереи: в смешанной ленте (главная, поиск, метки) позиция ничего
   // не значит — продолжать там нечего.
-  const resumeThreadId = useMemo(
-    () =>
-      items.length > 0 && items.every((m) => m.thread_id === items[0].thread_id)
-        ? items[0].thread_id
-        : 0,
-    [items],
-  );
+  //
+  // Размер треда берём из контекста (`resumeTotal`), а не из `items.length`:
+  // галерея грузится порциями по 300 файлов, и по порции «+N новых в конце»
+  // считалось неверно (в треде из 882 файлов показывало «+582»).
+  const threadId = useMemo(() => {
+    if (resumeThreadId) return resumeThreadId;
+    return items.length > 0 && items.every((m) => m.thread_id === items[0].thread_id)
+      ? items[0].thread_id
+      : 0;
+  }, [resumeThreadId, items]);
 
   useEffect(() => {
-    if (!resumeThreadId || !media) return;
-    saveResume(resumeThreadId, media.id, index, items.length);
-  }, [resumeThreadId, media, index, items.length]);
+    if (!threadId || !media || !resumeTotal) return;
+    saveResume(threadId, media.id, index, resumeTotal);
+  }, [threadId, media, index, resumeTotal]);
 
   // ── Свайпы (мобильные) ───────────────────────────────────────────
   // Влево/вправо — листать файлы, вниз — закрыть. Жесты, начатые на видео
@@ -307,7 +337,9 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
   const premium = premiumState(media);
   const locked = premium === "locked";
   const canShow = !locked && Boolean(media.url || media.web_url || media.thumb_url) && !failed;
-  const position = `${index + 1} / ${items.length}`;
+  // Позицию показываем от полного размера треда (если он известен): в порцию
+  // входит максимум 300 файлов, а в треде их бывает больше.
+  const position = `${index + 1} / ${resumeTotal && resumeTotal > items.length ? resumeTotal : items.length}`;
 
   return (
     <div
@@ -534,6 +566,18 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
           <span className="min-w-14 text-center font-mono text-[11px] tabular-nums text-text-muted">
             {position}
           </span>
+          {hasMore ? (
+            <button
+              type="button"
+              onClick={onLoadMore}
+              disabled={loadingMore}
+              className="btn-small px-2.5 py-1.5"
+              title={`Загружено ${items.length} из ${resumeTotal ?? items.length} — подгрузить следующую порцию`}
+              aria-label="Догрузить файлы треда"
+            >
+              {loadingMore ? <SpinnerIcon className="h-3.5 w-3.5 animate-spin" /> : <ChevronDownIcon className="h-4 w-4" />}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onNext}
