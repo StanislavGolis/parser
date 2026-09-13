@@ -151,10 +151,29 @@ services:
   # прогресс/живость — в Redis под ключами источника (`parser:{code}:*`), так что
   # контейнеры друг другу не мешают. Сверку данных (reconciliation) выполняет
   # ровно один контейнер: у остальных `RECONCILE_MINUTES=-1`.
+  #
+  # ВНИМАНИЕ: YAML-мердж `<<: *backend` поверхностный — как только у сервиса
+  # появляется свой `environment`, карта окружения из анкора НЕ подмешивается.
+  # Поэтому общие переменные (DB/Redis/S3/кэш) перечислены здесь явно.
   parser-dvach:
     <<: *backend
     command: ["python", "src/main.py"]
     environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-parser}:${POSTGRES_PASSWORD:-parser-pass}@postgres:5432/${POSTGRES_DB:-parser}
+      REDIS_URL: redis://redis:6379/0
+      S3_URL: ${S3_URL:-https://s3.twcstorage.ru}
+      S3_REGION: ${S3_REGION:-ru-1}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      S3_ADDRESSING_STYLE: ${S3_ADDRESSING_STYLE:-path}
+      MEDIA_DELIVERY: ${MEDIA_DELIVERY:-proxy}
+      STORAGE_PATH: /data/media
+      MEDIA_CACHE_ENABLED: ${MEDIA_CACHE_ENABLED:-1}
+      MEDIA_CACHE_DIR: /data/cache
+      MEDIA_CACHE_MAX_BYTES: ${MEDIA_CACHE_MAX_BYTES:-42949672960}
+      MEDIA_CACHE_MIN_FREE_BYTES: ${MEDIA_CACHE_MIN_FREE_BYTES:-10737418240}
+      # Источник и его расписание/вежливость
       PARSER_SOURCE: dvach
       BOARDS_TO_PARSE: ${BOARDS_TO_PARSE:-["b"]}
       REQUEST_DELAY: ${REQUEST_DELAY:-0.5}
@@ -183,6 +202,21 @@ services:
     <<: *backend
     command: ["python", "src/main.py"]
     environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-parser}:${POSTGRES_PASSWORD:-parser-pass}@postgres:5432/${POSTGRES_DB:-parser}
+      REDIS_URL: redis://redis:6379/0
+      S3_URL: ${S3_URL:-https://s3.twcstorage.ru}
+      S3_REGION: ${S3_REGION:-ru-1}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      S3_ADDRESSING_STYLE: ${S3_ADDRESSING_STYLE:-path}
+      MEDIA_DELIVERY: ${MEDIA_DELIVERY:-proxy}
+      STORAGE_PATH: /data/media
+      MEDIA_CACHE_ENABLED: ${MEDIA_CACHE_ENABLED:-1}
+      MEDIA_CACHE_DIR: /data/cache
+      MEDIA_CACHE_MAX_BYTES: ${MEDIA_CACHE_MAX_BYTES:-42949672960}
+      MEDIA_CACHE_MIN_FREE_BYTES: ${MEDIA_CACHE_MIN_FREE_BYTES:-10737418240}
+      # Источник и его расписание/вежливость
       PARSER_SOURCE: slivach
       # Сайт трогаем вежливее: медленнее запросы, без параллельных загрузок
       REQUEST_DELAY: ${SLIVACH_REQUEST_DELAY:-1.0}
