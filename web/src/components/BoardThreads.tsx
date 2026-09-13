@@ -472,49 +472,47 @@ function ThreadCard({
           </span>
         ) : null}
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          {resume && freshCount > 0 ? (
-            <span
-              className="rounded-[3px] bg-accent-secondary/15 px-1.5 py-0.5 text-accent-secondary"
-              title="Новые файлы треда — в конце списка: продолжайте с метки, дальше дойдёте до них"
-            >
-              +{formatNumber(freshCount)} новых в конце
-            </span>
-          ) : null}
-          {resume ? (
-            <button
-              type="button"
-              onClick={onResume}
-              disabled={opening}
-              className="inline-flex items-center gap-1.5 rounded border border-accent-primary/50 px-2 py-1 text-accent-primary transition-colors hover:bg-accent-primary/15 disabled:opacity-50"
-              title="Открыть тред на этом файле и листать дальше — с того места, где остановились"
-            >
-              {opening ? <SpinnerIcon className="h-3.5 w-3.5" /> : <PlayIcon className="h-3 w-3" />}
-              продолжить
-            </button>
-          ) : null}
+        {resume && freshCount > 0 ? (
+          <span
+            className="rounded-[3px] bg-accent-secondary/15 px-1.5 py-0.5 text-accent-secondary"
+            title="Новые файлы треда — в конце списка: продолжайте с метки, дальше дойдёте до них"
+          >
+            +{formatNumber(freshCount)} новых в конце
+          </span>
+        ) : null}
+        {resume ? (
           <button
             type="button"
-            onClick={onOpenAll}
+            onClick={onResume}
             disabled={opening}
-            className="inline-flex items-center gap-1.5 rounded border border-line px-2 py-1 text-text-secondary transition-colors hover:border-line-hover hover:text-text-primary disabled:opacity-50"
-            title="Открыть тред с первого файла"
+            className="inline-flex items-center gap-1.5 rounded border border-accent-primary/50 px-2 py-1 text-accent-primary transition-colors hover:bg-accent-primary/15 disabled:opacity-50"
+            title="Открыть тред на этом файле и листать дальше — с того места, где остановились"
           >
-            <ImageIcon className="h-3.5 w-3.5" />
-            с начала
+            {opening ? <SpinnerIcon className="h-3.5 w-3.5" /> : <PlayIcon className="h-3 w-3" />}
+            продолжить
           </button>
-          {resume ? (
-            <button
-              type="button"
-              onClick={onForget}
-              className="rounded p-1 text-text-muted transition-colors hover:text-text-primary"
-              aria-label="Забыть точку возврата"
-              title="Забыть: тред откроется с начала"
-            >
+        ) : null}
+        <button
+          type="button"
+          onClick={onOpenAll}
+          disabled={opening}
+          className="inline-flex items-center gap-1.5 rounded border border-line px-2 py-1 text-text-secondary transition-colors hover:border-line-hover hover:text-text-primary disabled:opacity-50"
+          title="Открыть тред с первого файла"
+        >
+          <ImageIcon className="h-3.5 w-3.5" />
+          с начала
+        </button>
+        {resume ? (
+          <button
+            type="button"
+            onClick={onForget}
+            className="rounded p-1 text-text-muted transition-colors hover:text-text-primary"
+            aria-label="Забыть точку возврата"
+            title="Забыть: тред откроется с начала"
+          >
               <CloseIcon className="h-3.5 w-3.5" />
             </button>
           ) : null}
-        </div>
       </div>
 
       {/* Превью файлов */}
