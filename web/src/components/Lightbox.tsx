@@ -15,6 +15,7 @@ import {
   DownloadIcon,
   EyeIcon,
   FilmIcon,
+  HelpIcon,
   ImageIcon,
   LockIcon,
   StarIcon,
@@ -31,7 +32,7 @@ import type { BoardsById, MediaItem, ViewResult } from "@/lib/types";
 const WHEEL_STEP = 40; // px накопленной дельты = один файл
 const WHEEL_COOLDOWN_MS = 300; // пауза после перелистывания
 const TOAST_MS = 1400; // сколько показываем плашку про метку
-const HINT_MS = 2200; // сколько висит подсказка по клавишам (или до первого действия)
+const HINT_MS = 10000; // сколько висит подсказка по клавишам (или до первого действия)
 
 interface LightboxProps {
   items: MediaItem[];
@@ -385,6 +386,23 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
           >
             <MarkButton mediaId={media.id} state={mark} />
           </span>
+
+          {/* Повторный вызов подсказки: иконка рядом со счётчиками (та же плашка,
+              что появляется при открытии) */}
+          <button
+            type="button"
+            onClick={() => setShowHint(true)}
+            className={`inline-flex items-center gap-1.5 rounded px-2 py-1 font-mono text-[11px] transition-colors ${
+              showHint
+                ? "bg-accent-primary/15 text-accent-primary ring-1 ring-accent-primary/50"
+                : "text-text-secondary hover:text-text-primary"
+            }`}
+            aria-label="Подсказка по клавишам"
+            title="Подсказка по клавишам: ? или эта кнопка"
+          >
+            <HelpIcon className="h-3.5 w-3.5" />
+            подсказка
+          </button>
         </div>
 
         <div className="flex items-center gap-2">

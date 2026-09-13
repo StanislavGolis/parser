@@ -218,3 +218,15 @@ export function SearchIcon(props: IconProps) {
     </svg>
   );
 }
+
+/** Подсказка (кружок с вопросительным знаком) — вызов подсказки по клавишам. */
+export function HelpIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.5 9.3a2.6 2.6 0 1 1 3.4 2.5c-.8.3-1.1.9-1.1 1.6v.3" />
+      <path d="M11.8 17h.01" />
+    </svg>
+  );
+}
+
