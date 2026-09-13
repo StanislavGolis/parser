@@ -322,7 +322,7 @@ async def ensure_board(
         board = Board(
             slug=slug,
             title=title,
-            description="Импорт из веб-архива (Wayback Machine): раздел недоступен вживую.",
+            description=None,
             source_id=source.id,
             is_visible=visible,
             parse_enabled=False,
@@ -363,7 +363,7 @@ async def ensure_thread(
             parse_enabled=False,
             files_detected=len(meta.files) if meta else 0,
             last_scanned_at=datetime.utcnow(),
-            last_scan_note="импорт из архива",
+            last_scan_note="загружено пакетно",
         )
         session.add(thread)
         await session.flush()
@@ -571,9 +571,9 @@ async def import_board(args: argparse.Namespace) -> Stats:
 
     async with async_session_factory() as session:
         source = await ensure_source(
-            session, args.source, "Архив Wayback Machine", "https://web.archive.org"
+            session, args.source, "Резервный источник", "https://web.archive.org"
         )
-        title = args.title or f"/{args.board} (архив Wayback)"
+        title = args.title or f"/{args.board}"
         board = await ensure_board(
             session, args.board, title, source, not args.hidden, premium=args.premium
         )

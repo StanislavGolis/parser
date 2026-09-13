@@ -94,8 +94,8 @@ class WaybackAdapter:
             items.append(
                 BoardNode(
                     slug=slug,
-                    title=f"/{slug} (архив Wayback)",
-                    group="архив",
+                    title=f"/{slug}",
+                    group="разделы",
                     hint=len(threads),
                 )
             )
@@ -136,8 +136,8 @@ class WaybackAdapter:
             )
         return CatalogResult(
             threads=items,
-            title=f"/{board_slug} (архив Wayback)",
-            description="Каталог раздела, восстановленный из веб-архива (Wayback Machine).",
+            title=f"/{board_slug}",
+            description=None,
         )
 
     # ───────────────────────── Файлы треда ─────────────────────────
