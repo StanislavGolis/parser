@@ -14,6 +14,7 @@ const PER_PAGE = 15;
 
 interface BoardPageProps {
   params: { slug: string };
+  searchParams: { sort?: string | string[] };
 }
 
 export async function generateMetadata({ params }: BoardPageProps): Promise<Metadata> {
@@ -28,15 +29,18 @@ export async function generateMetadata({ params }: BoardPageProps): Promise<Meta
   };
 }
 
-export default async function BoardPage({ params }: BoardPageProps) {
+export default async function BoardPage({ params, searchParams }: BoardPageProps) {
   const { slug } = params;
+  // `?sort=files` — порядок тредов по числу файлов (плюс варианты posts/views)
+  const rawSort = Array.isArray(searchParams?.sort) ? searchParams.sort[0] : searchParams?.sort;
+  const sort = ["new", "files", "posts", "views"].includes(rawSort ?? "") ? String(rawSort) : "new";
 
   const [boards] = await Promise.all([getBoards()]);
   const board = boards.find((b) => b.slug === slug);
 
   let list: ThreadList = { items: [], page: 1, per_page: PER_PAGE, total: 0 };
   try {
-    list = await getBoardThreads(slug, 1, PER_PAGE);
+    list = await getBoardThreads(slug, 1, PER_PAGE, sort);
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) notFound();
     throw err;
@@ -45,7 +49,7 @@ export default async function BoardPage({ params }: BoardPageProps) {
   return (
     <div className="py-6 sm:py-8">
       <BoardHeader board={board} slug={slug} threadsTotal={list.total} />
-      <BoardThreads slug={slug} initial={list} />
+      <BoardThreads slug={slug} initial={list} sort={sort} />
     </div>
   );
 }

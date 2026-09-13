@@ -161,12 +161,15 @@ async def list_threads(
     state: str = "all",
     q: Optional[str] = None,
     admin_order: bool = False,
+    sort: str = "new",
 ) -> Tuple[List[ThreadState], int]:
     """Треды доски (пагинация).
 
     only_visible=True — публичный режим: только активные видимые треды с файлами.
     state/q — фильтры админки (состояние, поиск по теме/номеру).
     admin_order=True — «в работе» сверху (для админки).
+    sort — порядок выдачи: `new` (свежие треды), `files` (больше файлов в архиве),
+    `posts` (больше постов), `views` (больше просмотров).
     """
     filters = [ThreadState.board_id == board_id]
     if only_visible:
@@ -208,15 +211,44 @@ async def list_threads(
     order_by = []
     if admin_order:
         order_by.append(thread_work_rank().desc())
+
+    # Сортировка публичного списка. «По файлам» считаем по фактически видимым
+    # файлам треда (дубли-ссылки не в счёт) — это то, что зритель увидит на
+    # карточке, а не число файлов из каталога источника.
+    query = select(ThreadState).where(*filters)
+    if sort == "files":
+        counts = (
+            select(
+                Media.board_id.label("board_id"),
+                Media.thread_id.label("thread_id"),
+                func.count(Media.id).label("files_cnt"),
+            )
+            .where(
+                Media.is_visible.is_(True),
+                Media.is_active.is_(True),
+                Media.duplicate_of_id.is_(None),
+            )
+            .group_by(Media.board_id, Media.thread_id)
+            .subquery()
+        )
+        query = query.outerjoin(
+            counts,
+            and_(
+                counts.c.board_id == ThreadState.board_id,
+                counts.c.thread_id == ThreadState.thread_id,
+            ),
+        )
+        order_by.append(func.coalesce(counts.c.files_cnt, 0).desc())
+    elif sort == "posts":
+        order_by.append(ThreadState.posts_count.desc())
+    elif sort == "views":
+        order_by.append(ThreadState.views_count.desc())
+
     order_by.append(ThreadState.thread_timestamp.desc().nullslast())
     order_by.append(ThreadState.thread_id.desc())
 
     result = await session.execute(
-        select(ThreadState)
-        .where(*filters)
-        .order_by(*order_by)
-        .offset((page - 1) * per_page)
-        .limit(per_page)
+        query.order_by(*order_by).offset((page - 1) * per_page).limit(per_page)
     )
     return list(result.scalars().all()), int(total)
 

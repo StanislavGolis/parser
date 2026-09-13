@@ -30,13 +30,24 @@ const THREAD_PAGE_SIZE = 300;
 interface BoardThreadsProps {
   slug: string;
   initial: ThreadList;
+  /** Порядок тредов из URL (`?sort=`): new | files | posts | views. */
+  sort?: string;
 }
+
+/** Варианты сортировки тредов внутри раздела. */
+const SORTS: Array<{ value: string; label: string; title: string }> = [
+  { value: "new", label: "свежие", title: "Сначала треды, обновлённые позже всех" },
+  { value: "files", label: "по файлам", title: "Сначала треды с большим числом файлов в архиве" },
+  { value: "posts", label: "по постам", title: "Сначала треды с большим числом постов" },
+  { value: "views", label: "по просмотрам", title: "Сначала самые просматриваемые треды" },
+];
 
 /**
  * Доска в виде «список тредов → их файлы».
  * Кнопка открытия треда догружает все файлы треда и открывает Lightbox.
  */
-export default function BoardThreads({ slug, initial }: BoardThreadsProps) {
+export default function BoardThreads({ slug, initial, sort: initialSort = "new" }: BoardThreadsProps) {
+  const [sort, setSort] = useState(initialSort);
   const [threads, setThreads] = useState<BoardThread[]>(initial.items);
   const [page, setPage] = useState(initial.page);
   const [total, setTotal] = useState(initial.total);
@@ -73,7 +84,7 @@ export default function BoardThreads({ slug, initial }: BoardThreadsProps) {
     setError(null);
     try {
       const data = await apiGet<ThreadList>(
-        `/api/v1/boards/${encodeURIComponent(slug)}/threads?page=${page + 1}&per_page=${PER_PAGE}`,
+        `/api/v1/boards/${encodeURIComponent(slug)}/threads?page=${page + 1}&per_page=${PER_PAGE}&sort=${sort}`,
       );
       setThreads((prev) => {
         const seen = new Set(prev.map((t) => t.thread_id));
@@ -87,7 +98,39 @@ export default function BoardThreads({ slug, initial }: BoardThreadsProps) {
     } finally {
       setLoading(false);
     }
-  }, [slug, page, loading]);
+  }, [slug, page, loading, sort]);
+
+  /**
+   * Смена порядка: грузим первую страницу заново и меняем адрес без перезагрузки,
+   * чтобы ссылкой можно было поделиться (`/board/gg?sort=files`).
+   */
+  const changeSort = useCallback(
+    async (next: string) => {
+      if (next === sort) return;
+      setSort(next);
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await apiGet<ThreadList>(
+          `/api/v1/boards/${encodeURIComponent(slug)}/threads?page=1&per_page=${PER_PAGE}&sort=${next}`,
+        );
+        setThreads(data.items);
+        setPage(data.page);
+        setTotal(data.total);
+        if (typeof window !== "undefined") {
+          const url = new URL(window.location.href);
+          if (next === "new") url.searchParams.delete("sort");
+          else url.searchParams.set("sort", next);
+          window.history.replaceState(null, "", url.toString());
+        }
+      } catch {
+        setError("Не удалось изменить порядок тредов. Попробуйте позже.");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [slug, sort],
+  );
 
   async function fetchThreadMedia(threadId: number, page = 1): Promise<MediaList> {
     const q = new URLSearchParams({
@@ -182,6 +225,29 @@ export default function BoardThreads({ slug, initial }: BoardThreadsProps) {
 
   return (
     <div>
+      {/* Порядок тредов внутри раздела. Выбор попадает в адрес (`?sort=files`),
+          поэтому ссылкой можно поделиться, а «назад» возвращает прежний порядок. */}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <span className="font-mono text-[11px] uppercase tracking-wider text-text-muted">
+          порядок:
+        </span>
+        {SORTS.map((s) => (
+          <button
+            key={s.value}
+            type="button"
+            onClick={() => void changeSort(s.value)}
+            disabled={loading}
+            title={s.title}
+            className={`filter-btn font-mono text-[11px] ${
+              sort === s.value ? "filter-btn-active" : ""
+            }`}
+          >
+            {s.label}
+          </button>
+        ))}
+        {loading ? <SpinnerIcon className="h-3.5 w-3.5 animate-spin text-text-muted" /> : null}
+      </div>
+
       <div className="flex flex-col gap-4">
         {threads.map((t) => (
           <ThreadCard

@@ -125,8 +125,13 @@ export async function getBoardThreads(
   slug: string,
   page: number,
   perPage: number,
+  sort = "new",
 ): Promise<ThreadList> {
-  const q = new URLSearchParams({ page: String(page), per_page: String(perPage) });
+  const q = new URLSearchParams({
+    page: String(page),
+    per_page: String(perPage),
+    sort,
+  });
   const fallback: ThreadList = { items: [], page, per_page: perPage, total: 0 };
   return serverFetch<ThreadList>(`/api/v1/boards/${encodeURIComponent(slug)}/threads?${q}`, REVALIDATE.board, fallback);
 }

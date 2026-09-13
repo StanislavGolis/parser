@@ -141,6 +141,14 @@ async def board_threads(
     request: Request,
     page: int = Query(1, ge=1),
     per_page: int = Query(15, ge=1, le=50),
+    sort: str = Query(
+        "new",
+        pattern="^(new|files|posts|views)$",
+        description=(
+            "Порядок тредов: `new` — свежие, `files` — больше файлов в архиве, "
+            "`posts` — больше постов, `views` — больше просмотров"
+        ),
+    ),
     session: AsyncSession = Depends(get_session),
     s3: S3Storage = Depends(get_s3),
     user: Optional[User] = Depends(get_current_user),
@@ -158,7 +166,9 @@ async def board_threads(
     if not board:
         raise HTTPException(status_code=404, detail="Board not found")
 
-    threads, total = await list_threads(session, board.id, page, per_page, only_visible=True)
+    threads, total = await list_threads(
+        session, board.id, page, per_page, only_visible=True, sort=sort
+    )
     items = await build_thread_outs(
         session,
         board.id,
