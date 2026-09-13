@@ -146,6 +146,8 @@ export default function MediaCard({ media, board, showTop = false, eager = false
                   playsInline
                   preload="metadata"
                   aria-label={media.original_name}
+                  controlsList="nodownload"
+                  onContextMenu={(e) => e.preventDefault()}
                   onError={() => setFailed(true)}
                   className="absolute inset-0 h-full w-full object-cover"
                 />

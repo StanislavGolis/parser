@@ -88,6 +88,8 @@ function Thumb({
           muted
           playsInline
           preload="metadata"
+          controlsList="nodownload"
+          onContextMenu={(e) => e.preventDefault()}
           className="h-full w-full object-cover"
         />
       ) : (

@@ -29,6 +29,16 @@ def media_locked(media: Media, user: Optional[User]) -> bool:
     return is_locked(media.is_premium, user)
 
 
+def content_locked(media: Media, board: Optional[Board], user: Optional[User]) -> bool:
+    """Премиум-гейт файла с учётом премиум-доски.
+
+    Страховка от рассинхрона: если у файла премиум-флаг не выставлен, но сама
+    доска закрыта, полный доступ всё равно требует подписки.
+    """
+    premium = bool(media.is_premium) or bool(board is not None and board.is_premium)
+    return is_locked(premium, user)
+
+
 def visible_thread_clause():
     """SQL-условие: медиа принадлежит видимому активному треду.
 
@@ -80,15 +90,19 @@ def apply_media_urls(
     source: Media,
     s3: S3Storage,
     user: Optional[User] = None,
+    board: Optional[Board] = None,
 ) -> MediaOut:
     """Проставляет URL оригинала и деривативов (thumb/thumb_blur/web/video).
 
     Для премиум-контента без активного премиума у пользователя:
     - превью подменяется на размытый вариант (`thumb_blur`), если он сгенерирован;
     - URL оригинала и полных вариантов не отдаются вовсе.
+
+    `board` передаём там, где он известен (страница раздела и файла): премиум
+    доски закрывает файл даже при рассинхроне флагов у самих файлов.
     """
-    locked = media_locked(source, user)
-    item.is_premium = bool(source.is_premium)
+    locked = content_locked(source, board, user)
+    item.is_premium = bool(source.is_premium) or bool(board is not None and board.is_premium)
     item.locked = locked
 
     variants = source.variants or {}
@@ -152,6 +166,7 @@ def sign_media_urls(
     sources: Iterable[Media],
     s3: S3Storage,
     user: Optional[User] = None,
+    board: Optional[Board] = None,
 ) -> list[MediaOut]:
     """Прикрепляет URL файлов к элементам списка (для галерей).
 
@@ -160,5 +175,5 @@ def sign_media_urls(
     через /asset/{kind} с длинным кэшем; премиум-превью — размытый вариант.
     """
     for item, source in zip(items, sources):
-        apply_media_urls(item, source, s3, user)
+        apply_media_urls(item, source, s3, user, board)
     return items
