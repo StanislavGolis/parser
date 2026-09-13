@@ -314,6 +314,8 @@ async def stats_content(
                     Board.slug,
                     func.count().label("cnt"),
                 )
+                # Явный FROM: view_stats / download_stats / media_marks
+                .select_from(model)
                 .join(Media, Media.id == model.media_id)
                 .join(Board, Board.id == Media.board_id)
                 .where(time_column >= since)
@@ -335,8 +337,9 @@ async def stats_content(
     boards = (
         await session.execute(
             select(Board.slug, func.count().label("views"))
-            .join(Media, Media.board_id == Board.id)
-            .join(ViewStat, ViewStat.media_id == Media.id)
+            .select_from(ViewStat)
+            .join(Media, Media.id == ViewStat.media_id)
+            .join(Board, Board.id == Media.board_id)
             .where(ViewStat.viewed_at >= since)
             .group_by(Board.slug)
             .order_by(func.count().desc())
