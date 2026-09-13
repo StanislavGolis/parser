@@ -136,12 +136,17 @@ async def generate_and_upload(
     media_type: str,
     local_path: Path,
     file_data: Optional[bytes] = None,
+    video_web: bool = True,
 ):
     """Строит деривативы и загружает их через uploader.
 
     Возвращает (variants: dict|None, duration_seconds: float|None).
     variants = {"thumb": key, "thumb_blur": key, "web"|"video": key} —
     превью, размытое превью (для премиума) и полная версия.
+
+    `video_web=False` — не перекодировать видео в 720p: оригинал остаётся как есть
+    (используется разовым импортом из архива, где транскод длинных видео занимает
+    десятки минут; постер и размытый превью всё равно строятся).
     """
     local_path = Path(local_path)
     variants: Dict[str, str] = {}
@@ -168,12 +173,13 @@ async def generate_and_upload(
                     variants["thumb_blur"] = blur_key
             except Exception:  # noqa: BLE001
                 pass  # без блюра премиум-превью отдаст обычный poster (клиент добларит)
-        web_path = local_path.with_name(f"{local_path.stem}_v720.mp4")
-        ok = await asyncio.to_thread(build_video_web, local_path, web_path)
-        if ok:
-            key = f"{base_key}_v720.mp4"
-            if await uploader.upload_file(web_path, key, content_type="video/mp4"):
-                variants["video"] = key
-            web_path.unlink(missing_ok=True)
+        if video_web:
+            web_path = local_path.with_name(f"{local_path.stem}_v720.mp4")
+            ok = await asyncio.to_thread(build_video_web, local_path, web_path)
+            if ok:
+                key = f"{base_key}_v720.mp4"
+                if await uploader.upload_file(web_path, key, content_type="video/mp4"):
+                    variants["video"] = key
+                web_path.unlink(missing_ok=True)
 
     return (variants or None), duration
