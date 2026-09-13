@@ -447,3 +447,29 @@ class TopItem(MediaOut):
 class ToggleResult(BaseModel):
     id: int
     is_visible: bool
+
+
+class ResumePointIn(BaseModel):
+    """Точка возврата от клиента: тред + последний просмотренный файл."""
+
+    thread_id: int = Field(gt=0)
+    media_id: int = Field(gt=0)
+    # Позиция файла в списке треда (0-based) и полный размер треда на момент просмотра
+    index: int = Field(ge=0, default=0)
+    total: int = Field(ge=0, default=0)
+
+
+class ResumePointOut(BaseModel):
+    """Сохранённая точка возврата (поле `index` — как в localStorage-формате фронта)."""
+
+    thread_id: int
+    media_id: int
+    index: int
+    total: int
+    updated_at: datetime
+
+
+class ResumeListOut(BaseModel):
+    """Все точки возврата пользователя — свежие сверху."""
+
+    items: List[ResumePointOut] = []

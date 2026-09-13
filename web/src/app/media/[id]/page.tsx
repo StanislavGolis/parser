@@ -159,15 +159,45 @@ export default async function MediaDetailPage({ params }: DetailProps) {
 
         {/* Инфо */}
         <div className="border-t border-neutral-800 p-4 sm:p-6">
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Путь файла: раздел → тред → файл. Ссылки кликабельные: полезно, когда
+              файл открыт из общей ленты — видно, откуда он и куда идти дальше. */}
+          <nav aria-label="Путь файла" className="flex flex-wrap items-center gap-2 text-xs">
             {board ? (
-              <Link
-                href={`/board/${board.slug}`}
-                className="rounded-md border border-neutral-700 bg-neutral-800 px-2 py-0.5 text-xs font-semibold text-amber-300 transition-colors hover:border-amber-500/60"
-              >
-                /{board.slug}
-              </Link>
+              <>
+                <Link
+                  href={`/board/${board.slug}`}
+                  className="rounded-md border border-neutral-700 bg-neutral-800 px-2 py-0.5 text-xs font-semibold text-amber-300 transition-colors hover:border-amber-500/60"
+                >
+                  /{board.slug}
+                </Link>
+                <span aria-hidden className="text-neutral-600">
+                  →
+                </span>
+                <Link
+                  href={`/board/${board.slug}?thread=${media.thread_id}`}
+                  className="rounded-md border border-neutral-700 bg-neutral-800 px-2 py-0.5 font-mono text-[11px] text-neutral-300 transition-colors hover:border-neutral-500 hover:text-white"
+                  title={
+                    board.title
+                      ? `Открыть тред в разделе /${board.slug} — ${board.title}`
+                      : `Открыть тред в разделе /${board.slug}`
+                  }
+                >
+                  тред #{media.thread_id}
+                </Link>
+                <span aria-hidden className="text-neutral-600">
+                  →
+                </span>
+                <span
+                  className="max-w-[220px] truncate text-neutral-500 sm:max-w-[420px]"
+                  title={media.original_name}
+                >
+                  {media.original_name}
+                </span>
+              </>
             ) : null}
+          </nav>
+
+          <div className="mt-2 flex flex-wrap items-center gap-2">
             {premium === "granted" ? (
               <span className="chip bg-amber-500/15 text-amber-300">
                 <StarIcon className="h-3.5 w-3.5" /> premium

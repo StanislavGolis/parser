@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { ImageIcon, LayersIcon, SearchIcon, StarIcon, TagIcon } from "@/components/icons";
+import { BookmarkIcon, ImageIcon, LayersIcon, SearchIcon, StarIcon } from "@/components/icons";
 
 const ITEMS = [
   {
@@ -21,8 +21,8 @@ const ITEMS = [
   { href: "/top", label: "Топ", Icon: StarIcon, match: (p: string) => p === "/top" },
   {
     href: "/marks",
-    label: "Метки",
-    Icon: TagIcon,
+    label: "Закладки",
+    Icon: BookmarkIcon,
     match: (p: string) => p.startsWith("/marks"),
   },
   { href: "/search", label: "Поиск", Icon: SearchIcon, match: (p: string) => p.startsWith("/search") },

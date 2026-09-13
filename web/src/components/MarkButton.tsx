@@ -2,16 +2,16 @@
 
 import { useEffect, useState } from "react";
 
-import { SpinnerIcon, TagIcon } from "@/components/icons";
+import { SpinnerIcon, BookmarkIcon } from "@/components/icons";
 import { formatCompact } from "@/lib/format";
 import type { MarkToggleState } from "@/lib/useMark";
 import { useMarkToggle } from "@/lib/useMark";
 
 /**
- * Метка «отличный контент» — наш аналог лайка.
+ * Закладка — личный список лучшего (наш аналог лайка).
  *
  * Доступна только аккаунту: анонима отправляем на вход. Состояние можно вести
- * извне (`state`), например в lightbox, где та же метка переключается пробелом.
+ * извне (`state`), например в lightbox, где та же закладка переключается пробелом.
  */
 export default function MarkButton({
   mediaId,
@@ -50,7 +50,7 @@ export default function MarkButton({
           void toggle();
         }}
         disabled={busy}
-        title={isMarked ? "Снять метку (в просмотре — пробел)" : "Поставить метку (в просмотре — пробел)"}
+        title={isMarked ? "Снять закладку (в просмотре — пробел)" : "Добавить в закладки (в просмотре — пробел)"}
         aria-pressed={isMarked}
         className={`inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 font-mono text-[10px] backdrop-blur-sm transition-colors ${
           isMarked
@@ -58,7 +58,7 @@ export default function MarkButton({
             : "bg-black/60 text-text-secondary hover:text-text-primary"
         }`}
       >
-        <TagIcon className="h-3 w-3" />
+        <BookmarkIcon className="h-3 w-3" />
         {formatCompact(count)}
       </button>
     );
@@ -71,8 +71,8 @@ export default function MarkButton({
       disabled={busy}
       title={
         isMarked
-          ? "Снять метку («отличный контент») — пробел"
-          : "Отметить как отличный контент — пробел"
+          ? "Снять закладку — пробел"
+          : "Добавить в закладки — пробел"
       }
       aria-pressed={isMarked}
       className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 font-mono text-[11px] transition-colors ${
@@ -81,8 +81,8 @@ export default function MarkButton({
           : "text-text-secondary hover:text-text-primary"
       }`}
     >
-      {busy ? <SpinnerIcon className="h-3.5 w-3.5" /> : <TagIcon className="h-3.5 w-3.5" />}
-      {isMarked ? "отмечено" : "метка"}
+      {busy ? <SpinnerIcon className="h-3.5 w-3.5" /> : <BookmarkIcon className="h-3.5 w-3.5" />}
+      {isMarked ? "в закладках" : "закладка"}
       <span className="tabular-nums text-text-muted">{formatCompact(count)}</span>
     </button>
   );

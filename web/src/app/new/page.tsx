@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import Link from "next/link";
 
 import Gallery from "@/components/Gallery";
 import QueryTabs from "@/components/QueryTabs";
 import { getBoards, getFeedPage } from "@/lib/data";
 import { formatNumber, plural } from "@/lib/format";
+import { HIDE_PREMIUM_COOKIE, HIDE_PREMIUM_ON } from "@/lib/prefs";
 import type { MediaType } from "@/lib/types";
 import { parseVisitDate, visitLabel } from "@/lib/visit";
 
@@ -40,9 +42,11 @@ export default async function NewPage({
   // `since` приходит из блока «новое с прошлого визита» на главной.
   const rawSince = Array.isArray(searchParams?.since) ? searchParams.since[0] : searchParams?.since;
   const since = parseVisitDate(rawSince);
+  // «Скрыть премиум» — та же личная настройка, что в фильтрах главной (cookie).
+  const hidePremium = cookies().get(HIDE_PREMIUM_COOKIE)?.value === HIDE_PREMIUM_ON;
 
   const [feed, boards] = await Promise.all([
-    getFeedPage(1, PER_PAGE, type, false, since?.toISOString()),
+    getFeedPage(1, PER_PAGE, type, hidePremium, since?.toISOString()),
     getBoards(),
   ]);
   const boardsById = Object.fromEntries(boards.map((b) => [b.id, b]));
@@ -71,10 +75,14 @@ export default async function NewPage({
       </div>
 
       <Gallery
-        key={`feed-${type ?? "all"}-${since ? since.toISOString() : "all"}`}
+        key={`feed-${type ?? "all"}-${hidePremium ? "nopremium" : "all"}-${since ? since.toISOString() : "all"}`}
         initial={feed}
         apiPath="/api/v1/feed"
-        params={{ ...(type ? { type } : {}), ...(since ? { since: since.toISOString() } : {}) }}
+        params={{
+          ...(type ? { type } : {}),
+          ...(hidePremium ? { free: "1" } : {}),
+          ...(since ? { since: since.toISOString() } : {}),
+        }}
         perPage={PER_PAGE}
         boardsById={boardsById}
         emptyTitle={since ? "С прошлого визита новинок нет" : "Пока нет файлов"}

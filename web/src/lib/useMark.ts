@@ -6,7 +6,7 @@ import { ApiError, apiPost } from "./api";
 import { trackEvent } from "./track";
 import type { MarkResult } from "./types";
 
-/** Состояние и переключатель метки («отличный контент») для одного файла. */
+/** Состояние и переключатель закладки для одного файла. */
 export interface MarkToggleState {
   marked: boolean;
   marksCount: number;

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
-import { LockIcon, StarIcon, TagIcon } from "@/components/icons";
+import { BookmarkIcon, LockIcon, StarIcon } from "@/components/icons";
 import { ApiError, apiSend } from "@/lib/api";
 import { notifyAuthChanged } from "@/lib/authEvents";
 import { formatNumber, parseUtc } from "@/lib/format";
@@ -106,7 +106,7 @@ export default function ProfilePage() {
         <p className="mt-2 text-sm text-text-secondary">
           {user.is_premium
             ? "Доступны премиум-разделы, скачивание и оригиналы файлов."
-            : "Метки и весь бесплатный контент доступны. Премиум добавляет закрытые разделы, скачивание и оригиналы."}
+            : "Закладки и весь бесплатный контент доступны. Премиум добавляет закрытые разделы, скачивание и оригиналы."}
         </p>
 
         <p className="mt-2 font-mono text-[11px] text-text-muted">
@@ -128,15 +128,15 @@ export default function ProfilePage() {
 
       {error ? <p className="mt-4 text-sm text-accent-danger">{error}</p> : null}
 
-      {/* Метки: личный список живёт на /marks */}
+      {/* Закладки: личный список живёт на /marks */}
       <Link
         href="/marks"
         className="mt-4 block rounded border border-line bg-ink-secondary px-4 py-3 transition-colors hover:border-accent-primary"
-        title="Открыть мои метки"
+        title="Открыть мои закладки"
       >
         <span className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-widest text-text-muted">
-          <TagIcon className="h-4 w-4" />
-          мои метки
+          <BookmarkIcon className="h-4 w-4" />
+          мои закладки
         </span>
         <span className="mt-1 block font-mono text-lg text-text-primary">
           {formatNumber(user.marks_count ?? 0)}
@@ -144,8 +144,8 @@ export default function ProfilePage() {
       </Link>
 
       <p className="mt-3 text-[11px] leading-relaxed text-text-muted">
-        Метка «отличный контент» — аналог лайка: поднимает файл в сортировке «по меткам»,
-        влияет на «Популярное» и собирает ваш список на странице «Метки».
+        Закладка — личный список: отмеченный файл поднимается в «Популярном» и собирается
+        на странице «Закладки».
       </p>
 
       {/* Аккаунт и связь */}

@@ -10,6 +10,7 @@ import VisitStamp from "@/components/VisitStamp";
 import { getBoards, getFeedPage, getStatus, getTopMedia } from "@/lib/data";
 import { SITE_URL } from "@/lib/env";
 import { formatNumber, plural } from "@/lib/format";
+import { HIDE_PREMIUM_COOKIE, HIDE_PREMIUM_ON } from "@/lib/prefs";
 import type { MediaType } from "@/lib/types";
 import { LAST_VISIT_COOKIE, parseVisitDate, visitLabel } from "@/lib/visit";
 
@@ -78,7 +79,10 @@ export default async function HomePage({
 }) {
   const type = mediaType(searchParams?.type);
   const rawFree = Array.isArray(searchParams?.free) ? searchParams.free[0] : searchParams?.free;
-  const freeOnly = rawFree === "1";
+  // «Скрыть премиум» — личная настройка из cookie (её ставит чекбокс в фильтрах).
+  // Параметр `?free=1` продолжаем понимать для старых ссылок, но сами его не пишем.
+  const hidePremium = cookies().get(HIDE_PREMIUM_COOKIE)?.value === HIDE_PREMIUM_ON;
+  const freeOnly = hidePremium || rawFree === "1";
 
   // «Новое с прошлого визита»: cookie пишет VisitStamp (клиент), читаем здесь.
   const lastVisit = parseVisitDate(cookies().get(LAST_VISIT_COOKIE)?.value);

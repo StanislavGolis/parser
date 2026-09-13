@@ -25,6 +25,7 @@ from src.api.routes import (
     feedback,
     marks,
     media,
+    resume,
     search,
     status,
     top,
@@ -156,6 +157,7 @@ app.include_router(boards.router)
 app.include_router(media.router)
 app.include_router(auth.router)
 app.include_router(marks.router)
+app.include_router(resume.router)
 app.include_router(top.router)
 app.include_router(feed.router)
 app.include_router(status.router)
