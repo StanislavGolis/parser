@@ -432,7 +432,13 @@ export default function AdminBoardThreads({
       </div>
 
       {threads && threads.length > 0 ? (
-        <div className="mb-3 flex flex-wrap items-center gap-2 rounded border border-line bg-ink-secondary px-3 py-2 text-xs">
+        <>
+          <p className="mb-2 text-xs text-text-muted">
+            Отметьте треды и выберите, что с ними сделать: «Парсить» — забирать файлы, «Показать»
+            — публиковать на сайте, «В очередь» — скачать при ближайшем прогоне, PREMIUM —
+            спрятать файлы за подпиской.
+          </p>
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded border border-line bg-ink-secondary px-3 py-2 text-xs">
           <label className="inline-flex cursor-pointer items-center gap-2 text-text-secondary">
             <input type="checkbox" checked={allSelected} onChange={toggleAll} />
             выбрать все
@@ -488,6 +494,7 @@ export default function AdminBoardThreads({
             Удалить файлы
           </button>
         </div>
+        </>
       ) : null}
       {notice ? (
         <div className="mb-3 rounded border border-accent-primary/40 bg-accent-primary/10 px-3 py-2 text-xs text-text-primary">

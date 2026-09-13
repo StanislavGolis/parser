@@ -60,6 +60,11 @@ export default function AdminConsole() {
   const [sourceCode, setSourceCode] = useState<string | null>(null);
   const [cacheStats, setCacheStats] = useState<MediaCacheStats | null>(null);
   const [cacheBusy, setCacheBusy] = useState(false);
+  // Инструкция раскрывается по кнопке, а редкие операции (кэш, оптимизация,
+  // чистка, сброс) живут в отдельном свёрнутом блоке внизу: повседневные шаги
+  // не должны тонуть в обслуживании.
+  const [showHelp, setShowHelp] = useState(false);
+  const [showMaintenance, setShowMaintenance] = useState(false);
 
   const loadOverview = useCallback(
     async (t: string) => {
@@ -404,16 +409,34 @@ export default function AdminConsole() {
 
   return (
     <div>
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+      {/* Шапка: сразу видно, что это за экран и в каком порядке действовать */}
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold">Центр управления контентом</h2>
           <p className="mt-0.5 text-xs text-text-secondary">
-            Статистика обновляется автоматически ({POLL_MS / 1000} с), без перезагрузки.
+            Порядок работы: <b className="text-text-secondary">источник → раздел → треды</b>. Цифры
+            обновляются каждые {POLL_MS / 1000} с, без перезагрузки.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {/* Вкладки по источникам: список приходит из реестра, поэтому новый
-              источник появляется в интерфейсе без правок фронтенда */}
+        <button
+          type="button"
+          onClick={() => setShowHelp((v) => !v)}
+          className="btn-ghost px-3 py-1.5 text-xs"
+          title="Короткая инструкция: как добавить раздел и включить загрузку файлов"
+        >
+          {showHelp ? "Скрыть инструкцию" : "Как это работает"}
+        </button>
+      </div>
+
+      {showHelp ? <ConsoleHelp kind={activeSource?.kind ?? null} /> : null}
+
+      {/* Шаги 1–2: что забираем (источник) и откуда берём список разделов */}
+      <div className="grid gap-3 lg:grid-cols-2">
+        <StepCard
+          step={1}
+          title="Источник"
+          hint="Чей контент забираем. Точка слева — состояние его прогона (серый — выключен)."
+        >
           <div className="flex flex-wrap items-center gap-0.5 rounded border border-line p-0.5">
             {(sources ?? []).map((s) => {
               const active = s.code === sourceCode;
@@ -448,13 +471,25 @@ export default function AdminConsole() {
               <span className="px-2 py-1.5 text-xs text-text-muted">источники…</span>
             ) : null}
           </div>
-          {/* Два режима работы: свои разделы и список того, что предлагает источник.
-              Список читает адаптер источника (у 2ch — index.json, у сайтов —
-              категории), поэтому переключатель есть у любого источника */}
+          <Link
+            href="/admin/sources"
+            className="mt-2 inline-block text-xs text-accent-primary"
+            title="Реестр источников: расписание, лимиты, журнал прогонов"
+          >
+            реестр источников →
+          </Link>
+        </StepCard>
+
+        <StepCard
+          step={2}
+          title="Раздел"
+          hint="«Мои разделы» — то, что уже в системе и качается; в списке источника — то, что можно добавить."
+        >
           <div className="flex overflow-hidden rounded border border-line">
             <button
               type="button"
               onClick={() => setTab("boards")}
+              title="Разделы, подключённые к системе: ими управляют парсинг, видимость и премиум"
               className={`px-3 py-1.5 text-sm transition-colors ${
                 tab === "boards" ? "bg-ink-tertiary text-accent-primary" : "text-text-secondary hover:text-white"
               }`}
@@ -467,105 +502,26 @@ export default function AdminConsole() {
               className={`px-3 py-1.5 text-sm transition-colors ${
                 tab === "catalog" ? "bg-ink-tertiary text-accent-primary" : "text-text-secondary hover:text-white"
               }`}
-              title="Список разделов, которые предлагает источник: оттуда их добавляют в систему"
+              title="Список разделов, которые предлагает источник: отсюда их добавляют в систему"
             >
               {activeSource?.kind === "html" ? "Разделы сайта" : "Доски форума"}
             </button>
           </div>
-          <Link href="/admin/sources" className="btn-ghost px-3 py-1.5 text-xs" title="Реестр источников: расписание, лимиты, журнал прогонов">
-            Источники →
-          </Link>
-          {tab === "boards" ? (
-            <>
-              <button
-                type="button"
-                onClick={() => void optimizeMedia()}
-                disabled={backfill?.status === "running"}
-                className="btn-ghost px-3 py-1.5 text-xs"
-                title="Сгенерировать превью и оптимизированные версии (720p) для уже скачанных файлов"
-              >
-                {backfill?.status === "running" ? "Оптимизируем…" : "Оптимизировать медиа"}
-              </button>
-              <button
-                type="button"
-                onClick={() => void cleanupStorage()}
-                className="btn-ghost px-3 py-1.5 text-xs"
-                title="Удалить из S3 объекты, которых нет в базе"
-              >
-                Очистить S3
-              </button>
-              <button
-                type="button"
-                onClick={() => void resetAll()}
-                className="rounded border border-accent-danger/40 px-3 py-1.5 text-xs text-accent-danger transition-colors hover:bg-accent-danger/10"
-                title="Удалить все разделы и файлы"
-              >
-                Сбросить всё
-              </button>
-            </>
-          ) : null}
-        </div>
+          <p className="mt-2 text-xs text-text-muted">
+        Добавили раздел — он попадёт в «Мои разделы», внутри включите «Парсить» и нажмите
+        «Сканировать треды».
+      </p>
+        </StepCard>
       </div>
 
-      {tab === "boards" && cacheStats ? (
-        <div className="mb-4 rounded border border-line bg-ink-secondary/40 px-3 py-2.5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-semibold">Кэш медиа на диске</h3>
-              <p className="mt-0.5 text-xs text-text-secondary">
-                {formatBytes(cacheStats.bytes)} из {formatBytes(cacheStats.max_bytes)} (
-                {cacheStats.used_percent}%) · файлов {formatNumber(cacheStats.files)} · попаданий{" "}
-                {formatNumber(cacheStats.hits)} / промахов {formatNumber(cacheStats.misses)} ·
-                свободно на диске {formatBytes(cacheStats.disk_free)}
-              </p>
-              {cacheStats.warm.status === "running" ? (
-                <p className="mt-0.5 text-xs text-accent-secondary">
-                  Прогрев: {formatNumber(cacheStats.warm.done)} из{" "}
-                  {formatNumber(cacheStats.warm.total)}
-                  {cacheStats.warm.failed
-                    ? `, ошибок ${formatNumber(cacheStats.warm.failed)}`
-                    : ""}
-                </p>
-              ) : null}
-              {cacheStats.evicted_files ? (
-                <p className="mt-0.5 text-xs text-text-muted">
-                  Вытеснено по LRU: {formatNumber(cacheStats.evicted_files)} файлов (
-                  {formatBytes(cacheStats.evicted_bytes)})
-                </p>
-              ) : null}
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void cacheAction("/api/v1/admin/media-cache/warm")}
-                disabled={cacheBusy || cacheStats.warm.status === "running"}
-                className="btn-ghost px-3 py-1.5 text-xs"
-                title="Скачать в кэш всё, что есть в S3 (~16 минут на текущую библиотеку) — дальше сайт отдаёт файлы с диска"
-              >
-                {cacheStats.warm.status === "running" ? "Прогреваем…" : "Прогреть кэш"}
-              </button>
-              <button
-                type="button"
-                onClick={() => void cacheAction("/api/v1/admin/media-cache/sweep")}
-                disabled={cacheBusy}
-                className="btn-ghost px-3 py-1.5 text-xs"
-                title="Удалить самые старые файлы кэша, если превышен лимит"
-              >
-                LRU-чистка
-              </button>
-              <button
-                type="button"
-                onClick={() => void cacheAction("/api/v1/admin/media-cache/clear")}
-                disabled={cacheBusy}
-                className="btn-ghost px-3 py-1.5 text-xs"
-                title="Очистить кэш целиком (файлы останутся в S3 и скачаются заново)"
-              >
-                Очистить
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <p className="mt-2 text-xs text-text-muted">
+        <b className="text-text-secondary">Шаг 3.</b> Ниже — разделы и их треды: внутри раздела
+        нажмите «Сканировать треды» (подтянет список), у нужных тредов включите «Парсить» —
+        файлы скачает прогон источника.
+      </p>
+
+      {/* Состояние дискового кэша переехало в блок «Обслуживание» внизу страницы:
+          это редкая операция, ей не место среди повседневных шагов. */}
 
       {globalError ? (
         <p className="mb-4 rounded border border-accent-danger/30 bg-red-500/10 px-3 py-2 text-sm text-accent-danger">
@@ -573,48 +529,7 @@ export default function AdminConsole() {
         </p>
       ) : null}
 
-      {backfill && backfill.status !== "idle" ? (
-        <div className="mb-4 rounded border border-line bg-ink-secondary px-3 py-2">
-          <div className="flex items-center justify-between gap-3 text-xs text-text-secondary">
-            <span>
-              {backfill.status === "running"
-                ? `Оптимизируем медиа (превью, размытые превью, 720p)… пачка ${formatNumber(
-                    backfill.batch_size ?? 0,
-                  )}`
-                : backfill.status === "done"
-                  ? `Готово: обработано ${formatNumber(backfill.processed ?? 0)} из ${formatNumber(
-                      backfill.total,
-                    )}${
-                      backfill.remaining
-                        ? ` · осталось ${formatNumber(backfill.remaining)} (не удалось обработать)`
-                        : ""
-                    }`
-                  : `Ошибка: ${backfill.error ?? "не удалось"}`}
-            </span>
-            <span className="shrink-0 tabular-nums">
-              {backfill.status === "running"
-                ? `осталось ${formatNumber(backfill.remaining ?? 0)} из ${formatNumber(backfill.total)}`
-                : `${formatNumber(backfill.done)}/${formatNumber(backfill.total || 0)}`}
-            </span>
-          </div>
-          <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded bg-ink-tertiary">
-            <div
-              className={`h-full transition-all ${
-                backfill.status === "error" ? "bg-accent-danger" : "bg-accent-primary"
-              }`}
-              style={{
-                width: `${
-                  backfill.total > 0
-                    ? Math.min(100, Math.round((backfill.done / backfill.total) * 100))
-                    : backfill.status === "running"
-                      ? 10
-                      : 0
-                }%`,
-              }}
-            />
-          </div>
-        </div>
-      ) : null}
+      {/* Прогресс оптимизации медиа тоже переехал в блок «Обслуживание» */}
 
       {tab === "boards" ? (
         <>
@@ -719,6 +634,21 @@ export default function AdminConsole() {
           hintLabel={activeSource?.kind === "html" ? "записей на сайте" : "на форуме"}
         />
       )}
+
+      {/* Шаг 3 — треды: редкие операции вынесены вниз, чтобы не мешать работе */}
+      {tab === "boards" ? (
+        <ConsoleMaintenance
+          open={showMaintenance}
+          onToggle={() => setShowMaintenance((v) => !v)}
+          cache={cacheStats}
+          cacheBusy={cacheBusy}
+          backfill={backfill}
+          onCacheAction={(path) => void cacheAction(path)}
+          onOptimize={() => void optimizeMedia()}
+          onCleanup={() => void cleanupStorage()}
+          onReset={() => void resetAll()}
+        />
+      ) : null}
     </div>
   );
 }
@@ -841,3 +771,216 @@ function QueueStatus({
     </div>
   );
 }
+
+/** Шаг интерфейса: номер, заголовок, подсказка и содержимое. */
+function StepCard({
+  step,
+  title,
+  hint,
+  children,
+}: {
+  step: number;
+  title: string;
+  hint: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded border border-line bg-ink-secondary/40 p-3">
+      <div className="flex items-center gap-2">
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-ink-tertiary font-mono text-[11px] text-accent-primary">
+          {step}
+        </span>
+        <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
+      </div>
+      <p className="mt-1 text-xs text-text-muted">{hint}</p>
+      <div className="mt-2">{children}</div>
+    </section>
+  );
+}
+
+/** Краткая инструкция: порядок действий, открывается кнопкой «Как это работает». */
+function ConsoleHelp({ kind }: { kind: string | null }) {
+  const units = kind === "html" ? "записи" : "треды";
+  return (
+    <ol className="mb-4 space-y-1.5 rounded border border-line bg-ink-secondary/30 px-4 py-3 text-xs text-text-secondary">
+      <li>
+        <b className="text-text-primary">1. Источник.</b> Чей контент забираем. Источники
+        независимы: у каждого свой прогон, расписание и лимиты (реестр — ссылка слева).
+      </li>
+      <li>
+        <b className="text-text-primary">2. Раздел.</b> «Разделы сайта» / «Доски форума» —
+        список того, что предлагает источник; «Добавить» переносит раздел в «Мои разделы».
+        Свой слаг можно ввести в поле вручную.
+      </li>
+      <li>
+        <b className="text-text-primary">3. {units}.</b> Внутри раздела нажмите «Сканировать
+        треды» — появится список {units} источника. У нужных включите «Парсить» (и
+        «Показать», если раздел скрыт): они встают в очередь, файлы качает прогон источника.
+      </li>
+      <li>
+        <b className="text-text-primary">4. Что дальше.</b> Текущий раздел и очередь видны в
+        строке прогона, «Остановить» ставит его на паузу. Редкие операции (кэш, оптимизация
+        превью, чистка S3) — в блоке «Обслуживание» в самом низу.
+      </li>
+    </ol>
+  );
+}
+
+/** Редкие операции: кэш, оптимизация превью, чистка S3 и сброс. Свёрнут по умолчанию. */
+function ConsoleMaintenance({
+  open,
+  onToggle,
+  cache,
+  cacheBusy,
+  backfill,
+  onCacheAction,
+  onOptimize,
+  onCleanup,
+  onReset,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  cache: MediaCacheStats | null;
+  cacheBusy: boolean;
+  backfill: BackfillStatus | null;
+  onCacheAction: (path: string) => void;
+  onOptimize: () => void;
+  onCleanup: () => void;
+  onReset: () => void;
+}) {
+  return (
+    <section className="mt-8 rounded border border-line bg-ink-secondary/20 px-3 py-2.5">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-start justify-between gap-3 text-left"
+        title="Оптимизация превью, дисковый кэш, чистка хранилища и полный сброс. Нужны редко — открывайте осознанно."
+      >
+        <span>
+          <span className="text-sm font-semibold text-text-primary">Обслуживание</span>
+          <span className="mt-0.5 block text-xs text-text-muted">
+            Оптимизация превью, дисковый кэш, чистка S3, полный сброс. Для повседневной работы
+            не нужно.
+          </span>
+        </span>
+        <span className="shrink-0 font-mono text-[11px] text-text-muted">
+          {open ? "скрыть" : "показать"}
+        </span>
+      </button>
+
+      {open ? (
+        <div className="mt-3 space-y-3 border-t border-line pt-3">
+          {backfill && backfill.status !== "idle" ? (
+            <div className="rounded border border-line bg-ink-secondary px-3 py-2">
+              <div className="flex items-center justify-between gap-3 text-xs text-text-secondary">
+                <span>
+                  {backfill.status === "running"
+                    ? `Оптимизируем медиа (превью, размытые превью, 720p)… пачка ${formatNumber(
+                        backfill.batch_size ?? 0,
+                      )}`
+                    : backfill.status === "done"
+                      ? `Готово: обработано ${formatNumber(backfill.processed ?? 0)} из ${formatNumber(
+                          backfill.total,
+                        )}`
+                      : `Ошибка: ${backfill.error ?? "не удалось"}`}
+                </span>
+                <span className="shrink-0 tabular-nums">
+                  {formatNumber(backfill.done)}/{formatNumber(backfill.total || 0)}
+                </span>
+              </div>
+              <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded bg-ink-tertiary">
+                <div
+                  className={`h-full transition-all ${
+                    backfill.status === "error" ? "bg-accent-danger" : "bg-accent-primary"
+                  }`}
+                  style={{
+                    width: `${
+                      backfill.total > 0
+                        ? Math.min(100, Math.round((backfill.done / backfill.total) * 100))
+                        : backfill.status === "running"
+                          ? 10
+                          : 0
+                    }%`,
+                  }}
+                />
+              </div>
+            </div>
+          ) : null}
+          {cache ? (
+            <div className="rounded border border-line bg-ink-secondary px-3 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs text-text-secondary">
+                  <b className="text-text-primary">Кэш медиа на диске:</b>{" "}
+                  {formatBytes(cache.bytes)} из {formatBytes(cache.max_bytes)} (
+                  {cache.used_percent}%) · файлов {formatNumber(cache.files)} · попаданий{" "}
+                  {formatNumber(cache.hits)} / промахов {formatNumber(cache.misses)} · свободно{" "}
+                  {formatBytes(cache.disk_free)}
+                  {cache.warm.status === "running"
+                    ? ` · прогрев: ${formatNumber(cache.warm.done)} из ${formatNumber(cache.warm.total)}`
+                    : ""}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onCacheAction("/api/v1/admin/media-cache/warm")}
+                    disabled={cacheBusy || cache.warm.status === "running"}
+                    className="btn-ghost px-3 py-1.5 text-xs"
+                    title="Скачать в кэш всё, что есть в S3 — дальше сайт отдаёт файлы с диска, а не из S3"
+                  >
+                    {cache.warm.status === "running" ? "Прогреваем…" : "Прогреть кэш"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onCacheAction("/api/v1/admin/media-cache/sweep")}
+                    disabled={cacheBusy}
+                    className="btn-ghost px-3 py-1.5 text-xs"
+                    title="Удалить самые старые файлы кэша, если превышен лимит"
+                  >
+                    LRU-чистка
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onCacheAction("/api/v1/admin/media-cache/clear")}
+                    disabled={cacheBusy}
+                    className="btn-ghost px-3 py-1.5 text-xs"
+                    title="Очистить кэш целиком (файлы останутся в S3 и скачаются заново)"
+                  >
+                    Очистить
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={onOptimize}
+              disabled={backfill?.status === "running"}
+              className="btn-ghost px-3 py-1.5 text-xs"
+              title="Сгенерировать превью и оптимизированные версии (720p) для уже скачанных файлов"
+            >
+              {backfill?.status === "running" ? "Оптимизируем…" : "Оптимизировать медиа"}
+            </button>
+            <button
+              type="button"
+              onClick={onCleanup}
+              className="btn-ghost px-3 py-1.5 text-xs"
+              title="Удалить из S3 объекты, которых нет в базе (безопасно: сверяется с записями)"
+            >
+              Очистить S3
+            </button>
+            <button
+              type="button"
+              onClick={onReset}
+              className="rounded border border-accent-danger/40 px-3 py-1.5 text-xs text-accent-danger transition-colors hover:bg-accent-danger/10"
+              title="Удалить ВСЕ разделы и файлы: и из базы, и из хранилища. Действие необратимо"
+            >
+              Сбросить всё
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
