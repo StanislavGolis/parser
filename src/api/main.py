@@ -27,6 +27,7 @@ from src.api.routes import (
     media,
     resume,
     search,
+    sitemap,
     status,
     threads,
     top,
@@ -156,6 +157,7 @@ app.add_middleware(
 # Роуты
 app.include_router(boards.router)
 app.include_router(threads.router)
+app.include_router(sitemap.router)
 app.include_router(media.router)
 app.include_router(auth.router)
 app.include_router(marks.router)

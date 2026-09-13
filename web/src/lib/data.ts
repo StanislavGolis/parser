@@ -21,6 +21,8 @@ import type {
   PeriodKey,
   SortKey,
   SiteStatus,
+  SitemapMediaList,
+  SitemapVideoList,
   ThreadDetail,
   ThreadList,
   ThreadRefList,
@@ -149,10 +151,30 @@ export async function getThreadDetail(threadId: number): Promise<ThreadDetail | 
 }
 
 /** Треды для карты сайта (только видимые и непустые), постранично. */
-export async function getThreadRefPage(page: number, perPage: number): Promise<ThreadRefList> {
+export async function getSitemapThreadsPage(page: number, perPage: number): Promise<ThreadRefList> {
   const q = new URLSearchParams({ page: String(page), per_page: String(perPage) });
   const fallback: ThreadRefList = { items: [], page, per_page: perPage, total: 0 };
-  return serverFetch<ThreadRefList>(`/api/v1/threads?${q}`, REVALIDATE.board, fallback);
+  return serverFetch<ThreadRefList>(`/api/v1/sitemap/threads?${q}`, REVALIDATE.board, fallback);
+}
+
+/** Файлы для карты сайта: минимум полей, свежие сверху. */
+export async function getSitemapMediaPage(
+  page: number,
+  perPage: number,
+): Promise<SitemapMediaList> {
+  const q = new URLSearchParams({ page: String(page), per_page: String(perPage) });
+  const fallback: SitemapMediaList = { items: [], page, per_page: perPage, total: 0 };
+  return serverFetch<SitemapMediaList>(`/api/v1/sitemap/media?${q}`, REVALIDATE.board, fallback);
+}
+
+/** Видео с готовым mp4 — для карты с `<video:video>`. */
+export async function getSitemapVideoPage(
+  page: number,
+  perPage: number,
+): Promise<SitemapVideoList> {
+  const q = new URLSearchParams({ page: String(page), per_page: String(perPage) });
+  const fallback: SitemapVideoList = { items: [], page, per_page: perPage, total: 0 };
+  return serverFetch<SitemapVideoList>(`/api/v1/sitemap/videos?${q}`, REVALIDATE.board, fallback);
 }
 
 export async function getSearchPage(
