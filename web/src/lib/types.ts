@@ -181,6 +181,8 @@ export interface BoardThread {
   media_in_s3: number;
   media_missing: number;
   media_visible: number;
+  /** Из них добавлено за текущие отчётные сутки (МСК) — «+N за сутки» на карточке. */
+  media_today?: number;
   preview: MediaItem[];
 }
 

@@ -396,6 +396,16 @@ function ThreadCard({
           <span className="rounded-[3px] bg-ink-tertiary px-1.5 py-0.5 text-text-primary">
             {formatNumber(visibleCount)} в галерее
           </span>
+          {/* Сколько файлов треда добавилось с начала отчётных суток (00:00 МСК):
+              тот же период, что у счётчика «+N за сутки» на карточке раздела */}
+          {thread.media_today ? (
+            <span
+              className="rounded-[3px] bg-accent-secondary/15 px-1.5 py-0.5 text-accent-secondary"
+              title={`+${thread.media_today} за текущие сутки (с 00:00 МСК)`}
+            >
+              +{formatNumber(thread.media_today)} за сутки
+            </span>
+          ) : null}
           {totalInCatalog > 0 ? (
             <span className="rounded-[3px] bg-ink-tertiary px-1.5 py-0.5 text-text-muted">
               {formatNumber(totalInCatalog)} в каталоге

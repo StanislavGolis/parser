@@ -400,6 +400,7 @@ class ThreadOut(BaseModel):
     media_in_s3: int = 0          # загружено в S3 (uploaded+verified)
     media_missing: int = 0        # файл потерян
     media_visible: int = 0        # видимых на сайте
+    media_today: int = 0          # из них добавлено за текущие отчётные сутки (МСК)
 
     # Несколько последних файлов треда для превью
     preview: List[MediaOut] = []

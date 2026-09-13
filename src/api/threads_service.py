@@ -15,6 +15,7 @@ from src.api.common import apply_user_flags, is_locked, sign_media_urls
 from src.api.schemas import MediaOut, ThreadOut
 from src.core.config import settings
 from src.core.models import Media, ThreadState, User
+from src.services import reporting
 from src.services.s3_storage import S3Storage
 
 UPLOADED_STATUSES = ("uploaded", "verified")
@@ -288,7 +289,12 @@ async def _media_stats(session: AsyncSession, board_id: int) -> Dict[int, dict]:
 
     Дубли-ссылки (`duplicate_of_id`) не считаем: это тот же файл, повторно
     встреченный в другом треде/доске — иначе счётчики удваиваются.
+
+    `media_today` — сколько видимых файлов треда добавлено с начала текущих
+    отчётных суток (00:00 МСК): тот же период, что у счётчика на карточке раздела
+    и в сводке на главной, поэтому «+N за сутки» в разделе и в тредах сходится.
     """
+    start, end = reporting.period_bounds()
     rows = await session.execute(
         select(
             Media.thread_id.label("thread_id"),
@@ -303,6 +309,13 @@ async def _media_stats(session: AsyncSession, board_id: int) -> Dict[int, dict]:
             .filter(Media.download_status == "missing")
             .label("media_missing"),
             func.count().filter(Media.is_visible.is_(True)).label("media_visible"),
+            func.count()
+            .filter(
+                Media.is_visible.is_(True),
+                Media.created_at >= start,
+                Media.created_at < end,
+            )
+            .label("media_today"),
         )
         .where(Media.board_id == board_id, Media.duplicate_of_id.is_(None))
         .group_by(Media.thread_id)
@@ -315,6 +328,7 @@ async def _media_stats(session: AsyncSession, board_id: int) -> Dict[int, dict]:
             "media_downloaded": int(r.media_downloaded or 0),
             "media_missing": int(r.media_missing or 0),
             "media_visible": int(r.media_visible or 0),
+            "media_today": int(r.media_today or 0),
         }
     return stats
 
@@ -415,6 +429,7 @@ async def build_thread_outs(
             media_in_s3=s.get("media_in_s3", 0),
             media_missing=s.get("media_missing", 0),
             media_visible=s.get("media_visible", 0),
+            media_today=s.get("media_today", 0),
             preview=[],
         )
 
