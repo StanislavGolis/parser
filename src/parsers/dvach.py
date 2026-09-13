@@ -314,6 +314,7 @@ class DvachParser:
                 state = ThreadState(
                     board_id=board.id,
                     thread_id=thread_id,
+                    external_id=str(thread_id),  # у 2ch внешний id = номер треда
                     posts_count=posts_count,
                     files_count=files_count,
                     is_active=True,

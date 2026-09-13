@@ -58,6 +58,7 @@ from src.core.redis_client import redis_client
 from src.services.catalog_health import catalog_errors, mark_catalog_error, mark_catalog_ok
 from src.services.media_cache import get_media_cache
 from src.services.s3_storage import S3Storage
+from src.services import sources as sources_service
 from src.services.derivatives import generate_and_upload
 from src.services.premium import (
     sync_board_media_premium,
@@ -368,7 +369,17 @@ async def create_board(
             detail={"message": f"Раздел /{slug} уже добавлен", "can_force": False},
         )
 
-    if not payload.force:
+    # Источник раздела: у 2ch проверяем каталог на форуме, у остальных источников
+    # разделы создаёт их собственный парсер (он знает свою структуру).
+    is_dvach = payload.source == sources_service.DEFAULT_SOURCE_CODE
+    source = await sources_service.get_source(session, payload.source)
+    if source is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": f"Неизвестный источник «{payload.source}»", "can_force": False},
+        )
+
+    if is_dvach and not payload.force:
         ok, reason, in_index = await _probe_board_catalog(slug)
         if not ok:
             if in_index:
@@ -382,13 +393,14 @@ async def create_board(
                 status_code=400,
                 detail={"message": message, "can_force": True},
             )
-    else:
+    elif is_dvach:
         # Добавляем принудительно, но состояние каталога всё равно проверяем и
         # помечаем причину — в списке разделов сразу виден бейдж «каталог недоступен».
         ok, reason, _in_index = await _probe_board_catalog(slug)
         if not ok:
             await mark_catalog_error(slug, f"раздел не читается: {reason}")
         print(f"[admin] раздел /{slug} добавлен принудительно (каталог: {'ок' if ok else reason})")
+    # Для остальных источников каталог проверяет их парсер при первом прогоне.
 
     max_order = (await session.execute(select(func.max(Board.sort_order)))).scalar() or 0
     name = (payload.name or "").strip()
@@ -398,6 +410,7 @@ async def create_board(
         parse_enabled=False,
         is_visible=False,
         sort_order=int(max_order) + 1,
+        source_id=source.id,
     )
     session.add(board)
     await session.commit()
@@ -1236,6 +1249,110 @@ async def backfill_variants_status(_=Depends(verify_admin)):
 
 
 # ───────────── Статус парсера (частый опрос: живость + прогресс) ─────────────
+
+
+# ── Источники: реестр и независимые прогоны ─────────────────────────
+# У каждого источника свои флаги в Redis (`parser:{code}:…`), свой прогресс и
+# своя история прогонов. Старые ручки `/parser/*` остаются как «источник по
+# умолчанию» (2ch) — чтобы админку можно было переключать постепенно.
+
+
+async def _source_totals(session: AsyncSession, source_id: int) -> tuple[int, int]:
+    """Сколько у источника досок и уникальных файлов (для вкладки источника)."""
+    boards_count = await session.scalar(
+        select(func.count()).select_from(Board).where(Board.source_id == source_id)
+    )
+    media_count = await session.scalar(
+        select(func.count())
+        .select_from(Media)
+        .where(Media.source_id == source_id, Media.duplicate_of_id.is_(None))
+    )
+    return int(boards_count or 0), int(media_count or 0)
+
+
+async def _require_source(session: AsyncSession, code: str):
+    source = await sources_service.get_source(session, code)
+    if source is None:
+        raise HTTPException(status_code=404, detail=f"Источник «{code}» не найден")
+    return source
+
+
+def _run_out(run) -> dict:
+    return {
+        "id": run.id,
+        "started_at": run.started_at,
+        "finished_at": run.finished_at,
+        "status": run.status,
+        "phase": run.phase,
+        "stats": run.stats or {},
+        "error": run.error,
+    }
+
+
+@router.get("/sources")
+async def admin_sources(
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Реестр источников: настройки, состояние прогона, объёмы, история.
+
+    Из этого списка админка строит вкладки по источникам — новый источник
+    появляется в интерфейсе без правок фронтенда.
+    """
+    items = []
+    for source in await sources_service.list_sources(session):
+        boards_total, media_total = await _source_totals(session, source.id)
+        items.append(
+            {
+                "code": source.code,
+                "title": source.title,
+                "kind": source.kind,
+                "base_url": source.base_url,
+                "is_enabled": source.is_enabled,
+                "schedule_minutes": source.schedule_minutes,
+                "rate_limit_rps": source.rate_limit_rps,
+                "budget_minutes": source.budget_minutes,
+                "sort_order": source.sort_order,
+                "config": source.config or {},
+                "boards_total": boards_total,
+                "media_total": media_total,
+                "status": await sources_service.read_status(source.code),
+                "runs": [
+                    _run_out(run) for run in await sources_service.last_runs(session, source.id, limit=3)
+                ],
+            }
+        )
+    return {"items": items}
+
+
+@router.get("/sources/{code}/status")
+async def source_status(code: str, _=Depends(verify_admin)):
+    """Лёгкий статус прогона источника (частый опрос из его вкладки)."""
+    return await sources_service.read_status(code)
+
+
+@router.post("/sources/{code}/start")
+async def source_start(
+    code: str,
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Запускает прогон источника: его контейнер подхватит флаг за ~5 секунд."""
+    source = await _require_source(session, code)
+    await sources_service.set_enabled(source.code, True)
+    return {"ok": True, "code": source.code, "enabled": True}
+
+
+@router.post("/sources/{code}/stop")
+async def source_stop(
+    code: str,
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Останавливает прогон источника (остальные источники продолжают работу)."""
+    source = await _require_source(session, code)
+    await sources_service.set_enabled(source.code, False)
+    return {"ok": True, "code": source.code, "enabled": False}
 
 
 @router.get("/parser/status")

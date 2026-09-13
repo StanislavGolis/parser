@@ -233,6 +233,32 @@ docker compose -f docker-compose.prod.yml up -d --build
 → скачивание → валидация → загрузка оригинала в S3 → деривативы → запись в БД.
 Прогресс пишется в Redis, админка его опрашивает (1 с — прогресс, 2 с — сводка).
 
+**Источники контента (мульти-источники).** Проект переводится на несколько
+источников: 2ch.hk остаётся источником `dvach`, к нему добавляется `slivach`
+(`slivach.com`). Реестр источников живёт в таблице `sources` (базовый URL, тип
+адаптера, `config` JSONB, расписание, лимиты, бюджет прогона), доски привязаны к
+источнику (`boards.source_id`), у прогонов есть своя история (`parse_runs`).
+
+Правила, на которые опирается вся дальнейшая разработка:
+- **прогоны независимы**: у каждого источника свои ключи `parser:{code}:…`
+  (`enabled`, `up`, `alive`, `current`, `progress`), свой интервал и лимиты,
+  своя очередь; пауза/падение одного не затрагивает другой (целевое состояние —
+  отдельный контейнер на источник, один и тот же образ);
+- **треды источника** опознаются парой (доска, `external_id`): у 2ch это номер
+  треда, у сайтов — слаг записи (`alena-omovich-sliv`);
+- **адаптер на источник**: HTTP/парсинг источника отделён от общего конвейера
+  (скачивание → валидация → S3 → деривативы → БД), поэтому новый сайт — это
+  адаптер + запись в `sources`, а не копипаста парсера;
+- **контент в админке разделён по вкладкам источников**, реестр отдаёт
+  `GET /api/v1/admin/sources` (настройки, состояние прогона, объёмы, история).
+
+Маппинг сайта в нашу модель (пример `slivach.com`): **категория → раздел
+(«доска»)** (`/board/modeli`), **запись-«слив» → «тред»** (галерея ~80 файлов,
+имя, счётчик из `<title>`), элементы записи → файлы. Особенности источника:
+у видео обязателен заголовок `Referer` (иначе 403), оригиналов на сайте нет
+(максимум — webp ~810–2000 px и mp4), md5 отсутствует (дедуп: `md5(url)` до
+скачивания + SHA-256 после). Разведка источника: `dredge-backups/probe_slivach*.sh`.
+
 **Поток отдачи медиа.** Клиент запрашивает `/api/v1/media/{id}/asset/{kind}` →
 nginx (кэш на диске) → api (кэш на диске) → S3 (поток, без буферизации) → клиент.
 Оригинал (`/raw`, `/download`) — только с сессией, премиум-варианты — только с подпиской.
@@ -246,6 +272,8 @@ nginx (кэш на диске) → api (кэш на диске) → S3 (пото
 | `parser:alive` | парсер активно работает прямо сейчас |
 | `parser:current_board` | slug текущей доски |
 | `parser:progress` | JSON прогресса: `phase` (catalog/files), `thread_id`, `files_total`, `files_done`, `updated_at` |
+| `parser:{code}:enabled` | прогон источника включён (свой флаг у каждого: `parser:dvach:enabled`, `parser:slivach:enabled`); старые ключи без префикса читаются как флаги источника `dvach` (`src/services/sources.py`) |
+| `parser:{code}:up` / `:alive` / `:current` / `:progress` | живость, текущий раздел и прогресс **этого** источника — прогоны независимы и не перезаписывают состояние друг друга |
 | `backfill:variants` | JSON статуса бэкфилла: `status`, `total`, `done`, `remaining`, `processed`, `errors`, `batch_size` |
 | `scan:board:{slug}` | JSON статуса «Сканировать треды» (можно ставить `deep`) |
 | `board:catalog_error:{slug}` | JSON `{text, at}` — каталог раздела не читается (2ch отдал 500/404: доска удалена); TTL 6 ч, снимается успешным чтением |
@@ -512,16 +540,22 @@ S3 у провайдера отдаёт ~3 МБ/с (4 потока — ~8 МБ/�
 
 ## 6. База данных (PostgreSQL, Alembic)
 
+- **sources**: `id, code (unique), title, kind (json|html), base_url, config (JSONB),
+  is_enabled, schedule_minutes, rate_limit_rps, budget_minutes, sort_order, created_at,
+  updated_at` — реестр источников контента; прогон каждого независим (`parser:{code}:*`)
 - **boards**: `id, slug, title, description, is_visible, parse_enabled, is_premium,
-  parse_mode (all|selected), sort_order, created_at, updated_at`
-- **threads_state**: `board_id, thread_id, subject, comment, thread_timestamp,
-  posts_count, files_count, files_detected, views_count, last_scanned_at, is_active,
-  parse_enabled, is_visible, is_premium` (уникально `board_id + thread_id`)
-- **media**: `id, board_id, thread_id, original_name, source_url, source_md5,
+  parse_mode (all|selected), sort_order, source_id, created_at, updated_at`
+- **threads_state**: `board_id, thread_id, external_id (номер 2ch / слаг записи),
+  subject, comment, thread_timestamp, posts_count, files_count, files_detected,
+  views_count, last_scanned_at, is_active, parse_enabled, is_visible, is_premium` —
+  уникально `board_id + thread_id` и `board_id + external_id`
+- **media**: `id, board_id, thread_id, source_id, original_name, source_url, source_md5,
   file_hash (sha-256), file_size, mime_type, media_type (image|video), s3_bucket,
   s3_key, local_path, width, height, variants, duration_seconds, is_premium,
   download_status, is_visible, is_active, duplicate_of_id, views_count,
   downloads_count, marks_count, popularity_score, created_at, updated_at`
+- **parse_runs**: `source_id, started_at, finished_at, status (running|ok|error|stopped),
+  phase, stats (JSONB), error` — история прогонов источника (админка: вкладка источника)
 - **view_stats / download_stats**: `media_id, ip_hash, viewed_at/downloaded_at`
   (дедуп статистики по IP за 24 ч)
 - **media_marks**: `user_id, media_id, created_at` (UNIQUE user+media) — метка
@@ -561,7 +595,10 @@ o0p1q2r3s4t5  метки и избранное: media_marks, favorites, media.ma
 p1q2r3s4t5u6  объединение: favorites → media_marks, удаление таблицы favorites
 q2r3s4t5u6v7  threads_state.misses/missing_since (гигиена обхода)
 r3s4t5u6v7w8  threads_state.pending_scan/pending_reason/last_scan_attempt_at
-s4t5u6v7w8x9  threads_state.last_post_num/last_scan_errors/last_scan_note  ← head
+s4t5u6v7w8x9  threads_state.last_post_num/last_scan_errors/last_scan_note
+t5u6v7w8x9y0  вход в админку по email+паролю, восстановление пароля, аудит
+u6v7w8x9y0z1  аналитика посещаемости, след сессий, статистика по аккаунту
+v7w8x9y0z1a2  sources + parse_runs + boards.source_id / threads_state.external_id / media.source_id  ← head
 ```
 
 Полезные запросы:
@@ -638,7 +675,11 @@ DELETE /api/v1/admin/users/{id}                    удалить аккаунт
 GET   /api/v1/admin/audit?limit=&action=           журнал действий администраторов
 GET   /api/v1/admin/overview               доски + статистика + статус парсера
 GET   /api/v1/admin/parser/status          лёгкий статус: жив, текущая доска, прогресс
-POST  /api/v1/admin/parser/start | /stop   включить/остановить парсинг
+POST  /api/v1/admin/parser/start | /stop   включить/остановить парсинг (источник dvach)
+GET   /api/v1/admin/sources                реестр источников: настройки, состояние прогона, объёмы, история
+GET   /api/v1/admin/sources/{code}/status  лёгкий статус прогона источника (частый опрос)
+POST  /api/v1/admin/sources/{code}/start   запустить прогон источника (не влияет на остальные)
+POST  /api/v1/admin/sources/{code}/stop    остановить прогон источника
 GET   /api/v1/admin/forum                  доски форума из index.json
 GET   /api/v1/admin/boards                 разделы с флагами и статистикой
 POST  /api/v1/admin/boards                 добавить раздел по slug
@@ -711,6 +752,31 @@ DELETE /api/v1/admin/reset                           полный сброс (Б
 8. Дальше по парсеру: узкое место — пропускная способность выгрузки в S3
    (~11 МБ/с на объект, при параллелизме падает). Если станет критично: multipart
    для крупных файлов, CDN/другой эндпоинт или меньше деривативов на файл.
+
+**Мульти-источники (новые сайты для парсинга, следующий — `slivach.com`)**
+1. ~~Реестр источников~~ — сделано (миграция `v7w8x9y0z1a2`): таблица `sources`
+   (base_url, kind, config JSONB, расписание, лимиты, бюджет), `boards.source_id`,
+   `threads_state.external_id` (номер/слаг), `media.source_id`, `parse_runs`;
+   существующие данные переведены на источник `dvach`; API `GET /admin/sources`,
+   `POST /admin/sources/{code}/start|stop`, `GET /admin/sources/{code}/status`;
+   флаги прогонов вынесены в `parser:{code}:*` (`src/services/sources.py`) со
+   чтением старых ключей как флагов `dvach` — прод обновляется без даунтайма.
+2. Вынести общий конвейер из `src/parsers/dvach.py` (1153 строки) в
+   `services/pipeline.py` + `services/scan_planner.py`, оставив в парсере только
+   специфику источника (протокол адаптера: каталог → «треды» → файлы).
+3. Целевое состояние по изоляции: **контейнер на источник** (`parser-dvach`,
+   `parser-slivach`, один образ, `PARSER_SOURCE=…`) — независимые рестарты,
+   лимиты, расписание и логи; очередь по-прежнему в БД (`threads_state.pending_scan`).
+4. Админка: вкладки по источникам внутри «Контента» (строятся из
+   `GET /admin/sources`) + отдельная вкладка «Источники» (реестр), панели
+   `DvachPanel` / `SlivachPanel` / `SourcesPanel`, каркас без 2ch-специфики.
+5. Адаптер `slivach`: категории (`/category/<slug>/`, пагинация `/page/N/`) →
+   разделы, записи-«сливы» (`/<model>-sliv/`) → «треды», галерея и видео →
+   файлы; обязательный `Referer` для mp4 (иначе 403), `md5(url)` + SHA-256 как
+   дедуп, fingerprint записи из `<title>` («N фото | M видео»); лимиты и выбор
+   категорий — в `sources.config`, HTML-парсер (`selectolax`/`lxml`) в зависимости.
+   Ожидаемый объём при полном обходе: ~100–130 тыс. файлов, 30–40 ГБ (обсудить
+   лимиты, приоритеты и место в S3/диске до включения боевого прогона).
 
 **Премиум и деньги**
 7. Подключить оплату (тарифы/сроки), история активаций (`premium_orders`),

@@ -130,6 +130,7 @@ class ThreadDiscovery:
                 state = ThreadState(
                     board_id=board.id,
                     thread_id=thread_id,
+                    external_id=str(thread_id),  # у 2ch внешний id = номер треда
                     is_active=True,
                     parse_enabled=(board.parse_mode == "all"),
                     subject=subject,

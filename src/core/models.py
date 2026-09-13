@@ -26,6 +26,11 @@ class Board(Base):
     is_premium = Column(Boolean, nullable=False, default=False)     # контент только для премиум-пользователей
     sort_order = Column(Integer, nullable=False, default=0)         # порядок парсинга (очередь)
     parse_mode = Column(String(16), nullable=False, default="selected")  # all | selected — как выбирать треды
+    # Источник, из которого берётся раздел (2ch.hk, slivach.com, …). Разные
+    # источники парсятся разными адаптерами и независимыми прогонами.
+    source_id = Column(
+        Integer, ForeignKey("sources.id", ondelete="CASCADE"), nullable=False, index=True
+    )
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -40,6 +45,7 @@ class Board(Base):
         back_populates="board",
         passive_deletes=True,
     )
+    source = relationship("Source", back_populates="boards")
 
 
 class ThreadState(Base):
@@ -47,11 +53,15 @@ class ThreadState(Base):
     __tablename__ = "threads_state"
     __table_args__ = (
         UniqueConstraint("board_id", "thread_id", name="uq_threads_state_board_thread"),
+        # Внешний идентификатор «треда» у источника: у 2ch это номер треда,
+        # у сайтов вроде slivach — слаг записи. Пара (доска, external_id) уникальна.
+        UniqueConstraint("board_id", "external_id", name="uq_threads_state_board_external"),
     )
 
     id = Column(Integer, primary_key=True)
     board_id = Column(Integer, ForeignKey("boards.id", ondelete="CASCADE"), nullable=False)
-    thread_id = Column(Integer, nullable=False)  # внешний ID треда на форуме
+    thread_id = Column(Integer, nullable=False)  # внутренний ID треда (у сайтов — синтетический)
+    external_id = Column(String(64), nullable=False)  # внешний ID у источника (номер/слаг)
 
     # Метаданные треда (для отображения списка тредов на сайте/в админке)
     subject = Column(String(500), nullable=True)          # тема треда (catalog.subject)
@@ -106,6 +116,8 @@ class Media(Base):
     id = Column(Integer, primary_key=True)
     board_id = Column(Integer, ForeignKey("boards.id", ondelete="CASCADE"), nullable=False)
     thread_id = Column(Integer, nullable=False)  # внешний ID треда (источник)
+    # Денормализация источника (из доски) — фильтры админки по вкладкам источников
+    source_id = Column(Integer, ForeignKey("sources.id", ondelete="SET NULL"), nullable=True, index=True)
 
     original_name = Column(String(255), nullable=False)  # displayname с форума
     source_url = Column(String(500), nullable=True)
@@ -297,3 +309,63 @@ class AdminAudit(Base):
     details = Column(Text, nullable=True)        # короткая сводка изменений
     ip_hash = Column(String(64), nullable=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+
+
+class Source(Base):
+    """Источник контента для парсинга (2ch.hk, slivach.com, …).
+
+    Каждый источник — отдельный адаптер и **свой независимый прогон**: свои
+    флаги запуска в Redis (`parser:{code}:enabled` и т.д.), своё расписание,
+    вежливость к сайту и бюджет цикла, своя история в `parse_runs`. Доски и
+    файлы привязаны к источнику, поэтому контент в админке разделяется по
+    вкладкам источников, а падение/пауза одного не затрагивает другой.
+    """
+
+    __tablename__ = "sources"
+
+    id = Column(Integer, primary_key=True)
+    code = Column(String(32), unique=True, nullable=False)      # dvach | slivach
+    title = Column(String(100), nullable=False, default="")
+    kind = Column(String(32), nullable=False, default="json")   # адаптер: json | html
+    base_url = Column(String(255), nullable=False, default="")
+    # Настройки адаптера (категории, пагинация, заголовки, лимиты, отбор записей):
+    # добавление источника = запись + адаптер, без миграций под каждый сайт.
+    config = Column(JSONB, nullable=False, default=dict)
+    is_enabled = Column(Boolean, nullable=False, default=False)      # участвует в прогонах
+    schedule_minutes = Column(Integer, nullable=False, default=30)   # период цикла
+    rate_limit_rps = Column(Float, nullable=False, default=1.0)      # запросов в секунду к сайту
+    budget_minutes = Column(Integer, nullable=False, default=30)     # бюджет одного прогона
+    sort_order = Column(Integer, nullable=False, default=0)          # порядок в админке/очереди
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    boards = relationship("Board", back_populates="source", passive_deletes=True)
+    runs = relationship("ParseRun", back_populates="source", passive_deletes=True)
+
+
+class ParseRun(Base):
+    """История прогонов источника: что и когда парсили и с каким результатом.
+
+    Прогресс «прямо сейчас» живёт в Redis (`parser:{code}:progress`, TTL),
+    а итог каждого цикла пишется сюда — он переживает перезапуск контейнера и
+    показывается в админке во вкладке источника.
+    """
+
+    __tablename__ = "parse_runs"
+    __table_args__ = (
+        Index("ix_parse_runs_source_started", "source_id", "started_at"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    source_id = Column(Integer, ForeignKey("sources.id", ondelete="CASCADE"), nullable=False)
+    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)
+    # running | ok | error | stopped — «stopped» это ручная остановка из админки
+    status = Column(String(16), nullable=False, default="running")
+    phase = Column(String(32), nullable=True)   # catalog | files | done
+    # Сводка прогона: доски/категории, треды, файлы, байты, ошибки, длительность
+    stats = Column(JSONB, nullable=False, default=dict)
+    error = Column(Text, nullable=True)
+
+    source = relationship("Source", back_populates="runs")
