@@ -237,6 +237,50 @@ services:
           cpus: "1.0"
           memory: 1g
 
+  # ── Архивный источник: разделы, восстановленные из Wayback Machine ──
+  # Каталог и файлы берутся из веб-архива (src/parsers/wayback.py). Прогон нужен,
+  # чтобы докачивать включённые в админке треды архива; архив не меняется, поэтому
+  # расписание редкое, а запросы медленные (сервис лимитирует частоту).
+  parser-wayback:
+    <<: *backend
+    command: ["python", "src/main.py"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-parser}:${POSTGRES_PASSWORD:-parser-pass}@postgres:5432/${POSTGRES_DB:-parser}
+      REDIS_URL: redis://redis:6379/0
+      S3_URL: ${S3_URL:-https://s3.twcstorage.ru}
+      S3_REGION: ${S3_REGION:-ru-1}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      S3_ADDRESSING_STYLE: ${S3_ADDRESSING_STYLE:-path}
+      MEDIA_DELIVERY: ${MEDIA_DELIVERY:-proxy}
+      STORAGE_PATH: /data/media
+      MEDIA_CACHE_ENABLED: ${MEDIA_CACHE_ENABLED:-1}
+      MEDIA_CACHE_DIR: /data/cache
+      MEDIA_CACHE_MAX_BYTES: ${MEDIA_CACHE_MAX_BYTES:-42949672960}
+      MEDIA_CACHE_MIN_FREE_BYTES: ${MEDIA_CACHE_MIN_FREE_BYTES:-10737418240}
+      PARSER_SOURCE: wayback
+      # Архив отвечает медленно и режет частые запросы: паузы и по одной загрузке
+      REQUEST_DELAY: ${WAYBACK_REQUEST_DELAY:-1.5}
+      PARSE_INTERVAL: ${WAYBACK_PARSE_INTERVAL:-3600}
+      MAX_PARALLEL_DOWNLOADS: ${WAYBACK_MAX_PARALLEL_DOWNLOADS:-1}
+      MAX_PARALLEL_UPLOADS: 1
+      # Видео из архива не перекодируем: длинные webm занимают десятки минут
+      VIDEO_WEB_ENABLED: ${WAYBACK_VIDEO_WEB_ENABLED:-0}
+      # Сверку данных ведёт только 2ch-контейнер
+      RECONCILE_MINUTES: -1
+    volumes:
+      - media:/data/media
+      - mediacache:/data/cache
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+
   # ── Frontend (Next.js standalone) ──────────────────────────
   web:
     image: parser-web:local
