@@ -403,8 +403,16 @@ curl -s -D - -o /dev/null "$BASE/api/v1/media/<id>/asset/thumb_blur" \
   | grep -Ei 'x-cache-status|cache-control'                                     # MISS → HIT
 curl -s -o /dev/null -w '%{http_code}\n' "$BASE/api/v1/media/<id>/raw"          # 401 без сессии
 # SEO и заголовки:
-curl -s "$BASE/robots.txt" | head -12                                            # Allow + Disallow + Sitemap
+curl -s "$BASE/robots.txt" | head -12                                            # Allow /api/v1/media/ + Disallow + Sitemap
 curl -s "$BASE/sitemap.xml" | grep -c "<url>"                                    # > 0 (страницы + разделы + файлы)
+curl -s "$BASE/sitemap.xml" | grep -c "<image:image>"                            # > 0 (превью файлов для Google Images)
+curl -s "$BASE/media/<id>" | grep -o 'name="rating" content="adult"'             # rating=adult на контенте
+curl -s "$BASE/media/<id>" | grep -o 'BreadcrumbList\|ImageObject\|VideoObject'  # JSON-LD страницы файла
+curl -s "$BASE/board/<slug>" | grep -o 'CollectionPage\|ItemList'                # JSON-LD раздела
+# возрастное окно: у обычного UA на один клиентский чанк больше, чем у бота
+curl -s -A Googlebot/2.1 "$BASE/" | grep -o '_next/static/chunks/[^"]*\.js' | sort -u > /tmp/bot.txt
+curl -s "$BASE/"                  | grep -o '_next/static/chunks/[^"]*\.js' | sort -u > /tmp/user.txt
+diff /tmp/bot.txt /tmp/user.txt                                                  # строки только с «>» — чанки AgeGate
 curl -sI "$BASE/" | grep -Ei 'server|x-powered-by'                              # Server: nginx (без версии), без X-Powered-By
 curl -s "$BASE/" | grep -o 'application/ld+json' | head -1                       # микроразметка на месте
 curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' "$BASE/-" -H 'Host: www.dredg.ru'  # www → 301 на основной домен
@@ -426,7 +434,12 @@ docker compose -f docker-compose.prod.yml exec -T web \
       (`/favorites` редиректит на `/marks`);
 - [ ] регистрация → «Активировать премиум» в `/profile` → премиум-файл открывается;
 - [ ] парсер запускается из админки, в треде появляются записи (и на сайте);
-- [ ] `robots.txt` и `sitemap.xml` отдаются, canonical в HTML указывает на `https://dredg.ru`;
+- [ ] `robots.txt` и `sitemap.xml` отдаются (`sitemap.xml` — с `<image:image>`),
+      canonical в HTML указывает на `https://dredg.ru`, на контентных страницах есть
+      `meta name="rating" content="adult"`, у страниц файлов/разделов — JSON-LD
+      (`ImageObject`/`VideoObject`, `CollectionPage`, `BreadcrumbList`);
+- [ ] Googlebot получает страницы без возрастного окна (у обычного UA на один
+      клиентский чанк больше — проверка `diff` выше);
 - [ ] в заголовках нет версии nginx и `X-Powered-By`; `www` редиректит на основной домен;
 - [ ] в бандле web есть «продолжить» (точка возврата треда, localStorage) и
       «сортировка: файлов ↓» в каталоге разделов;
@@ -667,18 +680,35 @@ git push --force --tags
 
 ## SEO и приватность публичной выдачи
 
-**Что отдаём роботам.** `web/src/app/robots.ts` и `web/src/app/sitemap.ts` — маршруты
-Next.js: `robots.txt` разрешает обход публичных страниц и закрывает служебные
-(`/admin`, `/api/`, `/login`, `/profile`, `/marks`, `/favorites`, `/search`),
-`sitemap.xml` содержит главную, `/new`, `/boards`, `/top`, все разделы
-(`/board/<slug>`) и 500 последних файлов (`/media/<id>`). Адрес берётся из
-`SITE_URL` — от него же зависят `canonical`, Open Graph и микроразметка.
+**Что отдаём роботам.** `web/src/app/robots.ts` — маршрут Next.js: `robots.txt`
+разрешает обход публичных страниц и закрывает служебные (`/admin`, `/api/`,
+`/login`, `/profile`, `/marks`, `/favorites`, `/search`). Отдельно разрешён путь
+`/api/v1/media/` — по нему отдаются превью и постеры файлов, без этого исключения
+картинки не попадают в поиск (остальной `/api/` при этом закрыт, побеждает более
+точное правило). Карта сайта — собственный XML-роут
+`web/src/app/sitemap.xml/route.ts` (главная, `/new`, `/boards`, `/top`, все разделы
+`/board/<slug>` и 500 последних файлов `/media/<id>`): штатный `MetadataRoute.Sitemap`
+в Next 14 не поддерживает `images`, поэтому XML собирается вручную и у страниц
+файлов появляется `<image:image>` с превью (`web_url`, для видео — `thumb_url`).
+Адрес берётся из `SITE_URL` — от него же зависят `canonical`, Open Graph и микроразметка.
 
 **Canonical и микроразметка.** В корневом layout задан `metadataBase`, поэтому
 страницы указывают относительный `alternates.canonical`; фильтры и периоды
 (`?type=`, `?period=`, `?free=`) канонизируются на «чистый» адрес, чтобы дубликаты
-не плодились. На главной — JSON-LD `WebSite` + `SearchAction` (поиск по архиву), на
-страницах файлов — `ImageObject`/`VideoObject` (превью, размеры, дата, длительность).
+не плодились. На главной — JSON-LD `WebSite` + `SearchAction` (поиск по архиву),
+на страницах файлов — `ImageObject`/`VideoObject` (превью, размеры, дата,
+длительность) и `BreadcrumbList`, в разделах — `CollectionPage` + `ItemList`
+(треды) и `BreadcrumbList`. У файлов и разделов есть `isAccessibleForFree`, а
+`contentUrl` указывается только у файлов без премиум-гейта: у закрытых ссылка
+вернула бы роботу `403`. На контентных страницах (главная, `/new`, `/boards`,
+`/top`, разделы, файлы) стоит `meta name="rating" content="adult"` — честная
+маркировка 18+ для поисковиков.
+
+**Возрастное окно и роботы.** `AgeGate` не отдаётся поисковым роботам: в корневом
+`layout.tsx` проверяется `User-Agent` (Googlebot, Yandex, Bing, Applebot и др.),
+и клиентский компонент не попадает ни в разметку, ни в RSC-пейлоад. Это снимает
+риск интерстициала, закрывающего контент: остальным посетителям окно показывается
+как раньше (cookie `dv_age`, раз в сутки).
 
 **Служебные страницы.** `/admin`, `/admin/*`, `/profile`, `/login`, `/marks` и
 `/search` закрыты `robots: noindex` (для клиентских страниц — через одноимённый
