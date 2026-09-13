@@ -201,6 +201,10 @@ function ThreadCard({
   const preview = thread.preview;
   const visibleCount = thread.media_visible;
   const totalInCatalog = thread.files_count;
+  // Сколько файлов в треде появилось после последнего просмотра. Они всегда
+  // «в конце»: список треда идёт по порядку источника (`source_order`), а не по
+  // времени скачивания, поэтому новые файлы не сдвигают уже просмотренное.
+  const freshCount = resume ? Math.max(0, visibleCount - resume.total) : 0;
 
   return (
     <article className="overflow-hidden rounded border border-line bg-ink-secondary">
@@ -260,6 +264,14 @@ function ThreadCard({
             смотрели файл {resume.index + 1}
             {resume.total > 0 ? ` из ${resume.total}` : ""}
           </span>
+          {freshCount > 0 ? (
+            <span
+              className="rounded-[3px] bg-accent-secondary/15 px-1.5 py-0.5 text-accent-secondary"
+              title="Новые файлы треда — в конце списка: продолжайте с метки, дальше дойдёте до них"
+            >
+              +{formatNumber(freshCount)} новых в конце
+            </span>
+          ) : null}
           <span className="text-text-muted">{formatRelative(new Date(resume.at).toISOString())}</span>
           <button
             type="button"

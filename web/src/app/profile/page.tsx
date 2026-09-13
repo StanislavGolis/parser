@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { LockIcon, StarIcon, TagIcon } from "@/components/icons";
 import { ApiError, apiSend } from "@/lib/api";
+import { notifyAuthChanged } from "@/lib/authEvents";
 import { formatNumber, parseUtc } from "@/lib/format";
 import type { UserOut } from "@/lib/types";
 
@@ -60,6 +61,7 @@ export default function ProfilePage() {
     }
     // Просим Next перерисовать серверные компоненты: иначе в шапке и на страницах
     // останутся данные вошедшего пользователя до ручной перезагрузки.
+    notifyAuthChanged();
     router.refresh();
     router.push("/");
   }

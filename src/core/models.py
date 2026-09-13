@@ -161,6 +161,11 @@ class Media(Base):
     marks_count = Column(Integer, nullable=False, default=0)
     popularity_score = Column(Float, nullable=False, default=0.0)
 
+    # Порядок файла внутри «треда» у источника (номер поста/файла: `post_num`).
+    # Просмотр треда идёт «с начала», поэтому список сортируется по этому полю,
+    # а не по времени скачивания: новые файлы всегда попадают в конец треда.
+    source_order = Column(Integer, nullable=True)
+
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 

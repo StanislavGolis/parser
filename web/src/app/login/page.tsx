@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { ApiError, apiSend } from "@/lib/api";
+import { notifyAuthChanged } from "@/lib/authEvents";
 import type { UserOut } from "@/lib/types";
 
 /** Вход/регистрация: доступ к оригиналам файлов. */
@@ -25,8 +26,10 @@ export default function LoginPage() {
         method: "POST",
         body: { email, password },
       });
-      // Серверные компоненты (шапка, премиум-превью, метки) должны увидеть вход:
-      // без refresh страница оставалась «гостевой» до ручной перезагрузки.
+      // Шапка — клиентский компонент с собственным состоянием: сообщаем ей о входе
+      // событием, иначе имя профиля появлялось только после перезагрузки.
+      // Серверные компоненты (премиум-превью, метки) обновляем через refresh.
+      notifyAuthChanged();
       router.refresh();
       router.push("/");
     } catch (err) {

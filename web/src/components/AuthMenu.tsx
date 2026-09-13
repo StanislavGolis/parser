@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { apiSend } from "@/lib/api";
+import { notifyAuthChanged, onAuthChanged } from "@/lib/authEvents";
 import type { UserOut } from "@/lib/types";
 
 /** Кто вошёл: «Войти» / email + «Выйти». */
@@ -25,6 +26,8 @@ export default function AuthMenu() {
 
   useEffect(() => {
     void load();
+    // Вход/выход на других страницах (форма входа, профиль) — обновляем шапку
+    return onAuthChanged(() => void load());
   }, [load]);
 
   async function logout() {
@@ -34,8 +37,9 @@ export default function AuthMenu() {
       /* всё равно сбрасываем локальное состояние */
     }
     setUser(null);
-    // Обновляем серверные компоненты: без этого в SSR-разметке оставались
-    // данные вошедшего пользователя (премиум-превью, метки, кнопки).
+    // Серверные компоненты (премиум-превью, метки) перерисовываем, а клиентские
+    // о выходе оповещаем событием — иначе шапка жила бы со старым именем.
+    notifyAuthChanged();
     router.refresh();
   }
 

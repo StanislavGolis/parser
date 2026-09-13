@@ -37,6 +37,71 @@ interface GalleryProps {
 /** Сколько первых карточек грузить сразу (первый экран → LCP). */
 const EAGER_CARDS = 6;
 
+/** Число колонок по ширине окна — как было в CSS (2 / 3 / 4 / 5). */
+function useColumnCount(): number {
+  const [cols, setCols] = useState(2);
+
+  useEffect(() => {
+    const compute = () => {
+      const width = window.innerWidth;
+      setCols(width >= 1280 ? 5 : width >= 1024 ? 4 : width >= 640 ? 3 : 2);
+    };
+    compute();
+    window.addEventListener("resize", compute);
+    return () => window.removeEventListener("resize", compute);
+  }, []);
+
+  return cols;
+}
+
+/**
+ * Оценка высоты карточки в «попугаях» (для балансировки колонок).
+ * Пропорции известны из API (`width`/`height`) — раскладываем по самой короткой
+ * колонке, как это делал CSS, но без пересборки всей сетки.
+ */
+function estimateHeight(media: MediaItem): number {
+  const w = media.width ?? 0;
+  const h = media.height ?? 0;
+  const ratio = w > 0 && h > 0 ? h / w : 1.2;
+  return Math.min(Math.max(ratio, 0.6), 2.2) + 0.3; // + подпись под карточкой
+}
+
+interface Layout {
+  /** id карточек по колонкам (слева направо). */
+  columns: number[][];
+  /** Накопленная высота каждой колонки — для балансировки. */
+  heights: number[];
+}
+
+function emptyLayout(cols: number): Layout {
+  return { columns: Array.from({ length: cols }, () => []), heights: new Array(cols).fill(0) };
+}
+
+/**
+ * Докладывает новые карточки в колонки, **не трогая уже размещённые**.
+ *
+ * Именно из-за этого CSS `columns` не годился: при добавлении новых элементов
+ * браузер пересобирал всю сетку, и правая часть ленты «заменялась» новыми
+ * карточками (казалось, что часть контента потеряна).
+ */
+function withNewItems(prev: Layout, items: MediaItem[], cols: number): Layout {
+  const base = prev.columns.length === cols ? prev : emptyLayout(cols);
+  const placed = new Set(base.columns.flat());
+  const columns = base.columns.map((column) => column.slice());
+  const heights = base.heights.slice();
+
+  for (const item of items) {
+    if (placed.has(item.id)) continue;
+    let target = 0;
+    for (let i = 1; i < heights.length; i += 1) {
+      if (heights[i] < heights[target]) target = i;
+    }
+    columns[target].push(item.id);
+    heights[target] += estimateHeight(item);
+  }
+  return { columns, heights };
+}
+
 /**
  * Masonry-галерея с клиентской догрузкой страниц (infinite scroll).
  * Требует "use client", т.к. догрузка идёт fetch из браузера.
@@ -66,11 +131,24 @@ export default function Gallery({
   // карточек терялась. С курсором догружаем строго то, что ниже последней карточки.
   const [cursor, setCursor] = useState<string | null>(initial.next_cursor ?? null);
   const [cursorMode, setCursorMode] = useState<boolean>(Boolean(initial.next_cursor));
+  const cols = useColumnCount();
+  const [layout, setLayout] = useState<Layout>(() => withNewItems(emptyLayout(2), initial.items, 2));
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const busyRef = useRef(false);
 
   const hasMore = cursorMode ? cursor !== null : items.length < total;
+
+  // Раскладка колонок: новые карточки добавляются вниз, уже показанные не двигаются
+  useEffect(() => {
+    setLayout((prev) => withNewItems(prev, items, cols));
+  }, [items, cols]);
+
+  const itemsById = useMemo(() => new Map(items.map((m) => [m.id, m])), [items]);
+  const indexById = useMemo(
+    () => new Map(items.map((m, idx) => [m.id, idx])),
+    [items],
+  );
   const queryKey = useMemo(() => Object.entries(params).map(([k, v]) => `${k}=${v}`).join("&"), [params]);
 
   const loadMore = useCallback(async () => {
@@ -153,19 +231,27 @@ export default function Gallery({
         <EmptyState title={emptyTitle} hint={emptyHint} />
       ) : (
         <>
-          <div className="masonry">
-            {items.map((media, idx) => (
-              <div key={media.id} className="masonry-item">
-                <MediaCard
-                  media={media}
-                  board={boardsById ? boardsById[media.board_id] : undefined}
-                  showTop={showTop}
-                  eager={idx < EAGER_CARDS}
-                  onOpen={() => {
-                    trackEvent("lightbox_open");
-                    setOpenIndex(idx);
-                  }}
-                />
+          <div className="flex items-start gap-3">
+            {layout.columns.map((column, columnIndex) => (
+              <div key={columnIndex} className="flex min-w-0 flex-1 flex-col gap-3">
+                {column.map((mediaId) => {
+                  const media = itemsById.get(mediaId);
+                  if (!media) return null;
+                  const idx = indexById.get(mediaId) ?? 0;
+                  return (
+                    <MediaCard
+                      key={media.id}
+                      media={media}
+                      board={boardsById ? boardsById[media.board_id] : undefined}
+                      showTop={showTop}
+                      eager={columnIndex < 2 && idx < EAGER_CARDS}
+                      onOpen={() => {
+                        trackEvent("lightbox_open");
+                        setOpenIndex(idx);
+                      }}
+                    />
+                  );
+                })}
               </div>
             ))}
           </div>

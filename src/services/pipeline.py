@@ -422,6 +422,8 @@ class FilePipeline:
                     media.media_type = meta["media_type"]
                     media.width = meta.get("width")
                     media.height = meta.get("height")
+                    if meta.get("post_num"):
+                        media.source_order = int(meta["post_num"])
                     if s3_key:
                         media.s3_bucket = settings.storage_bucket
                         media.s3_key = s3_key
@@ -452,6 +454,9 @@ class FilePipeline:
                         duration_seconds=duration_seconds,
                         width=meta.get("width"),
                         height=meta.get("height"),
+                        # Порядок файла в треде у источника: по нему тред читается
+                        # «с начала», а новые файлы встают в конец (см. board_media)
+                        source_order=int(meta.get("post_num") or 0) or None,
                         download_status="uploaded" if s3_key else "downloaded",
                         is_visible=True,
                         is_active=True,

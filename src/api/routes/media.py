@@ -136,19 +136,23 @@ async def board_media(
         await session.execute(select(func.count()).select_from(Media).where(*filters))
     ).scalar()
 
+    # Порядок выдачи:
+    # * просмотр конкретного «треда» — с начала и до конца (`source_order`), поэтому
+    #   новые файлы встают в конец, а не сдвигают уже просмотренное;
+    # * остальные списки (лента раздела, топ) — как раньше, свежие сверху.
+    if sort == "marks":
+        order_by = (Media.marks_count.desc(), Media.id.desc())
+    elif sort == "popular":
+        order_by = (Media.popularity_score.desc(), Media.id.desc())
+    elif thread is not None:
+        order_by = (Media.source_order.asc().nullslast(), Media.id.asc())
+    else:
+        order_by = (Media.created_at.desc(), Media.id.desc())
+
     query = (
         select(Media)
         .where(*filters)
-        .order_by(
-            (
-                Media.marks_count.desc()
-                if sort == "marks"
-                else Media.popularity_score.desc()
-                if sort == "popular"
-                else Media.created_at.desc()
-            ),
-            Media.id.desc(),
-        )
+        .order_by(*order_by)
         .offset((page - 1) * per_page)
         .limit(per_page)
     )

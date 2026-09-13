@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 
+import AgeGate from "@/components/AgeGate";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
 import MobileNav from "@/components/MobileNav";
@@ -59,6 +60,8 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <Footer />
         <MobileNav />
         <Tracker />
+        {/* Предупреждение 18+: раз в сутки, подтверждение — в cookie `dv_age` */}
+        <AgeGate />
       </body>
     </html>
   );
