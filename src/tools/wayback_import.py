@@ -278,6 +278,99 @@ def fetch_catalog(
     return {}, None
 
 
+async def ensure_source(session, code: str, title: str, base_url: str) -> Source:
+    """Источник-«архив»: по нему админка отделяет импортированное от живого."""
+    source = (
+        await session.execute(select(Source).where(Source.code == code))
+    ).scalar_one_or_none()
+    if source is None:
+        source = Source(
+            code=code,
+            title=title,
+            kind="html",
+            base_url=base_url,
+            config={},
+            # В прогонах не участвует: наполняется только этим импортёром
+            is_enabled=False,
+            sort_order=90,
+        )
+        session.add(source)
+        await session.flush()
+        print(f"   [ok]   источник создан: {code} (id={source.id})")
+    return source
+
+
+async def ensure_board(session, slug: str, title: str, source: Source, visible: bool) -> Board:
+    """Раздел архива: показываем публично, но парсер его не трогает."""
+    board = (
+        await session.execute(select(Board).where(Board.slug == slug))
+    ).scalar_one_or_none()
+    if board is None:
+        board = Board(
+            slug=slug,
+            title=title,
+            description="Импорт из веб-архива (Wayback Machine): раздел недоступен вживую.",
+            source_id=source.id,
+            is_visible=visible,
+            parse_enabled=False,
+        )
+        session.add(board)
+        await session.flush()
+        print(f"   [ok]   раздел создан: /{slug} (id={board.id})")
+    else:
+        board.source_id = board.source_id or source.id
+        board.is_visible = visible
+        board.parse_enabled = False
+        if title and (not board.title or board.title == board.slug):
+            board.title = title
+    return board
+
+
+async def ensure_thread(
+    session, board: Board, num: int, meta: Optional[CatalogThread], visible: bool
+) -> ThreadState:
+    """Тред раздела: тема и счётчики — из архивного каталога, если он есть."""
+    thread = (
+        await session.execute(
+            select(ThreadState).where(
+                ThreadState.board_id == board.id, ThreadState.thread_id == num
+            )
+        )
+    ).scalar_one_or_none()
+    if thread is None:
+        thread = ThreadState(
+            board_id=board.id,
+            thread_id=num,
+            external_id=str(num),
+            is_active=True,
+            is_visible=visible,
+            parse_enabled=False,
+            files_detected=len(meta.files) if meta else 0,
+            last_scanned_at=datetime.utcnow(),
+            last_scan_note="импорт из архива",
+        )
+        session.add(thread)
+        await session.flush()
+    if meta:
+        thread.subject = meta.subject or thread.subject
+        thread.posts_count = meta.posts_count or thread.posts_count
+        thread.views_count = meta.views_count or thread.views_count
+        thread.files_detected = len(meta.files) or thread.files_detected
+    thread.is_visible = visible
+    thread.is_active = True
+    return thread
+
+
+def mime_for(name: str) -> str:
+    """MIME по расширению (для S3 Content-Type и карточек)."""
+    ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    if ext in IMAGE_EXTS:
+        return f"image/{'jpeg' if ext in {'jpg', 'jpeg'} else ext}"
+    if ext in VIDEO_EXTS:
+        return f"video/{'mp4' if ext in {'mp4', 'mkv'} else ext}"
+    return "application/octet-stream"
+
+
 # ─────────────────────────── Импорт файла ───────────────────────────
 
 
@@ -569,102 +662,4 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
-
-
-
-
-async def ensure_source(session, code: str, title: str, base_url: str) -> Source:
-    """Источник-«архив»: по нему админка отделяет импортированное от живого."""
-    source = (
-        await session.execute(select(Source).where(Source.code == code))
-    ).scalar_one_or_none()
-    if source is None:
-        source = Source(
-            code=code,
-            title=title,
-            kind="html",
-            base_url=base_url,
-            config={},
-            # В прогонах не участвует: наполняется только этим импортёром
-            is_enabled=False,
-            sort_order=90,
-        )
-        session.add(source)
-        await session.flush()
-        print(f"   [ok]   источник создан: {code} (id={source.id})")
-    return source
-
-
-async def ensure_board(session, slug: str, title: str, source: Source, visible: bool) -> Board:
-    """Раздел архива: показываем публично, но парсер его не трогает."""
-    board = (
-        await session.execute(select(Board).where(Board.slug == slug))
-    ).scalar_one_or_none()
-    if board is None:
-        board = Board(
-            slug=slug,
-            title=title,
-            description="Импорт из веб-архива (Wayback Machine): раздел недоступен вживую.",
-            source_id=source.id,
-            is_visible=visible,
-            parse_enabled=False,
-        )
-        session.add(board)
-        await session.flush()
-        print(f"   [ok]   раздел создан: /{slug} (id={board.id})")
-    else:
-        board.source_id = board.source_id or source.id
-        board.is_visible = visible
-        board.parse_enabled = False
-        if title and (not board.title or board.title == board.slug):
-            board.title = title
-    return board
-
-
-async def ensure_thread(
-    session, board: Board, num: int, meta: Optional[CatalogThread], visible: bool
-) -> ThreadState:
-    """Тред раздела: тема и счётчики — из архивного каталога, если он есть."""
-    thread = (
-        await session.execute(
-            select(ThreadState).where(
-                ThreadState.board_id == board.id, ThreadState.thread_id == num
-            )
-        )
-    ).scalar_one_or_none()
-    if thread is None:
-        thread = ThreadState(
-            board_id=board.id,
-            thread_id=num,
-            external_id=str(num),
-            is_active=True,
-            is_visible=visible,
-            parse_enabled=False,
-            files_detected=len(meta.files) if meta else 0,
-            last_scanned_at=datetime.utcnow(),
-            last_scan_note="импорт из архива",
-        )
-        session.add(thread)
-        await session.flush()
-    if meta:
-        thread.subject = meta.subject or thread.subject
-        thread.posts_count = meta.posts_count or thread.posts_count
-        thread.views_count = meta.views_count or thread.views_count
-        thread.files_detected = len(meta.files) or thread.files_detected
-    thread.is_visible = visible
-    thread.is_active = True
-    return thread
-
-
-def mime_for(name: str) -> str:
-    """MIME по расширению (для S3 Content-Type и карточек)."""
-    ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
-    if ext in IMAGE_EXTS:
-        return f"image/{'jpeg' if ext in {'jpg', 'jpeg'} else ext}"
-    if ext in VIDEO_EXTS:
-        return f"video/{'mp4' if ext in {'mp4', 'mkv'} else ext}"
-    return "application/octet-stream"
-
-
 
