@@ -4,7 +4,7 @@
 // премиум-файлов поток закрыт (робот получил бы 403), а без mp4 элемент
 // `<video:video>` бессмыслен.
 import { getSitemapVideoPage } from "@/lib/data";
-import { SITEMAP_PAGE_SIZE, SITE_URL, previewUrl, xmlEscape, xmlResponse } from "@/lib/sitemap";
+import { SITEMAP_PAGE_SIZE, SITE_URL, pagesFor, previewUrl, xmlEscape, xmlResponse } from "@/lib/sitemap";
 
 export const revalidate = 3600;
 
@@ -20,6 +20,10 @@ export async function GET(_request: Request, { params }: PageProps): Promise<Res
 
   const now = new Date().toISOString();
   const data = await getSitemapVideoPage(page, SITEMAP_PAGE_SIZE);
+  // 404 только если API ответил: при сбое карта остаётся пустой, но живой
+  if (data.total > 0 && page > pagesFor(data.total)) {
+    return new Response("Not found", { status: 404 });
+  }
 
   const lines = [
     '<?xml version="1.0" encoding="UTF-8"?>',
