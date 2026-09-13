@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.models import ParseRun, Source
@@ -288,3 +288,21 @@ async def last_runs(session: AsyncSession, source_id: int, limit: int = 5) -> Li
         .limit(limit)
     )
     return list(result.scalars().all())
+
+
+async def close_orphan_runs(
+    session: AsyncSession, *, error: str = "прервано перезапуском процесса"
+) -> int:
+    """Закрывает прогоны, оставшиеся `running` после перезапуска парсера.
+
+    Без этого после каждого рестарта (деплой, перезагрузка) в журнале висел бы
+    «вечный» прогон, а в админке показывались бы два активных. Вызывается при
+    запуске демона, до первого цикла.
+    """
+    result = await session.execute(
+        update(ParseRun)
+        .where(ParseRun.status == "running")
+        .values(status="error", error=error[:2000], finished_at=datetime.utcnow())
+    )
+    await session.commit()
+    return int(result.rowcount or 0)

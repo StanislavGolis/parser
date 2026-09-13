@@ -180,6 +180,12 @@ async def main() -> None:
     async_session = await init_db()
     last_reconcile: Optional[datetime] = None
 
+    # Гигиена журнала: прогоны, оборванные прошлым перезапуском, не должны висеть
+    async with async_session() as session:
+        closed = await sources_service.close_orphan_runs(session)
+        if closed:
+            print(f"[init] Закрыто незавершённых прогонов прошлого запуска: {closed}")
+
     heartbeat_task = asyncio.create_task(heartbeat_loop(async_session))
 
     try:
