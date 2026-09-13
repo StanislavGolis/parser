@@ -38,10 +38,16 @@ interface BoardThreadsProps {
 
 /** Варианты сортировки тредов внутри раздела. */
 const SORTS: Array<{ value: string; label: string; title: string }> = [
-  { value: "new", label: "свежие", title: "Сначала треды, обновлённые позже всех" },
-  { value: "files", label: "по файлам", title: "Сначала треды с большим числом файлов в архиве" },
-  { value: "posts", label: "по постам", title: "Сначала треды с большим числом постов" },
-  { value: "views", label: "по просмотрам", title: "Сначала самые просматриваемые треды" },
+  {
+    value: "new",
+    label: "свежие",
+    title: "Сначала треды, в которые позже всех добавлялись файлы",
+  },
+  {
+    value: "files",
+    label: "по файлам",
+    title: "Сначала треды с большим числом файлов в архиве",
+  },
 ];
 
 /**
@@ -449,9 +455,10 @@ function ThreadCard({
         </div>
       </div>
 
-      {/* Продолжить просмотр: точка возврата этого треда (localStorage клиента) */}
-      {resume ? (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line bg-accent-primary/5 px-4 py-2 font-mono text-[11px]">
+      {/* Действия рядом с превью: продолжить с метки или открыть с начала */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-4 py-2 font-mono text-[11px]">
+        <span className="uppercase tracking-wider text-text-muted">файлы треда</span>
+        {resume ? (
           <span
             className="inline-flex items-center gap-1.5 text-accent-primary"
             title="На момент последнего просмотра этого треда"
@@ -459,8 +466,14 @@ function ThreadCard({
             <HistoryIcon className="h-3.5 w-3.5" />
             смотрели файл {resume.index + 1}
             {resume.total > 0 ? ` из ${resume.total}` : ""}
+            <span className="text-text-muted">
+              · {formatRelative(new Date(resume.at).toISOString())}
+            </span>
           </span>
-          {freshCount > 0 ? (
+        ) : null}
+
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          {resume && freshCount > 0 ? (
             <span
               className="rounded-[3px] bg-accent-secondary/15 px-1.5 py-0.5 text-accent-secondary"
               title="Новые файлы треда — в конце списка: продолжайте с метки, дальше дойдёте до них"
@@ -468,28 +481,41 @@ function ThreadCard({
               +{formatNumber(freshCount)} новых в конце
             </span>
           ) : null}
-          <span className="text-text-muted">{formatRelative(new Date(resume.at).toISOString())}</span>
+          {resume ? (
+            <button
+              type="button"
+              onClick={onResume}
+              disabled={opening}
+              className="inline-flex items-center gap-1.5 rounded border border-accent-primary/50 px-2 py-1 text-accent-primary transition-colors hover:bg-accent-primary/15 disabled:opacity-50"
+              title="Открыть тред на этом файле и листать дальше — с того места, где остановились"
+            >
+              {opening ? <SpinnerIcon className="h-3.5 w-3.5" /> : <PlayIcon className="h-3 w-3" />}
+              продолжить
+            </button>
+          ) : null}
           <button
             type="button"
-            onClick={onResume}
+            onClick={onOpenAll}
             disabled={opening}
-            className="inline-flex items-center gap-1.5 rounded border border-accent-primary/50 px-2 py-1 text-accent-primary transition-colors hover:bg-accent-primary/15 disabled:opacity-50"
-            title="Открыть тред на этом файле и листать дальше — с того места, где остановились"
+            className="inline-flex items-center gap-1.5 rounded border border-line px-2 py-1 text-text-secondary transition-colors hover:border-line-hover hover:text-text-primary disabled:opacity-50"
+            title="Открыть тред с первого файла"
           >
-            {opening ? <SpinnerIcon className="h-3.5 w-3.5" /> : <PlayIcon className="h-3 w-3" />}
-            продолжить
+            <ImageIcon className="h-3.5 w-3.5" />
+            с начала
           </button>
-          <button
-            type="button"
-            onClick={onForget}
-            className="ml-auto rounded p-1 text-text-muted transition-colors hover:text-text-primary"
-            aria-label="Забыть точку возврата"
-            title="Забыть: тред откроется с начала"
-          >
-            <CloseIcon className="h-3.5 w-3.5" />
-          </button>
+          {resume ? (
+            <button
+              type="button"
+              onClick={onForget}
+              className="rounded p-1 text-text-muted transition-colors hover:text-text-primary"
+              aria-label="Забыть точку возврата"
+              title="Забыть: тред откроется с начала"
+            >
+              <CloseIcon className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
         </div>
-      ) : null}
+      </div>
 
       {/* Превью файлов */}
       {preview.length > 0 ? (
@@ -559,14 +585,6 @@ function ThreadCard({
               ) : null}
             </button>
           ))}
-          <button
-            type="button"
-            onClick={onOpenAll}
-            disabled={opening}
-            className="flex h-20 shrink-0 flex-col items-center justify-center gap-1 rounded border border-dashed border-line px-3 font-mono text-[11px] text-text-secondary transition-colors hover:border-line-hover hover:text-text-primary"
-          >
-            {opening ? <SpinnerIcon className="h-4 w-4" /> : "открыть все"}
-          </button>
         </div>
       ) : (
         <div className="px-4 py-4 font-mono text-[11px] text-text-muted sm:px-4">
