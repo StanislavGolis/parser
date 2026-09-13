@@ -672,7 +672,7 @@ export default function AdminBoardThreads({
 
                 {t.is_premium ? (
                   <div className="mt-2 border-t border-line pt-2 text-[11px] text-accent-warning">
-                    Премиум-тред: превью размыты, полные файлы — по подписке.
+                    Премиум-тред: файлы по подписке.
                   </div>
                 ) : null}
                   </div>

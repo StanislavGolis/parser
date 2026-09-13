@@ -233,7 +233,7 @@ function BoardRow({
           <Switch
             checked={board.is_premium}
             label={board.is_premium ? "PREMIUM" : "FREE"}
-            title="Премиум-доступ: превью размыты, полные файлы — по подписке"
+            title="Премиум-доступ: файлы по подписке"
             onChange={() => void onPatch(board.slug, { is_premium: !board.is_premium })}
           />
           <span className="inline-flex items-center gap-1 rounded border border-line bg-ink-secondary px-1 py-1">
@@ -296,7 +296,7 @@ function BoardRow({
       {/* Премиум-доступ: включается переключателем FREE/PREMIUM в шапке */}
       {board.is_premium ? (
         <div className="mt-3 border-t border-line pt-3 text-[11px] text-accent-warning">
-          Премиум-доступ включён: превью всех файлов размыты, полные версии — только по подписке.
+          Премиум-доступ включён: файлы по подписке.
         </div>
       ) : null}
       {progress ? (

@@ -129,8 +129,7 @@ export default async function MediaDetailPage({ params }: DetailProps) {
                 премиум-контент
               </p>
               <p className="max-w-sm text-xs text-neutral-400">
-                Файл доступен по премиум-подписке. Активируйте премиум в профиле, чтобы смотреть и
-                скачивать полные версии.
+                Файл доступен по премиум-подписке.
               </p>
               <Link href="/profile" className="btn-primary px-4 py-2 text-xs">
                 Запросить доступ
