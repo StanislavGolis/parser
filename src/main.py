@@ -1,24 +1,40 @@
 # src/main.py
+"""Демон парсинга: цикл по источникам контента.
+
+Каждый источник (2ch, сайты) — свой адаптер (`src/parsers/`), своя очередь и свои
+флаги прогона (`parser:{code}:enabled|up|alive|current|progress`), поэтому один
+источник можно остановить, не трогая остальные. Общее — план обхода и очередь
+(`services/scan_planner.py`), конвейер файла (`services/pipeline.py`), реестр
+источников и журнал прогонов (`services/sources.py`).
+
+Каждый прогон источника открывает запись в `parse_runs` и закрывает её итогом:
+`ok` (цикл дошёл до конца), `stopped` (остановили кнопкой в админке), `error`.
+"""
 import asyncio
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
-# Добавляем путь к проекту
 sys.path.append(str(Path(__file__).parent.parent))
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 from src.core.config import settings
+from src.core.models import Source
 from src.core.redis_client import redis_client
-from src.parsers.dvach import DvachParser
+from src.parsers import build_adapter
+from src.services import sources as sources_service
+from src.services.scan_planner import ScanPlanner
 
-# Текущая доска (заполняется главным циклом, читается heartbeat-таском)
-CURRENT_BOARD: Optional[str] = None
+HEARTBEAT_INTERVAL = 15  # секунд между обновлениями ключей живости
+# Доски источника из окружения (историческая настройка 2ch; у остальных источников
+# список досок живёт в `sources.config["boards"]`)
+ENV_BOARDS = {"dvach": settings.BOARDS_TO_PARSE}
 
-HEARTBEAT_TTL = 45  # секунд; таск обновляет ключи каждые 15 сек
+# Текущая доска каждого источника — читается heartbeat-таском
+CURRENT_BOARD: Dict[str, Optional[str]] = {}
 
 
 async def init_db():
@@ -31,115 +47,181 @@ async def init_db():
     return async_session
 
 
-async def parser_is_enabled() -> bool:
-    return (await redis_client.get("parser:enabled")) == "1"
+async def heartbeat_loop(async_session) -> None:
+    """Держит ключи живости каждого источника (`parser:{code}:up|alive|current`).
 
-
-async def heartbeat_loop() -> None:
-    """Фоновый heartbeat: ключи parser:up / parser:alive / current_board всегда свежие."""
-    global CURRENT_BOARD
+    Источники читаются из реестра: источник, который сейчас на паузе, не считается
+    «живым», а его текущий раздел снимается — админка показывает правду.
+    """
     try:
         while True:
-            await redis_client.set("parser:up", "1", ex=HEARTBEAT_TTL + 15)
-            if await parser_is_enabled():
-                await redis_client.set("parser:alive", "1", ex=HEARTBEAT_TTL)
-                if CURRENT_BOARD:
-                    await redis_client.set("parser:current_board", CURRENT_BOARD, ex=HEARTBEAT_TTL)
-            else:
-                await redis_client.delete("parser:alive")
-                await redis_client.delete("parser:current_board")
-                await redis_client.delete("parser:progress")
-            await asyncio.sleep(15)
+            try:
+                async with async_session() as session:
+                    for source in await sources_service.list_sources(session):
+                        running = await sources_service.is_enabled(source.code)
+                        await sources_service.heartbeat(
+                            source.code,
+                            running=running,
+                            current=CURRENT_BOARD.get(source.code) if running else None,
+                        )
+            except Exception as exc:  # noqa: BLE001 — heartbeat не должен падать
+                print(f"[warn] heartbeat: {exc}")
+            await asyncio.sleep(HEARTBEAT_INTERVAL)
     except asyncio.CancelledError:
         pass
 
 
-async def main():
-    print("[run] Запуск парсера-демона...")
+async def run_source_cycle(session: AsyncSession, source: Source) -> dict:
+    """Один цикл прогона источника: каталоги → очередь → докачка по очереди.
+
+    Возвращает статистику прогона (для `parse_runs` и лога). Источник, у которого
+    случилась ошибка, не роняет остальные: исключение ловится вызывающим кодом,
+    прогон закрывается статусом `error`.
+    """
+    print(f"\n[run] Источник {source.code} ({source.title or source.code}): цикл начат")
+    adapter = build_adapter(source.code, base_url=source.base_url or None)
+    planner = ScanPlanner(
+        session,
+        adapter,
+        source.code,
+        source_id=source.id,
+        stop_check=lambda: _stopped(source.code),
+    )
+    run = await sources_service.start_run(session, source)
+    await session.commit()
+
+    stats: dict = {
+        "boards": 0,
+        "queued": 0,
+        "threads_done": 0,
+        "threads_failed": 0,
+        "files_saved": 0,
+        "stopped": False,
+    }
+    status = "ok"
+    error_text: Optional[str] = None
+
+    await adapter.__aenter__()
+    try:
+        # Доски, заданные конфигурацией источника (только при первом запуске)
+        if source.code in ENV_BOARDS:
+            await planner.ensure_configured_boards(ENV_BOARDS[source.code])
+
+        # Фаза A: каталоги всех парсируемых досок источника → очередь в БД
+        plan = await planner.build_scan_plan()
+        stats["queued"] = len(plan)
+        started = datetime.utcnow()
+        budget = int(source.budget_minutes or settings.PARSE_CYCLE_BUDGET_MINUTES)
+
+        # Фаза B: докачка по очереди (свежие изменения → LRU), с бюджетом цикла
+        for done, (board_slug, thread_id, reason) in enumerate(plan, start=1):
+            if await _stopped(source.code):
+                print(f"[stop] Источник {source.code}: остановлен командой из админки")
+                stats["stopped"] = True
+                status = "stopped"
+                break
+            if budget > 0 and (datetime.utcnow() - started).total_seconds() >= budget * 60:
+                print(
+                    f"[budget] Источник {source.code}: цикл идёт больше {budget} мин — "
+                    f"остаток очереди ({len(plan) - done + 1}) в следующем цикле"
+                )
+                break
+            CURRENT_BOARD[source.code] = board_slug
+            ok = await planner.scan_thread(board_slug, thread_id, reason)
+            stats["threads_done" if ok else "threads_failed"] += 1
+        CURRENT_BOARD[source.code] = None
+    except Exception as exc:  # noqa: BLE001 — один источник не роняет остальные
+        status = "error"
+        error_text = f"{type(exc).__name__}: {exc}"
+        print(f"[err] Источник {source.code}: цикл прерван — {error_text}")
+        await session.rollback()
+    finally:
+        CURRENT_BOARD[source.code] = None
+        try:
+            await adapter.__aexit__(None, None, None)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            await sources_service.clear_progress(source.code)
+            await sources_service.finish_run(
+                session, run, status=status, stats=stats, error=error_text
+            )
+            await session.commit()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[warn] Источник {source.code}: журнал прогона не записан ({exc})")
+
+    print(
+        f"[done] Источник {source.code}: статус {status}, "
+        f"в очереди {stats['queued']}, тредов обработано {stats['threads_done']}, "
+        f"с ошибками {stats['threads_failed']}"
+    )
+    return stats
+
+
+async def _stopped(code: str) -> bool:
+    """Прогон источника остановлен кнопкой в админке (свой флаг у каждого)."""
+    return not await sources_service.is_enabled(code)
+
+
+
+async def _source_can_run(source: Source) -> bool:
+    """Источник включён в реестре и запущен кнопкой (`parser:{code}:enabled`)."""
+    if not source.is_enabled:
+        return False
+    return await sources_service.is_enabled(source.code)
+
+
+async def main() -> None:
+    print("[run] Запуск парсера-демона (источники из реестра)...")
     print(f"[dir] Хранилище: {settings.STORAGE_PATH}")
-    print(f"[list] Доски по умолчанию: {', '.join(settings.BOARDS_TO_PARSE)}")
-    print("[info] Парсинг управляется из админки: кнопка «Запустить/Остановить» (Redis parser:enabled)")
+    print("[info] Парсинг управляется из админки: у каждого источника своя кнопка")
     print("-" * 50)
 
     async_session = await init_db()
     last_reconcile: Optional[datetime] = None
 
-    heartbeat_task = asyncio.create_task(heartbeat_loop())
+    heartbeat_task = asyncio.create_task(heartbeat_loop(async_session))
 
     try:
         while True:
             try:
-                if not await parser_is_enabled():
+                async with async_session() as session:
+                    all_sources = await sources_service.list_sources(session)
+
+                enabled = [s for s in all_sources if await _source_can_run(s)]
+                if not enabled:
                     # На паузе: ничего не парсим, ждём кнопку в админке
                     last_reconcile = None  # при запуске снова сделаем сверку
-                    print("[pause] Парсер на паузе (жду команды из админки)...")
+                    print("[pause] Нет запущенных источников (жду команды из админки)...")
                     await asyncio.sleep(5)
                     continue
 
-                async with async_session() as session:
-                    parser = DvachParser(session)
-                    await parser.__aenter__()
-                    try:
-                        # Создаём доски из конфигурации заранее (первый запуск)
-                        if last_reconcile is None:
-                            await parser.ensure_configured_boards()
-
-                        # Сверка данных после старта/возобновления
-                        if last_reconcile is None:
-                            await parser.run_reconciliation()
-                            last_reconcile = datetime.utcnow()
-
-                        # Проверка остановки между тредами (кнопка в админке)
-                        async def _check_stop() -> bool:
-                            return not await parser_is_enabled()
-
-                        parser.stop_check = _check_stop
-
-                        # Фаза A: каталоги всех парсируемых досок (дёшево,
-                        # 1 запрос на доску) → очередь докачки в БД
-                        plan = await parser.build_scan_plan()
-                        started = datetime.utcnow()
-                        budget = settings.PARSE_CYCLE_BUDGET_MINUTES
-
-                        # Фаза B: докачка по очереди (чередование досок) — сначала
-                        # свежие изменения, затем давно не сканировавшиеся (LRU).
-                        # Очередь живёт в БД, поэтому перезапуск процесса её не
-                        # теряет, а бюджет цикла не даёт одному циклу «залипнуть».
-                        for done, (board_slug, thread_id, reason) in enumerate(plan, start=1):
-                            if await _check_stop():
-                                print("[stop] Парсинг остановлен командой из админки")
-                                break
-                            if budget > 0 and (
-                                datetime.utcnow() - started
-                            ).total_seconds() >= budget * 60:
-                                print(
-                                    f"[budget] Цикл идёт больше {budget} мин — "
-                                    f"остаток очереди ({len(plan) - done + 1}) в следующем цикле"
-                                )
-                                break
-
-                            global CURRENT_BOARD
-                            CURRENT_BOARD = board_slug
-
-                            await parser.scan_thread(board_slug, thread_id, reason)
-                    finally:
-                        parser.stop_check = None
-                        await parser.__aexit__(None, None, None)
-                CURRENT_BOARD = None
-
-                # Периодическая сверка
-                if (
-                    settings.RECONCILE_MINUTES > 0
-                    and last_reconcile
-                    and (datetime.utcnow() - last_reconcile).total_seconds() / 60 >= settings.RECONCILE_MINUTES
-                ):
+                # Прогоны независимы: у каждого источника своя сессия и свои флаги,
+                # ошибка одного не мешает остальным (см. run_source_cycle).
+                for source in enabled:
+                    if not await _source_can_run(source):
+                        continue
                     async with async_session() as session:
-                        parser = DvachParser(session)
-                        await parser.__aenter__()
+                        await run_source_cycle(session, source)
+
+                # Периодическая сверка данных (общая: БД ↔ локальный кэш ↔ S3)
+                due = last_reconcile is None or (
+                    settings.RECONCILE_MINUTES > 0
+                    and (datetime.utcnow() - last_reconcile).total_seconds() / 60
+                    >= settings.RECONCILE_MINUTES
+                )
+                if settings.RECONCILE_MINUTES >= 0 and due:
+                    source = enabled[0]
+                    async with async_session() as session:
+                        adapter = build_adapter(source.code, base_url=source.base_url or None)
+                        planner = ScanPlanner(
+                            session, adapter, source.code, source_id=source.id
+                        )
+                        await adapter.__aenter__()
                         try:
-                            await parser.run_reconciliation()
+                            await planner.run_reconciliation()
                         finally:
-                            await parser.__aexit__(None, None, None)
+                            await adapter.__aexit__(None, None, None)
                     last_reconcile = datetime.utcnow()
 
                 print(f"\n[wait] Ожидание {settings.PARSE_INTERVAL} секунд до следующего цикла...\n")
@@ -147,7 +229,7 @@ async def main():
 
             except KeyboardInterrupt:
                 raise
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — демон не должен умирать
                 print(f"[err] Критическая ошибка: {e}")
                 await asyncio.sleep(5)  # Пауза перед перезапуском
     finally:
@@ -170,7 +252,3 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n[bye] Остановка парсера...")
 
-
-
-if __name__ == "__main__":
-    asyncio.run(main())

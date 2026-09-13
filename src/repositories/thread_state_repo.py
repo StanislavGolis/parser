@@ -25,6 +25,17 @@ class ThreadStateRepository(BaseRepository[ThreadState]):
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
 
+    async def get_by_board_external(
+        self, board_id: int, external_id: str
+    ) -> Optional[ThreadState]:
+        """Тред по внешнему идентификатору источника (номер у 2ch, слаг у сайтов)."""
+        query = select(ThreadState).where(
+            ThreadState.board_id == board_id,
+            ThreadState.external_id == external_id,
+        )
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()
+
     async def get_active_by_board(self, board_id: int):
         query = select(ThreadState).where(
             ThreadState.board_id == board_id,
@@ -43,7 +54,9 @@ class ThreadStateRepository(BaseRepository[ThreadState]):
         result = await self.session.execute(query)
         return result.scalars().all()
 
-    async def get_scan_queue(self, limit: Optional[int] = None) -> List[Tuple[str, int, str]]:
+    async def get_scan_queue(
+        self, limit: Optional[int] = None, source_id: Optional[int] = None
+    ) -> List[Tuple[str, int, str]]:
         """Очередь докачки (фаза B): треды, помеченные фазой A (`pending_scan`).
 
         Порядок:
@@ -73,12 +86,15 @@ class ThreadStateRepository(BaseRepository[ThreadState]):
                 ThreadState.thread_id.asc(),
             )
         )
+        # Ограничение по источнику: прогоны разных источников независимы
+        if source_id is not None:
+            query = query.where(Board.source_id == source_id)
         if limit is not None:
             query = query.limit(limit)
         rows = await self.session.execute(query)
         return [(row[0], int(row[1]), row[2] or "") for row in rows.all()]
 
-    async def scan_queue_size(self) -> int:
+    async def scan_queue_size(self, source_id: Optional[int] = None) -> int:
         """Сколько тредов сейчас в очереди (для сводки в логе/админке)."""
         query = (
             select(func.count())
@@ -91,4 +107,7 @@ class ThreadStateRepository(BaseRepository[ThreadState]):
                 ThreadState.pending_scan.is_(True),
             )
         )
+        if source_id is not None:
+            query = query.where(Board.source_id == source_id)
+
         return int((await self.session.execute(query)).scalar() or 0)

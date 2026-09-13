@@ -41,6 +41,8 @@ LEGACY_KEYS: Dict[str, Dict[str, str]] = {
 
 # TTL «живости» парсера: тот же, что был у одиночного демона
 HEARTBEAT_TTL = 45
+# TTL прогресса прогона (админка опрашивает его раз в секунду)
+PROGRESS_TTL = 300
 
 
 @dataclass(frozen=True)
@@ -102,10 +104,68 @@ async def heartbeat(code: str, *, running: bool, current: Optional[str] = None) 
     if not running:
         await redis_client.delete(k.alive)
         await redis_client.delete(k.current)
+        await _mirror_legacy(code, up="1", alive=None, current=None)
         return
     await redis_client.set(k.alive, "1", ex=HEARTBEAT_TTL)
     if current:
         await redis_client.set(k.current, current, ex=HEARTBEAT_TTL)
+    # Пока админка не перешла на реестр источников, источник по умолчанию (2ch)
+    # дублирует живость в старые ключи — панель показывает прогресс как раньше.
+    await _mirror_legacy(code, up="1", alive="1", current=current)
+
+
+async def write_progress(code: str, payload: Dict[str, Any]) -> None:
+    """Публикует прогресс прогона источника (TTL 5 минут).
+
+    Прогресс у каждого источника свой (`parser:{code}:progress`); для источника по
+    умолчанию он дублируется в старый ключ `parser:progress` — на него смотрит
+    текущая админка.
+    """
+    raw = json.dumps(payload, ensure_ascii=False)
+    try:
+        await redis_client.set(keys(code).progress, raw, ex=PROGRESS_TTL)
+        legacy = LEGACY_KEYS.get(code, {}).get("progress")
+        if legacy:
+            await redis_client.set(legacy, raw, ex=PROGRESS_TTL)
+    except Exception:
+        pass  # прогресс — не повод ронять прогон
+
+
+async def clear_progress(code: str) -> None:
+    """Снимает прогресс источника (прогон закончился/остановлен)."""
+    try:
+        await redis_client.delete(keys(code).progress)
+        legacy = LEGACY_KEYS.get(code, {}).get("progress")
+        if legacy:
+            await redis_client.delete(legacy)
+    except Exception:
+        pass
+
+
+async def _mirror_legacy(
+    code: str,
+    *,
+    up: Optional[str] = None,
+    alive: Optional[str] = None,
+    current: Optional[str] = None,
+) -> None:
+    """Дублирует ключи живости в старые имена (только для источника `dvach`)."""
+    legacy = LEGACY_KEYS.get(code)
+    if not legacy:
+        return
+    try:
+        if up is not None:
+            await redis_client.set(legacy["up"], up, ex=HEARTBEAT_TTL + 15)
+        for field, value in (("alive", alive), ("current", current)):
+            key = legacy.get(field)
+            if not key:
+                continue
+            if value:
+                await redis_client.set(key, value, ex=HEARTBEAT_TTL)
+            else:
+                await redis_client.delete(key)
+    except Exception:
+        pass
 
 
 async def read_status(code: str) -> Dict[str, Any]:
