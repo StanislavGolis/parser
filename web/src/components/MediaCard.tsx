@@ -9,9 +9,7 @@ import {
   EyeIcon,
   FilmIcon,
   ImageIcon,
-  LockIcon,
   PlayIcon,
-  StarIcon,
 } from "@/components/icons";
 import { mediaUrl } from "@/lib/env";
 import { formatBytes, formatCompact, formatDuration } from "@/lib/format";
@@ -79,7 +77,13 @@ export default function MediaCard({ media, board, showTop = false, eager = false
       <span className="block w-full text-left outline-none">
         {/* Превью */}
         <span
-          className="relative block w-full overflow-hidden rounded border border-line bg-ink-secondary transition-colors duration-150 group-hover:border-accent-primary"
+          className={`relative block w-full overflow-hidden rounded border bg-ink-secondary transition-colors duration-150 ${
+            premium === "locked"
+              ? "border-accent-warning"
+              : premium === "granted"
+                ? "border-accent-secondary"
+                : "border-line group-hover:border-accent-primary"
+          }`}
           style={{ aspectRatio: aspect }}
         >
           {/* Подложка: размытый вариант, а если его нет — пульсирующий скелетон */}
@@ -114,7 +118,7 @@ export default function MediaCard({ media, board, showTop = false, eager = false
               onError={() => setFailed(true)}
               className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
                 img.loaded || locked ? "opacity-100" : "opacity-0"
-              } ${locked ? "blur-[8px] scale-110" : ""}`}
+              }`}
             />
           ) : canShow && isVideo ? (
             <>
@@ -133,7 +137,7 @@ export default function MediaCard({ media, board, showTop = false, eager = false
                   onError={() => setFailed(true)}
                   className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
                     img.loaded || locked ? "opacity-100" : "opacity-0"
-                  } ${locked ? "blur-[8px] scale-110" : ""}`}
+                  }`}
                 />
               ) : (
                 <video
@@ -162,19 +166,21 @@ export default function MediaCard({ media, board, showTop = false, eager = false
             </span>
           )}
 
-          {/* Бейджи поверх превью: замок — нет доступа, звезда — премиум по подписке */}
+          {/* Пометка премиума — одна и без иконки: состояние доступа читается по
+              рамке (закрыт — accent-warning, доступен — accent-secondary), поэтому
+              карточка не обрастает значками и не выглядит тяжелее обычной. */}
           <span className="absolute left-1.5 top-1.5 flex items-center gap-1">
-            {premium === "locked" ? (
-              <span className="badge badge-warn" title="Премиум-контент: нужна подписка">
-                <LockIcon className="h-2.5 w-2.5" />
-                premium
-              </span>
-            ) : premium === "granted" ? (
+            {premium ? (
               <span
-                className="badge badge-warn"
-                title="Премиум-контент: доступен по вашей подписке"
+                className={`badge ${
+                  premium === "locked" ? "text-accent-warning" : "text-accent-secondary"
+                }`}
+                title={
+                  premium === "locked"
+                    ? "Премиум-контент: нужна подписка (превью размыто)"
+                    : "Премиум-контент: доступен по вашей подписке"
+                }
               >
-                <StarIcon className="h-2.5 w-2.5" />
                 premium
               </span>
             ) : showTop ? (

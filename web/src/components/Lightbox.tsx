@@ -20,7 +20,6 @@ import {
   ImageIcon,
   LockIcon,
   SpinnerIcon,
-  StarIcon,
 } from "@/components/icons";
 import { apiGet } from "@/lib/api";
 import { mediaUrl } from "@/lib/env";
@@ -376,17 +375,15 @@ export default function Lightbox({
                 {`видео${formatDuration(media.duration_seconds) ? ` ${formatDuration(media.duration_seconds)}` : ""}`}
               </span>
             ) : null}
-            {premium === "locked" ? (
-              <span className="badge badge-warn" title="Премиум-контент: нужна подписка">
-                <LockIcon className="h-2.5 w-2.5" />
-                premium
-              </span>
-            ) : premium === "granted" ? (
+            {premium ? (
               <span
-                className="badge badge-warn"
-                title="Премиум-контент: доступен по вашей подписке"
+                className={`badge ${premium === "locked" ? "badge-warn" : "badge-ok"}`}
+                title={
+                  premium === "locked"
+                    ? "Премиум-контент: нужна подписка"
+                    : "Премиум-контент: доступен по вашей подписке"
+                }
               >
-                <StarIcon className="h-2.5 w-2.5" />
                 premium
               </span>
             ) : null}

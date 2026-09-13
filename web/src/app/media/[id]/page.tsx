@@ -6,7 +6,7 @@ import DownloadButton from "@/components/DownloadButton";
 import MarkButton from "@/components/MarkButton";
 import TrackView from "@/components/TrackView";
 import When from "@/components/When";
-import { ArrowLeftIcon, DownloadIcon, EyeIcon, FilmIcon, LockIcon, StarIcon } from "@/components/icons";
+import { ArrowLeftIcon, DownloadIcon, EyeIcon, FilmIcon, LockIcon } from "@/components/icons";
 import { ApiError } from "@/lib/api";
 import { getBoards, getMediaDetail } from "@/lib/data";
 import { absoluteUrl, mediaUrl } from "@/lib/env";
@@ -198,9 +198,18 @@ export default async function MediaDetailPage({ params }: DetailProps) {
           </nav>
 
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            {premium === "granted" ? (
-              <span className="chip bg-amber-500/15 text-amber-300">
-                <StarIcon className="h-3.5 w-3.5" /> premium
+            {premium ? (
+              <span
+                className={`chip ${
+                  locked ? "bg-amber-500/15 text-amber-300" : "bg-emerald-500/15 text-emerald-300"
+                }`}
+                title={
+                  locked
+                    ? "Премиум-контент: нужна подписка"
+                    : "Премиум-контент: доступен по вашей подписке"
+                }
+              >
+                premium
               </span>
             ) : null}
             {media.media_type === "video" ? (

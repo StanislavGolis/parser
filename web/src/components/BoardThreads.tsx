@@ -8,10 +8,8 @@ import {
   FilmIcon,
   HistoryIcon,
   ImageIcon,
-  LockIcon,
   PlayIcon,
   SpinnerIcon,
-  StarIcon,
 } from "@/components/icons";
 import When from "@/components/When";
 import { apiGet } from "@/lib/api";
@@ -420,14 +418,17 @@ function ThreadCard({
             <span>№{thread.thread_id}</span>
             {thread.is_premium ? (
               <span
-                className="inline-flex items-center gap-1 rounded-[3px] bg-accent-warning/15 px-1.5 py-0.5 text-accent-warning"
+                className={`rounded-[3px] px-1.5 py-0.5 ${
+                  thread.locked
+                    ? "bg-accent-warning/15 text-accent-warning"
+                    : "bg-accent-secondary/15 text-accent-secondary"
+                }`}
                 title={
                   thread.locked
                     ? "Премиум-тред: нужна подписка"
                     : "Премиум-тред: доступен по вашей подписке"
                 }
               >
-                {thread.locked ? <LockIcon className="h-3 w-3" /> : <StarIcon className="h-3 w-3" />}
                 premium
               </span>
             ) : null}
@@ -533,8 +534,14 @@ function ThreadCard({
               type="button"
               onClick={() => onOpenAt(m.id)}
               aria-label={`Открыть: ${m.original_name}`}
-              className={`group relative h-20 w-20 shrink-0 overflow-hidden rounded border bg-ink-tertiary transition-colors hover:border-accent-primary ${
-                resume?.id === m.id ? "border-accent-primary/70" : "border-line"
+              className={`group relative h-20 w-20 shrink-0 overflow-hidden rounded border bg-ink-tertiary transition-colors ${
+                resume?.id === m.id
+                  ? "border-accent-primary/70"
+                  : m.locked
+                    ? "border-accent-warning"
+                    : premiumState(m) === "granted"
+                      ? "border-accent-secondary"
+                      : "border-line hover:border-accent-primary"
               }`}
             >
               {m.thumb_url || m.url ? (
@@ -545,7 +552,7 @@ function ThreadCard({
                   loading="lazy"
                   decoding="async"
                   referrerPolicy="no-referrer"
-                  className={`h-full w-full object-cover ${m.locked ? "blur-[7px] scale-110" : ""}`}
+                  className="h-full w-full object-cover"
                 />
               ) : (
                 <span className="flex h-full w-full items-center justify-center bg-ink-tertiary">
@@ -556,19 +563,19 @@ function ThreadCard({
                   )}
                 </span>
               )}
-              {m.locked ? (
-                <span className="absolute inset-0 flex items-center justify-center bg-black/35">
-                  <span className="inline-flex items-center gap-1 rounded-[3px] bg-black/70 px-1.5 py-0.5 font-mono text-[9px] uppercase text-accent-warning">
-                    <LockIcon className="h-2.5 w-2.5" />
-                    premium
-                  </span>
-                </span>
-              ) : premiumState(m) === "granted" ? (
+              {/* Пометка премиума одна и без иконки: доступ виден по рамке превью */}
+              {premiumState(m) ? (
                 <span
-                  className="absolute left-0.5 top-0.5 inline-flex items-center gap-0.5 rounded-[3px] bg-black/60 px-1 py-0.5 text-[9px] uppercase text-accent-warning"
-                  title="Премиум-контент: доступен по вашей подписке"
+                  className={`pointer-events-none absolute left-0.5 top-0.5 rounded-[3px] bg-black/70 px-1 py-0.5 font-mono text-[9px] uppercase leading-none ${
+                    m.locked ? "text-accent-warning" : "text-accent-secondary"
+                  }`}
+                  title={
+                    m.locked
+                      ? "Премиум-контент: нужна подписка"
+                      : "Премиум-контент: доступен по вашей подписке"
+                  }
                 >
-                  <StarIcon className="h-2.5 w-2.5" />
+                  premium
                 </span>
               ) : null}
               {/* Маркер видео: значок ▶ и длительность (как на карточках галереи) */}

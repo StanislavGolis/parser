@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
-import { LockIcon, StarIcon } from "@/components/icons";
 import { mediaUrl } from "@/lib/env";
 import { formatNumber } from "@/lib/format";
 import type { Board } from "@/lib/types";
@@ -161,18 +160,13 @@ export default function BoardsCatalog({ boards }: { boards: Board[] }) {
                 </div>
                 {b.is_premium ? (
                   <span
-                    className="badge badge-warn shrink-0"
+                    className={`badge shrink-0 ${b.locked ? "badge-warn" : "badge-ok"}`}
                     title={
                       b.locked
                         ? "Премиум-раздел: нужна подписка"
                         : "Премиум-раздел: доступен по вашей подписке"
                     }
                   >
-                    {b.locked ? (
-                      <LockIcon className="h-2.5 w-2.5" />
-                    ) : (
-                      <StarIcon className="h-2.5 w-2.5" />
-                    )}
                     premium
                   </span>
                 ) : null}
