@@ -1,14 +1,25 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import Lightbox from "@/components/Lightbox";
-import { FilmIcon, ImageIcon, LockIcon, PlayIcon, SpinnerIcon, StarIcon } from "@/components/icons";
+import {
+  CloseIcon,
+  FilmIcon,
+  HistoryIcon,
+  ImageIcon,
+  LockIcon,
+  PlayIcon,
+  SpinnerIcon,
+  StarIcon,
+} from "@/components/icons";
 import When from "@/components/When";
 import { apiGet } from "@/lib/api";
 import { mediaUrl } from "@/lib/env";
 import { thumbSrc, premiumState } from "@/lib/media";
-import { formatDuration, formatNumber, plural } from "@/lib/format";
+import { formatDuration, formatNumber, formatRelative, plural } from "@/lib/format";
+import { clearResume, getResume, readResumes, resumeIndex } from "@/lib/resume";
+import type { ResumeMap, ResumePoint } from "@/lib/resume";
 import type { BoardThread, MediaItem, MediaList, ThreadList } from "@/lib/types";
 
 const PER_PAGE = 15;
@@ -33,6 +44,13 @@ export default function BoardThreads({ slug, initial }: BoardThreadsProps) {
   // Lightbox с файлами конкретного треда
   const [lightbox, setLightbox] = useState<{ items: MediaItem[]; index: number } | null>(null);
   const [openingThread, setOpeningThread] = useState<number | null>(null);
+
+  // Точки возврата «продолжить просмотр» (localStorage). Читаем после
+  // монтирования: на сервере хранилища нет, иначе SSR и первый рендер разошлись бы.
+  const [resumes, setResumes] = useState<ResumeMap>({});
+  useEffect(() => {
+    setResumes(readResumes());
+  }, []);
 
   const hasMore = threads.length < total;
 
@@ -63,12 +81,18 @@ export default function BoardThreads({ slug, initial }: BoardThreadsProps) {
     return apiGet<MediaList>(`/api/v1/boards/${encodeURIComponent(slug)}/media?${q}`);
   }
 
-  async function openThread(threadId: number, startIndex = 0) {
+  /**
+   * Открывает файлы треда в лайтбоксе. Без явного индекса продолжаем с того
+   * файла, который зритель смотрел последним: файл ищем по id, сохранённая
+   * позиция — только запасной вариант (см. lib/resume).
+   */
+  async function openThread(threadId: number, startIndex?: number) {
     setOpeningThread(threadId);
     try {
       const data = await fetchThreadMedia(threadId);
       if (data.items.length === 0) return;
-      setLightbox({ items: data.items, index: Math.min(startIndex, data.items.length - 1) });
+      const index = startIndex ?? resumeIndex(getResume(threadId), data.items);
+      setLightbox({ items: data.items, index: Math.min(index, data.items.length - 1) });
     } catch {
       setError("Не удалось открыть тред. Попробуйте ещё раз.");
     } finally {
@@ -97,8 +121,14 @@ export default function BoardThreads({ slug, initial }: BoardThreadsProps) {
             slug={slug}
             thread={t}
             opening={openingThread === t.thread_id}
-            onOpenAll={() => void openThread(t.thread_id)}
+            resume={resumes[`t${t.thread_id}`] ?? null}
+            onOpenAll={() => void openThread(t.thread_id, 0)}
             onOpenAt={(i) => void openThread(t.thread_id, i)}
+            onResume={() => void openThread(t.thread_id)}
+            onForget={() => {
+              clearResume(t.thread_id);
+              setResumes(readResumes());
+            }}
           />
         ))}
       </div>
@@ -122,7 +152,11 @@ export default function BoardThreads({ slug, initial }: BoardThreadsProps) {
         <Lightbox
           items={lightbox.items}
           index={lightbox.index}
-          onClose={() => setLightbox(null)}
+          // при закрытии обновляем чипы «продолжить»: точка возврата сдвинулась
+          onClose={() => {
+            setLightbox(null);
+            setResumes(readResumes());
+          }}
           onPrev={() =>
             setLightbox((lb) =>
               lb && lb.items.length > 1
@@ -147,14 +181,21 @@ function ThreadCard({
   slug,
   thread,
   opening,
+  resume,
   onOpenAll,
   onOpenAt,
+  onResume,
+  onForget,
 }: {
   slug: string;
   thread: BoardThread;
   opening: boolean;
+  /** Последний просмотренный файл треда (или null — треда нет в истории). */
+  resume: ResumePoint | null;
   onOpenAll: () => void;
   onOpenAt: (index: number) => void;
+  onResume: () => void;
+  onForget: () => void;
 }) {
   const title = thread.subject?.trim() || `Тред #${thread.thread_id}`;
   const preview = thread.preview;
@@ -208,6 +249,40 @@ function ThreadCard({
         </div>
       </div>
 
+      {/* Продолжить просмотр: точка возврата этого треда (localStorage клиента) */}
+      {resume ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line bg-accent-primary/5 px-4 py-2 font-mono text-[11px]">
+          <span
+            className="inline-flex items-center gap-1.5 text-accent-primary"
+            title="На момент последнего просмотра этого треда"
+          >
+            <HistoryIcon className="h-3.5 w-3.5" />
+            смотрели файл {resume.index + 1}
+            {resume.total > 0 ? ` из ${resume.total}` : ""}
+          </span>
+          <span className="text-text-muted">{formatRelative(new Date(resume.at).toISOString())}</span>
+          <button
+            type="button"
+            onClick={onResume}
+            disabled={opening}
+            className="inline-flex items-center gap-1.5 rounded border border-accent-primary/50 px-2 py-1 text-accent-primary transition-colors hover:bg-accent-primary/15 disabled:opacity-50"
+            title="Открыть тред на этом файле и листать дальше — с того места, где остановились"
+          >
+            {opening ? <SpinnerIcon className="h-3.5 w-3.5" /> : <PlayIcon className="h-3 w-3" />}
+            продолжить
+          </button>
+          <button
+            type="button"
+            onClick={onForget}
+            className="ml-auto rounded p-1 text-text-muted transition-colors hover:text-text-primary"
+            aria-label="Забыть точку возврата"
+            title="Забыть: тред откроется с начала"
+          >
+            <CloseIcon className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ) : null}
+
       {/* Превью файлов */}
       {preview.length > 0 ? (
         <div className="flex gap-2 overflow-x-auto px-4 py-3 sm:px-4">
@@ -217,7 +292,9 @@ function ThreadCard({
               type="button"
               onClick={() => onOpenAt(i)}
               aria-label={`Открыть: ${m.original_name}`}
-              className="group relative h-20 w-20 shrink-0 overflow-hidden rounded border border-line bg-ink-tertiary transition-colors hover:border-accent-primary"
+              className={`group relative h-20 w-20 shrink-0 overflow-hidden rounded border bg-ink-tertiary transition-colors hover:border-accent-primary ${
+                resume?.id === m.id ? "border-accent-primary/70" : "border-line"
+              }`}
             >
               {m.thumb_url || m.url ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -261,6 +338,15 @@ function ThreadCard({
                 >
                   <PlayIcon className="h-2.5 w-2.5" />
                   {formatDuration(m.duration_seconds) || ""}
+                </span>
+              ) : null}
+              {/* Метка «здесь вы остановились» — на том же превью, что и в точке возврата */}
+              {resume?.id === m.id ? (
+                <span
+                  className="pointer-events-none absolute bottom-0.5 left-0.5 inline-flex items-center gap-0.5 rounded-[3px] bg-black/70 px-1 py-0.5 font-mono text-[9px] leading-none text-accent-primary"
+                  title="Здесь вы остановились в прошлый раз"
+                >
+                  <HistoryIcon className="h-2.5 w-2.5" />
                 </span>
               ) : null}
             </button>

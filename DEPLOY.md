@@ -404,6 +404,11 @@ curl -s "$BASE/sitemap.xml" | grep -c "<url>"                                   
 curl -sI "$BASE/" | grep -Ei 'server|x-powered-by'                              # Server: nginx (без версии), без X-Powered-By
 curl -s "$BASE/" | grep -o 'application/ld+json' | head -1                       # микроразметка на месте
 curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' "$BASE/-" -H 'Host: www.dredg.ru'  # www → 301 на основной домен
+# клиентские фичи — проверяются в бандле внутри контейнера web:
+docker compose -f docker-compose.prod.yml exec -T web \
+  sh -c "grep -rl 'продолжить' /app/.next/static/chunks/*.js | head -1"          # кнопка «продолжить просмотр»
+docker compose -f docker-compose.prod.yml exec -T web \
+  sh -c "grep -rl 'сортировка: файлов' /app/.next/static/chunks/*.js | head -1"  # автосортировка разделов
 ```
 
 Чек-лист:
@@ -418,7 +423,9 @@ curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' "$BASE/-" -H 'Host: www
 - [ ] регистрация → «Активировать премиум» в `/profile` → премиум-файл открывается;
 - [ ] парсер запускается из админки, в треде появляются записи (и на сайте);
 - [ ] `robots.txt` и `sitemap.xml` отдаются, canonical в HTML указывает на `https://dredg.ru`;
-- [ ] в заголовках нет версии nginx и `X-Powered-By`; `www` редиректит на основной домен.
+- [ ] в заголовках нет версии nginx и `X-Powered-By`; `www` редиректит на основной домен;
+- [ ] в бандле web есть «продолжить» (точка возврата треда, localStorage) и
+      «сортировка: файлов ↓» в каталоге разделов.
 
 ## Диагностика
 

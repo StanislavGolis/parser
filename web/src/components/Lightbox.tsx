@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import Link from "next/link";
 
@@ -24,6 +24,7 @@ import { apiGet } from "@/lib/api";
 import { mediaUrl } from "@/lib/env";
 import { formatBytes, formatCompact, formatDuration } from "@/lib/format";
 import { webSrc, premiumState } from "@/lib/media";
+import { saveResume } from "@/lib/resume";
 import { useMarkToggle } from "@/lib/useMark";
 import type { BoardsById, MediaItem, ViewResult } from "@/lib/types";
 
@@ -97,6 +98,23 @@ export default function Lightbox({ items, index, boardsById, onClose, onPrev, on
   useEffect(() => {
     setFailed(false);
   }, [media?.id, media?.url]);
+
+  // Точка возврата «продолжить просмотр»: запоминаем, какой файл треда открыт
+  // сейчас, чтобы в следующий заход открыть тред на нём. Пишем только для
+  // тредовой галереи: в смешанной ленте (главная, поиск, метки) позиция ничего
+  // не значит — продолжать там нечего.
+  const resumeThreadId = useMemo(
+    () =>
+      items.length > 0 && items.every((m) => m.thread_id === items[0].thread_id)
+        ? items[0].thread_id
+        : 0,
+    [items],
+  );
+
+  useEffect(() => {
+    if (!resumeThreadId || !media) return;
+    saveResume(resumeThreadId, media.id, index, items.length);
+  }, [resumeThreadId, media, index, items.length]);
 
   // ── Свайпы (мобильные) ───────────────────────────────────────────
   // Влево/вправо — листать файлы, вниз — закрыть. Жесты, начатые на видео
