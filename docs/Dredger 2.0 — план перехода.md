@@ -95,17 +95,34 @@
 **Осталось от фазы:** вход в браузере под своим аккаунтом (email+пароль — до появления
 бота), затем в GSC/Яндекс.Вебмастере проверять выпадение страниц; §5 шаг 4 позже.
 
-### Фаза 2. Бот и magic link (4–7 дней)
-- [ ] Миграция: `users.telegram_id` (unique), `users.telegram_username`,
-      таблица `auth_magic_links` (token_hash, user_id, expires_at, used_at).
-- [ ] Сервис `telegram-gateway` (long polling, aiogram 3) в compose:
-      `/start`, `/subscribe`, `/status`, `/link`, `/help`.
-- [ ] `/link` → одноразовая ссылка `https://dredg.ru/auth/magic?token=…` (TTL 10 мин).
-- [ ] API: `GET /api/v1/auth/magic?token=…` → сессия (как сейчас) → редирект на `/`;
-      повторное использование токена запрещено.
-- [ ] Привязка: `User` создаётся по `telegram_id` (email не требуется).
-- [ ] `/login`: кнопка «Войти через Telegram» основной, форма пароля — скрыта.
-- **DoD:** новый пользователь за 2 клика (бот → ссылка) на сайте; токен одноразовый.
+### Фаза 2. Бот и magic link (4–7 дней) — **серверная часть готова 14.09.2026**
+- [x] Миграция `d5e6f7a8b9c0`: `users.telegram_id` (unique), `users.telegram_username`,
+      `users.email`/`password_hash` стали nullable; таблица `auth_magic_links`
+      (token_hash, user_id, expires_at, used_at, created_at, created_ip).
+- [x] `src/services/magic_link.py`: выпуск, погашение (одноразовость), создание аккаунта
+      по Telegram ID.
+- [x] Ручки: `GET /api/v1/auth/magic?token=…` (ставит cookie сессии),
+      `POST /api/v1/auth/magic/issue` (для бота, доступ по токену бота, без токена — 503),
+      `POST /api/v1/admin/users/{id}/magic-link` (ручная выдача VIP из админки).
+- [x] Web: `/auth/magic` (route handler переносит cookie API и уводит на `/`),
+      кнопка «Войти через Telegram» на `/login` (появляется при заданном нике бота).
+- [x] Конфиг: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_CHANNEL`,
+      `MAGIC_LINK_TTL_MINUTES` (10 мин) — в compose и `.env`.
+- [ ] Сервис `telegram-gateway` (long polling, aiogram 3): `/start`, `/subscribe`,
+      `/status`, `/link`, `/help` — **ждёт токен бота от BotFather**.
+- **DoD:** новый пользователь за 2 клика (бот → ссылка) попадает на сайт
+  авторизованным; токен одноразовый. ✔ (проверено через админскую выдачу ссылки)
+
+**Проверено на проде:** переход по ссылке → 307 + cookie сессии; `/api/v1/auth/me` → 200
+(`id 3, stanislav.golis@yandex.ru`); главная и `/boards` с сессией → 200; повторный
+переход по ссылке → сессии нет (`me` → 401); бот-ручка без токена → 503; аноним → 307.
+
+**Инцидент при выкатке (для истории):** первый вариант миграции получил revision
+`a2b3c4d5e6f7`, который уже занят (`media_source_order`) → alembic видел «multiple
+heads» и падал, API отдавал 502 ~15 минут. Уроки: (1) сверять `alembic heads` перед
+созданием миграции; (2) миграции лежат **внутри образа** — после правки файла нужен
+`build api`, иначе контейнер `migrate` берёт старую копию.
+
 
 ### Фаза 3. Канал и тизеры (3–4 дня)
 - [ ] Генератор тизера: обложка + подпись + кнопка «Открыть в боте».
