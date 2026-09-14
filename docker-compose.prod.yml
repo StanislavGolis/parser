@@ -51,6 +51,10 @@ x-backend: &backend
     # забивает CPU/диск, а плеер играет оригинал инлайном (см. DEPLOY.md про /raw).
     # Включается одной переменной: PARSER_VIDEO_WEB_ENABLED=1 в .env.
     VIDEO_WEB_ENABLED: ${PARSER_VIDEO_WEB_ENABLED:-0}
+
+    # Режим сайта (модель Dredger 2.0): `closed` — закрытая платформа (контент
+    # только по сессии, индексация запрещена), `public` — прежнее поведение.
+    SITE_MODE: ${SITE_MODE:-public}
     MEDIA_DELIVERY: ${MEDIA_DELIVERY:-proxy}
 
     # API (общие настройки нужны и парсеру тоже)
@@ -320,6 +324,9 @@ services:
     build:
       context: ./web
       dockerfile: Dockerfile
+      args:
+        # Режим сайта нужен на этапе сборки: middleware запекает env
+        SITE_MODE: ${SITE_MODE:-public}
     environment:
       # SSR внутри сети compose ходит на API по внутреннему имени
       API_BASE_SERVER: http://api:8000
@@ -330,6 +337,8 @@ services:
       YANDEX_VERIFICATION: ${YANDEX_VERIFICATION:-}
       # Ключ IndexNow отдаётся по /indexnow-key.txt: поисковик проверяет владение сайтом
       INDEXNOW_KEY: ${INDEXNOW_KEY:-}
+      # Режим сайта (Dredger 2.0): `closed` — сайт за логином и без индексации
+      SITE_MODE: ${SITE_MODE:-public}
       # NEXT_PUBLIC_API_BASE не задаём: браузер ходит на тот же origin
       # (/api проксируется nginx на сервис api).
     healthcheck:

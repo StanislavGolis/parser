@@ -6,12 +6,15 @@
 """
 import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import select
 
 from src.api.routes import (
     admin,
@@ -36,7 +39,9 @@ from src.api.routes import (
 from src.api.services import recalc_popularity
 from src.core.config import settings
 from src.core.db import async_session_factory
+from src.core.models import User, UserSession
 from src.core.redis_client import redis_client
+from src.services import auth as auth_service
 from src.services import reporting
 from src.services.analytics import cleanup_analytics
 
@@ -192,6 +197,66 @@ async def count_api_errors(request: Request, call_next):
         except Exception:  # noqa: BLE001 — счётчик не должен ломать ответ
             logger.debug("Счётчик ошибок API не записан", exc_info=True)
     return response
+
+
+# ── Закрытый режим (Dredger 2.0): контент только для вошедших ─────────────────
+# Сайт закрыт целиком, поэтому недостаточно прятать страницы: файлы, превью и
+# списки отдаёт API. Требуем действующую сессию для всех контентных ручек, а
+# открытыми оставляем вход, healthz и админку (у неё своя защита токеном).
+CLOSED_MODE_OPEN_PREFIXES = (
+    "/api/v1/auth/",
+    "/api/v1/admin/",
+    "/docs",
+    "/openapi.json",
+)
+# Кэш проверок сессии: middleware вызывается на каждый запрос, а валидность токена
+# меняется редко. 30 секунд — компромисс между нагрузкой на БД и скоростью отзыва.
+SESSION_CACHE_TTL = 30.0
+SESSION_CACHE_MAX = 500
+_session_cache: dict[str, tuple[float, bool]] = {}
+
+
+async def _session_is_valid(token: str) -> bool:
+    """Есть ли действующая сессия с таким токеном (один запрос, с кэшем)."""
+    token_hash = auth_service.token_hash(token)
+    now = time.monotonic()
+    cached = _session_cache.get(token_hash)
+    if cached and cached[0] > now:
+        return cached[1]
+
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(UserSession.id)
+            .join(User, User.id == UserSession.user_id)
+            .where(
+                UserSession.token_hash == token_hash,
+                UserSession.expires_at > datetime.utcnow(),
+                User.is_active.is_(True),
+            )
+            .limit(1)
+        )
+        valid = result.scalar_one_or_none() is not None
+
+    if len(_session_cache) >= SESSION_CACHE_MAX:
+        _session_cache.clear()
+    _session_cache[token_hash] = (now + SESSION_CACHE_TTL, valid)
+    return valid
+
+
+@app.middleware("http")
+async def guard_closed_mode(request: Request, call_next):
+    """В закрытом режиме контентные ручки API требуют вход.
+
+    Аноним получает 401 (на этом основании web уводит на `/login`), вошедший —
+    обычный ответ. Результат проверки кэшируется на 30 секунд.
+    """
+    path = request.url.path
+    if settings.site_closed and path.startswith("/api/"):
+        if not path.startswith(CLOSED_MODE_OPEN_PREFIXES):
+            token = request.cookies.get(auth_service.COOKIE_NAME)
+            if not token or not await _session_is_valid(token):
+                return JSONResponse({"detail": "Требуется вход"}, status_code=401)
+    return await call_next(request)
 
 
 @app.get("/healthz")

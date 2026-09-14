@@ -25,6 +25,10 @@ CMD ["sh", "-c", "if [ ! -d node_modules ] || [ -z \"$(ls -A node_modules | head
 
 # ── Продакшен-сборка (standalone) ──────────────────────────────
 FROM deps AS build
+# Режим сайта (Dredger 2.0). В middleware Next переменные запекаются на этапе
+# сборки, поэтому значение обязано попасть сюда, а не только в runtime-env.
+ARG SITE_MODE=public
+ENV SITE_MODE=$SITE_MODE
 COPY . .
 RUN npm run build
 

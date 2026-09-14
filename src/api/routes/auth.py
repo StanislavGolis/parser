@@ -92,7 +92,13 @@ async def register(
     response: Response,
     session: AsyncSession = Depends(get_session),
 ):
-    """Регистрация нового пользователя (доступ к оригиналам)."""
+    """Регистрация нового пользователя (доступ к оригиналам).
+
+    В закрытом режиме (Dredger 2.0) регистрация выключена: аккаунт появляется
+    только через Telegram-бота (`/link`), а вход — по magic link.
+    """
+    if settings.site_closed:
+        raise HTTPException(status_code=403, detail="Регистрация закрыта")
     await check_rate_limit(client_ip(request))
 
     email = payload.email.strip().lower()

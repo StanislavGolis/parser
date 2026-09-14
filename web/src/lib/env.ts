@@ -25,6 +25,22 @@ export function joinApi(base: string, path: string): string {
  */
 export const SITE_URL = (process.env.SITE_URL ?? "https://dredg.ru").replace(/\/+$/, "");
 
+/**
+ * Режим сайта (модель Dredger 2.0):
+ * - `public` — текущее поведение: контент открыт, SEO включён;
+ * - `closed` — сайт закрыт: анонимные запросы уходят на `/login`, поисковикам всё
+ *   запрещено (`X-Robots-Tag: noindex`, `robots: Disallow: /`, карты → 404),
+ *   age gate и онбординг не показываются.
+ *
+ * Режим, а не удаление кода: публичную зону (`safe.dredg.ru`) можно поднять на тех
+ * же компонентах, просто вернув `SITE_MODE=public`.
+ */
+export const SITE_MODE = (process.env.SITE_MODE ?? "public").trim().toLowerCase();
+export const SITE_CLOSED = SITE_MODE === "closed";
+
+/** Пути, доступные без входа в закрытом режиме (проверяем по префиксу). */
+export const PUBLIC_PATHS = ["/login", "/auth", "/healthz", "/robots.txt", "/favicon.ico"];
+
 /** Разрешает URL медиа из API (относительный /api/... → адрес клиентского API). */
 export function mediaUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;

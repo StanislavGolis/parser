@@ -7,7 +7,7 @@
 // Персональные и служебные страницы (админка, профиль, метки, поиск) не включаем —
 // они закрыты и в robots.txt.
 import { getSitemapMediaPage, getSitemapThreadsPage, getSitemapVideoPage } from "@/lib/data";
-import { SITE_URL, pagesFor, xmlIndex, xmlResponse } from "@/lib/sitemap";
+import { SITE_CLOSED, SITE_URL, pagesFor, xmlIndex, xmlResponse } from "@/lib/sitemap";
 
 export const revalidate = 3600; // пересобираем раз в час
 // Генерируем по запросу: карта должна сразу содержать разделы и свежие файлы,
@@ -17,6 +17,9 @@ export const dynamic = "force-dynamic";
 const now = () => new Date().toISOString();
 
 export async function GET(): Promise<Response> {
+  // Закрытый режим: карт нет — сайт не индексируется (см. план §5)
+  if (SITE_CLOSED) return new Response("Not found", { status: 404 });
+
   // Число страниц узнаём «пробным» запросом: нужен только total
   const [threads, media, videos] = await Promise.all([
     getSitemapThreadsPage(1, 1).catch(() => null),

@@ -8,9 +8,10 @@
  * компонентах используйте src/lib/api.ts.
  */
 import { cookies, headers } from "next/headers";
+import { redirect } from "next/navigation";
 
 import { ApiError } from "./api";
-import { SERVER_API_BASE } from "./env";
+import { SERVER_API_BASE, SITE_CLOSED } from "./env";
 import { LAST_VISIT_COOKIE } from "./visit";
 import type {
   Board,
@@ -70,6 +71,8 @@ async function serverFetch<T>(path: string, revalidate: number, fallback?: T): P
     throw new ApiError(0, "API недоступен");
   }
   if (!res.ok) {
+    // Закрытый режим: сессия отсутствует или истекла — на вход, а не ошибка
+    if (SITE_CLOSED && res.status === 401) redirect("/login");
     if (fallback !== undefined && res.status >= 500) return fallback;
     throw new ApiError(res.status, `API ${res.status}: ${res.statusText}`);
   }
