@@ -75,16 +75,25 @@
 - [ ] Черновики ToS / DMCA / Privacy (нужны в фазе 5, готовим сразу).
 - **DoD:** решения зафиксированы, токены в `.env`, тексты готовы.
 
-### Фаза 1. Закрытие сайта (2–3 дня)
-- [ ] `SITE_MODE=closed|public` в `web/src/lib/env.ts` и в compose.
-- [ ] `middleware.ts`: в закрытом режиме все пути, кроме `/login`, `/auth/*`,
-      `/healthz`, редиректят неавторизованных на `/login`; для API без сессии — 401.
-- [ ] `X-Robots-Tag: noindex, nofollow, noarchive` глобально (Next headers + nginx).
-- [ ] `sitemap.xml` и карты → 404; cron IndexNow выключить.
-- [ ] `robots.txt` → `Disallow: /` (вторым шагом, после окна noindex — §5).
-- [ ] `/t/{id}` остаётся внутренним роутом (за логином), из карт исключён.
-- [ ] Age gate и онбординг — не рендерить; регистрация по email — закрыть.
-- **DoD:** аноним → `/login`; `X-Robots-Tag` везде; API без сессии → 401.
+### Фаза 1. Закрытие сайта (2–3 дня) — **выполнено 14.09.2026**
+- [x] `SITE_MODE=closed|public` (`web/src/lib/env.ts`, `src/core/config.py`, compose).
+- [x] `middleware.ts`: анонимы → `307` на `/login` (кроме `/login`, `/auth/*`, `/healthz`,
+      `/robots.txt`, `/favicon`); API без сессии → `401` (`guard_closed_mode`).
+- [x] `X-Robots-Tag: noindex, nofollow, noarchive` глобально (middleware).
+- [x] `sitemap.xml` и карты → `404` (проверено под сессией; аноним получает редирект).
+- [x] cron IndexNow выключен (`chmod -x /etc/cron.hourly/dredge-indexnow`).
+- [ ] `robots.txt` → `Disallow: /` — **шаг 4**, через 2–4 недели (сейчас обход открыт,
+      чтобы робот увидел `noindex`; в закрытом режиме закрыты только служебные пути).
+- [x] `/t/{id}` остался внутренним роутом (за логином), из карт исключён.
+- [x] Age gate и онбординг не рендерятся; регистрация по email закрыта (`403`).
+- **DoD:** аноним → `/login`; `X-Robots-Tag` везде; API без сессии → `401`. ✔
+
+**Проверено на проде:** `/` → 307, `X-Robots-Tag: noindex…`, robots без `Disallow: /`,
+`/sitemap.xml` → 404 (под сессией), API аноним → 401, `/healthz` и `/login` → 200,
+`register` → 403, админский API с токеном → 200, парсеры работают, load ~2.
+
+**Осталось от фазы:** вход в браузере под своим аккаунтом (email+пароль — до появления
+бота), затем в GSC/Яндекс.Вебмастере проверять выпадение страниц; §5 шаг 4 позже.
 
 ### Фаза 2. Бот и magic link (4–7 дней)
 - [ ] Миграция: `users.telegram_id` (unique), `users.telegram_username`,
