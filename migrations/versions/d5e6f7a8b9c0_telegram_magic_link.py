@@ -4,8 +4,8 @@
 (пароль не нужен), вход — по одноразовой ссылке: бот присылает `/auth/magic?token=…`,
 ссылка живёт `MAGIC_LINK_TTL_MINUTES` и после использования гаснет.
 
-Revision ID: a2b3c4d5e6f7
-Revises: z1a2b3c4d5e6
+Revision ID: d5e6f7a8b9c0
+Revises: c4d5e6f7a8b9
 Create Date: 2026-09-14 12:00:00.000000
 
 """
@@ -16,8 +16,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'a2b3c4d5e6f7'
-down_revision: Union[str, None] = 'z1a2b3c4d5e6'
+revision: str = 'd5e6f7a8b9c0'
+down_revision: Union[str, None] = 'c4d5e6f7a8b9'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
