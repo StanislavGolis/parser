@@ -16,23 +16,21 @@ function safeNext(value: string | null): string {
 }
 
 /**
- * Публичный адрес сайта для редиректов.
+ * Публичный адрес сайта для редиректов — всегда `SITE_URL`.
  *
- * За nginx `request.url` внутри контейнера указывает на `http://0.0.0.0:3000`, и
- * редирект уводил браузер на этот внутренний адрес (белый экран). Поэтому берём
- * хост из заголовков прокси, а если их нет — `SITE_URL` из окружения.
+ * За nginx `request.url` внутри контейнера указывает на `http://0.0.0.0:3000` (из-за
+ * этого браузер получал белый экран), а `X-Forwarded-Proto` приходит как `http`,
+ * потому что nginx ходит в контейнер по http. Домен — один (зеркал нет), поэтому
+ * берём его из окружения: получается сразу `https://dredg.ru/…` без лишнего редиректа.
  */
-function baseUrl(request: NextRequest): string {
-  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
-  if (!host) return SITE_URL;
-  const proto = request.headers.get("x-forwarded-proto") ?? "https";
-  return `${proto}://${host}`;
+function baseUrl(): string {
+  return SITE_URL;
 }
 
 export async function GET(request: NextRequest): Promise<Response> {
   const token = request.nextUrl.searchParams.get("token") ?? "";
   const next = safeNext(request.nextUrl.searchParams.get("next"));
-  const base = baseUrl(request);
+  const base = baseUrl();
   const loginUrl = new URL("/login", base);
 
   if (!token) {
