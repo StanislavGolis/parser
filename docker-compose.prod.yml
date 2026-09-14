@@ -176,6 +176,15 @@ services:
     command: ["python", "src/main.py"]
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-parser}:${POSTGRES_PASSWORD:-parser-pass}@postgres:5432/${POSTGRES_DB:-parser}
+      # Транскодирование видео выключено: на этом VPS ffmpeg забивает диск и CPU
+      # (именно это уронило сервер). Включается одной переменной:
+      # PARSER_VIDEO_WEB_ENABLED=1 в .env. Постеры (thumb) генерируются всегда.
+      VIDEO_WEB_ENABLED: ${PARSER_VIDEO_WEB_ENABLED:-0}
+      # Пул соединений к БД (значения по умолчанию — в src/core/config.py)
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-15}
+      DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-1800}
       REDIS_URL: redis://redis:6379/0
       S3_URL: ${S3_URL:-https://s3.twcstorage.ru}
       S3_REGION: ${S3_REGION:-ru-1}
@@ -219,6 +228,14 @@ services:
     command: ["python", "src/main.py"]
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-parser}:${POSTGRES_PASSWORD:-parser-pass}@postgres:5432/${POSTGRES_DB:-parser}
+      # Транскодирование видео выключено: ffmpeg на этом VPS забивает диск
+      # (именно это уронило сервер). Включается: PARSER_VIDEO_WEB_ENABLED=1
+      VIDEO_WEB_ENABLED: ${PARSER_VIDEO_WEB_ENABLED:-0}
+      # Пул соединений к БД (значения по умолчанию — в src/core/config.py)
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-15}
+      DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-1800}
       REDIS_URL: redis://redis:6379/0
       S3_URL: ${S3_URL:-https://s3.twcstorage.ru}
       S3_REGION: ${S3_REGION:-ru-1}
