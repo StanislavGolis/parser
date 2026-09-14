@@ -31,7 +31,11 @@ export default function LoginPage() {
       // Серверные компоненты (премиум-превью, метки) обновляем через refresh.
       notifyAuthChanged();
       router.refresh();
-      router.push("/");
+      // Возвращаем туда, куда шёл пользователь: в закрытом режиме middleware
+      // добавляет `?next=/board/...` при редиректе на вход. Проверяем, что путь
+      // свой (начинается с «/» и не «//»), иначе уходим на главную.
+      const next = new URLSearchParams(window.location.search).get("next");
+      router.push(next && next.startsWith("/") && !next.startsWith("//") ? next : "/");
     } catch (err) {
       setError(err instanceof ApiError ? (err.detail ?? err.message) : "Ошибка");
     } finally {
