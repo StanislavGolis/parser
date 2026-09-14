@@ -124,6 +124,9 @@ class MediaCache:
             return None
         self.stored += 1
         self._dirty = True
+        # Гарантируем бюджет: без этого кэш рос сверх лимита (в проде — до 115%
+        # от MEDIA_CACHE_MAX_BYTES). Сам sweep не чаще SWEEP_MIN_INTERVAL.
+        self.sweep()
         return dest
 
     def store_bytes(self, key: str, data: bytes) -> Optional[Path]:
@@ -141,6 +144,7 @@ class MediaCache:
             return None
         self.stored += 1
         self._dirty = True
+        self.sweep()
         return dest
 
     def path_for_part(self, key: str) -> Path:
