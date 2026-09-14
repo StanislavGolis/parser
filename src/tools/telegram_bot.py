@@ -64,6 +64,15 @@ MAIN_KEYBOARD = {
 }
 
 
+# Меню команд в интерфейсе Telegram (подсказки в поле ввода)
+BOT_COMMANDS = [
+    {"command": "link", "description": "Ссылка для входа на сайт"},
+    {"command": "status", "description": "Статус подписки"},
+    {"command": "subscribe", "description": "Тарифы и оплата"},
+    {"command": "help", "description": "Помощь"},
+]
+
+
 class BotClient:
     """Минимальный клиент Bot API через aiohttp (без внешних зависимостей)."""
 
@@ -235,6 +244,8 @@ async def main() -> None:
         me = await bot.call("getMe")
         if isinstance(me, dict):
             logger.info("Подключён как @%s", me.get("username"))
+            # Меню команд в Telegram: появляется при вводе «/»
+            await bot.call("setMyCommands", commands=BOT_COMMANDS)
 
         offset: Optional[int] = None
         while True:
