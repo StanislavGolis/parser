@@ -5,7 +5,7 @@
 // одноразовая: повторный переход вернёт 401 и уведёт на форму входа.
 import { NextResponse, type NextRequest } from "next/server";
 
-import { SERVER_API_BASE } from "@/lib/env";
+import { SERVER_API_BASE, SITE_URL } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 
@@ -15,10 +15,25 @@ function safeNext(value: string | null): string {
   return value.startsWith("/") && !value.startsWith("//") ? value : "/";
 }
 
+/**
+ * Публичный адрес сайта для редиректов.
+ *
+ * За nginx `request.url` внутри контейнера указывает на `http://0.0.0.0:3000`, и
+ * редирект уводил браузер на этот внутренний адрес (белый экран). Поэтому берём
+ * хост из заголовков прокси, а если их нет — `SITE_URL` из окружения.
+ */
+function baseUrl(request: NextRequest): string {
+  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  if (!host) return SITE_URL;
+  const proto = request.headers.get("x-forwarded-proto") ?? "https";
+  return `${proto}://${host}`;
+}
+
 export async function GET(request: NextRequest): Promise<Response> {
   const token = request.nextUrl.searchParams.get("token") ?? "";
   const next = safeNext(request.nextUrl.searchParams.get("next"));
-  const loginUrl = new URL("/login", request.url);
+  const base = baseUrl(request);
+  const loginUrl = new URL("/login", base);
 
   if (!token) {
     loginUrl.searchParams.set("error", "magic");
@@ -53,7 +68,7 @@ export async function GET(request: NextRequest): Promise<Response> {
     return NextResponse.redirect(loginUrl);
   }
 
-  const response = NextResponse.redirect(new URL(next, request.url));
+  const response = NextResponse.redirect(new URL(next, base));
   // Переносим cookie сессии, которую поставил API (httpOnly, Secure — как выдал)
   const cookies = res.headers.getSetCookie?.() ?? [];
   for (const cookie of cookies) {
