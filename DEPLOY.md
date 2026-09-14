@@ -802,6 +802,27 @@ docker compose -f docker-compose.prod.yml exec -T postgres sh -c "psql -U \$POST
 инлайном из S3 (медленный первый старт, дальше — дисковый кэш). Если нужен быстрый
 плеер и `<video:video>` в карте, включите флаг у этого сервиса.
 
+**Режим сайта `SITE_MODE` (модель Dredger 2.0).** `public` — прежнее поведение
+(контент открыт, SEO включён). `closed` — закрытая платформа:
+
+- анонимные запросы страниц уводит на `/login` middleware (`307`, кроме `/login`,
+  `/auth/*`, `/healthz`, `/robots.txt`, `/favicon`);
+- API отдаёт контент только по действующей сессии: `guard_closed_mode` в
+  `src/api/main.py` отвечает `401` на всё, кроме `/api/v1/auth/*`, `/api/v1/admin/*`
+  и `/healthz` (проверка сессии кэшируется на 30 с, чтобы не бить БД на каждый запрос);
+- регистрация по email закрыта (`403`), аккаунты появятся через Telegram-бота;
+- age gate и онбординг не рендерятся;
+- все ответы — `X-Robots-Tag: noindex, nofollow, noarchive`, карты сайта → `404`.
+
+Порядок снятия из индекса (важно не перепутать): сначала `noindex` **при открытом
+обходе**, через 2–4 недели — `Disallow: /` в robots. Если закрыть обход сразу,
+робот не увидит `noindex` и страницы останутся в выдаче месяцами. Текущий шаг
+управляется в `web/src/app/robots.ts` (закрытый режим пока не закрывает обход).
+
+Значение `SITE_MODE` попадает в web **и на этапе сборки** (build-arg в
+`docker-compose.prod.yml` + `ARG SITE_MODE` в `web/Dockerfile`): middleware Next
+запекает переменные в сборку, runtime-env для него недостаточно.
+
 **Что наружу не уходит.** `.env`, `.git`, `DEPLOY.md`, `docker-compose.prod.yml`,
 `package.json`, `requirements.txt`, `openapi.json`, `/docs`, `/redoc` — все `404`
 (nginx проксирует только `/` и `/api/`, docs API выключены). Медиа отдаёт свой API:
