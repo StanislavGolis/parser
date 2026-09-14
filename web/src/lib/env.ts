@@ -38,6 +38,11 @@ export const SITE_URL = (process.env.SITE_URL ?? "https://dredg.ru").replace(/\/
 export const SITE_MODE = (process.env.SITE_MODE ?? "public").trim().toLowerCase();
 export const SITE_CLOSED = SITE_MODE === "closed";
 
+/** Ник Telegram-бота (без @) — для кнопки «Войти через Telegram» на входе. */
+export const TELEGRAM_BOT_USERNAME = (process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ?? "")
+  .trim()
+  .replace(/^@/, "");
+
 /** Пути, доступные без входа в закрытом режиме (проверяем по префиксу). */
 export const PUBLIC_PATHS = ["/login", "/auth", "/healthz", "/robots.txt", "/favicon.ico"];
 

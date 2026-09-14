@@ -94,6 +94,15 @@ class Settings(BaseSettings):
     # анонимов на /login, поисковикам запрещена индексация (X-Robots-Tag + robots).
     SITE_MODE: str = "public"
 
+    # ── Telegram (модель Dredger 2.0) ─────────────────────────────
+    # Telegram продаёт и выдаёт доступ, сайт показывает. Токен бота нужен шлюзу бота
+    # и ручке выдачи magic link; username/channel — для ссылок в интерфейсе.
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_BOT_USERNAME: str = ""   # например dredger_bot (без @)
+    TELEGRAM_CHANNEL: str = ""        # например dredger_news (без @)
+    # Сколько минут живёт одноразовая ссылка входа
+    MAGIC_LINK_TTL_MINUTES: int = 10
+
     @property
     def site_closed(self) -> bool:
         """Закрытый режим включён (значение SITE_MODE=closed)."""

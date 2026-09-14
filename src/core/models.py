@@ -207,13 +207,39 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True)
-    email = Column(String(255), unique=True, nullable=False, index=True)
-    password_hash = Column(String(255), nullable=False)
+    # Email необязателен: в модели Dredger 2.0 аккаунт заводит Telegram-бот, а вход
+    # идёт по одноразовой ссылке (magic link). Пароль остаётся для админов и VIP.
+    email = Column(String(255), unique=True, nullable=True, index=True)
+    password_hash = Column(String(255), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     # Админ: вход в админку по email+паролю и восстановление пароля по почте
     is_admin = Column(Boolean, nullable=False, default=False)
     premium_until = Column(DateTime, nullable=True)  # премиум активен до этого времени
+    # Telegram: аккаунт сайта = Telegram ID (пароль не нужен)
+    telegram_id = Column(BigInteger, unique=True, nullable=True, index=True)
+    telegram_username = Column(String(64), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class AuthMagicLink(Base):
+    """Одноразовая ссылка входа (в БД хранится только sha256 токена).
+
+    Выдаётся ботом (`/link`) или админом из карточки пользователя. Живёт
+    `MAGIC_LINK_TTL_MINUTES`, после использования помечается `used_at` — повторно
+    по той же ссылке войти нельзя.
+    """
+
+    __tablename__ = "auth_magic_links"
+
+    id = Column(Integer, primary_key=True)
+    token_hash = Column(String(64), nullable=False, unique=True, index=True)
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_ip = Column(String(64), nullable=True)
 
 
 class AdminPasswordReset(Base):
