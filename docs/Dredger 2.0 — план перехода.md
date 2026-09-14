@@ -108,10 +108,17 @@
       кнопка «Войти через Telegram» на `/login` (появляется при заданном нике бота).
 - [x] Конфиг: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_CHANNEL`,
       `MAGIC_LINK_TTL_MINUTES` (10 мин) — в compose и `.env`.
-- [ ] Сервис `telegram-gateway` (long polling, aiogram 3): `/start`, `/subscribe`,
-      `/status`, `/link`, `/help` — **ждёт токен бота от BotFather**.
+- [x] Сервис `telegram-gateway` (long polling на `aiohttp`, без новых зависимостей):
+      `/start`, `/link`, `/status`, `/subscribe`, `/help` + кнопки клавиатуры
+      (`src/tools/telegram_bot.py`, сервис в `docker-compose.prod.yml`).
+      Выкачен на прод: без токена не падает, а пишет в лог и ждёт (проверено).
+- [ ] Осталось: **токен бота от @BotFather** → `TELEGRAM_BOT_TOKEN` в `.env`,
+      `docker compose up -d telegram-gateway`, пересобрать `web` (кнопка «Войти
+      через Telegram» на `/login` появляется из `TELEGRAM_BOT_USERNAME=dredger_vip_bot`).
+      Канал и бот уже зафиксированы: `Dredger_news`, `@dredger_vip_bot`.
 - **DoD:** новый пользователь за 2 клика (бот → ссылка) попадает на сайт
-  авторизованным; токен одноразовый. ✔ (проверено через админскую выдачу ссылки)
+  авторизованным; токен одноразовый. ✔ (проверено через админскую выдачу ссылки;
+  путь «через бота» проверим сразу после получения токена)
 
 **Проверено на проде:** переход по ссылке → 307 + cookie сессии; `/api/v1/auth/me` → 200
 (`id 3, stanislav.golis@yandex.ru`); главная и `/boards` с сессией → 200; повторный
