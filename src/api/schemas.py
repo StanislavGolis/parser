@@ -480,6 +480,17 @@ class MagicLinkOut(BaseModel):
     user_id: int
 
 
+class TelegramStatusOut(BaseModel):
+    """Статус подписки для бота: что показать по `/status`."""
+
+    user_id: int
+    telegram_id: int
+    is_active: bool = True
+    premium_active: bool = False
+    premium_until: Optional[datetime] = None
+    marks_count: int = 0
+
+
 class MagicConsumeOut(BaseModel):
     """Результат входа по ссылке (cookie сессии ставится в ответе)."""
 
