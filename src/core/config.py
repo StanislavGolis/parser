@@ -89,6 +89,16 @@ class Settings(BaseSettings):
     # Ключ IndexNow (32+ символов): файл с ним отдаёт web по /indexnow-key.txt,
     # уведомления о новых страницах отправляет `python -m src.tools.indexnow`
     INDEXNOW_KEY: str = ""
+    # Режим сайта (модель Dredger 2.0): `public` — контент открыт, `closed` — сайт
+    # закрыт целиком: API отдаёт контент только по действующей сессии, web уводит
+    # анонимов на /login, поисковикам запрещена индексация (X-Robots-Tag + robots).
+    SITE_MODE: str = "public"
+
+    @property
+    def site_closed(self) -> bool:
+        """Закрытый режим включён (значение SITE_MODE=closed)."""
+        return self.SITE_MODE.strip().lower() == "closed"
+
     # Пул соединений к БД: под нагрузкой (скан каталогов + прогрева кэша + SSR)
     # дефолтных 5+10 не хватало — API отдавал 500 «QueuePool limit ... timeout»
     DB_POOL_SIZE: int = 10

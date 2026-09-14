@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { PUBLIC_PATHS, SITE_CLOSED } from "@/lib/env";
+
 /**
  * Старые адреса разделов slivach → короткие.
  *
@@ -12,9 +14,12 @@ import { NextResponse, type NextRequest } from "next/server";
  * (`app/loading.tsx`), заголовки уходят раньше, чем рендер доходит до редиректа,
  * и ответ остался бы `200`. Middleware решает это до рендера.
  *
- * По той же причине здесь живёт и проверка «страница существует»: у динамических
- * страниц (`/t/…`, `/media/…`, `/board/…`) `notFound()` даёт «мягкий» 200 —
- * поисковику прилетает индексируемая страница-пустышка.
+ * Здесь же живут два режима модели Dredger 2.0:
+ * - `SITE_MODE=closed` — сайт закрыт: анонимные запросы на `/login`, у всех
+ *   ответов `X-Robots-Tag: noindex` (обход не закрываем сразу: робот должен
+ *   увидеть `noindex`, иначе страницы останутся в выдаче — см. план §5);
+ * - `SITE_MODE=public` — прежнее поведение плюс проверка существования страницы,
+ *   чтобы не отдавать «мягкий» 200 на несуществующие `/t/…`, `/media/…`, `/board/…`.
  */
 const API_BASE = (process.env.API_BASE_SERVER ?? "").replace(/\/+$/, "");
 
@@ -55,10 +60,18 @@ function notFound(): NextResponse {
   });
 }
 
+/** Заголовок для закрытого режима: робот обязан увидеть noindex (см. план §5). */
+const NOINDEX_HEADER = "noindex, nofollow, noarchive";
+
+function withNoIndex(response: NextResponse): NextResponse {
+  response.headers.set("x-robots-tag", NOINDEX_HEADER);
+  return response;
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // 1. Старые адреса разделов slivach → короткие (308)
+  // 1. Старые адреса разделов slivach → короткие (308). Редирект не требует входа.
   const legacy = /^\/board\/slivach-(.+)$/.exec(pathname);
   if (legacy) {
     const url = request.nextUrl.clone();
@@ -67,11 +80,32 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url, 308);
   }
 
+  // ── Закрытый режим (Dredger 2.0): всё за логином ───────────────────────────
+  if (SITE_CLOSED) {
+    const isPublic = PUBLIC_PATHS.some(
+      (path) => pathname === path || pathname.startsWith(`${path}/`),
+    );
+    const hasSession = Boolean(request.cookies.get("sid")?.value);
+
+    if (!isPublic && !hasSession) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/login";
+      url.search = "";
+      // `next` — чтобы после входа вернуть пользователя туда, куда он шёл
+      if (pathname !== "/") url.searchParams.set("next", pathname);
+      return withNoIndex(NextResponse.redirect(url, 307));
+    }
+
+    // Сессия есть — пусть страница решает сама; наружу смотрим без индексации
+    return withNoIndex(NextResponse.next());
+  }
+
+  // ── Публичный режим: прежнее поведение ─────────────────────────────────────
   // API-модуль web недоступен из edge-рантайма, поэтому адрес берём из env, а
   // если его нет — идём на свой origin (nginx всё равно проксирует /api на api).
   const base = API_BASE || request.nextUrl.origin;
 
-  // 2. Страница треда: `/t/123` и `/t/123-тема-треда`
+  // Страница треда: `/t/123` и `/t/123-тема-треда`
   const thread = /^\/t\/([^/]+)\/?$/.exec(pathname);
   if (thread) {
     const id = /^(\d{1,12})(?:-|$)/.exec(decodeURIComponent(thread[1]));
@@ -82,7 +116,7 @@ export async function middleware(request: NextRequest) {
       : NextResponse.next();
   }
 
-  // 3. Страница файла
+  // Страница файла
   const media = /^\/media\/([^/]+)\/?$/.exec(pathname);
   if (media) {
     const numeric = Number(media[1]);
@@ -92,7 +126,7 @@ export async function middleware(request: NextRequest) {
       : NextResponse.next();
   }
 
-  // 4. Раздел: `/board/{slug}` (после редиректа выше)
+  // Раздел: `/board/{slug}` (после редиректа выше)
   const board = /^\/board\/([^/]+)\/?$/.exec(pathname);
   if (board) {
     const slug = decodeURIComponent(board[1]);
@@ -105,8 +139,10 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // Динамические адреса: разделы (в том числе старые), треды и файлы.
-  // API и служебные страницы не трогаем.
-  // Формат `:path*` — единственный, который гарантированно матчится Next.
-  matcher: ["/board/:path*", "/t/:path*", "/media/:path*"],
+  // Все страницы, кроме служебного: `_next`, API (его закрывает FastAPI в закрытом
+  // режиме), входа, healthz, robots, favicon и файла ключа IndexNow.
+  // Формат `:path*` и regexp — то, что Next гарантированно подхватывает.
+  matcher: [
+    "/((?!_next|api|auth|login|healthz|robots\\.txt|favicon|indexnow-key).*)",
+  ],
 };

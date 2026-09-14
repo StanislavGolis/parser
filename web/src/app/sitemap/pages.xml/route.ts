@@ -1,10 +1,13 @@
 // Карта статических страниц и разделов: меняется редко, но должна обновляться.
 import { getBoards } from "@/lib/data";
-import { SITE_URL, xmlResponse, xmlUrlset } from "@/lib/sitemap";
+import { SITE_CLOSED, SITE_URL, xmlResponse, xmlUrlset } from "@/lib/sitemap";
 
 export const revalidate = 3600;
 
 export async function GET(): Promise<Response> {
+  // Закрытый режим: карт нет — сайт не индексируется
+  if (SITE_CLOSED) return new Response("Not found", { status: 404 });
+
   const now = new Date().toISOString();
   const entries = [
     { loc: `${SITE_URL}/`, lastmod: now, changefreq: "hourly", priority: 1 },

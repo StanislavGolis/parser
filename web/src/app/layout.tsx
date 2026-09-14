@@ -8,7 +8,7 @@ import Header from "@/components/Header";
 import MobileNav from "@/components/MobileNav";
 import Onboarding from "@/components/Onboarding";
 import Tracker from "@/components/Tracker";
-import { SITE_URL } from "@/lib/env";
+import { SITE_CLOSED, SITE_URL } from "@/lib/env";
 import "./globals.css";
 
 const inter = Inter({
@@ -75,10 +75,11 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <Footer />
         <MobileNav />
         <Tracker />
-        {/* Предупреждение 18+: раз в сутки, подтверждение — в cookie `dv_age` */}
-        {isBot ? null : <AgeGate />}
+        {/* В закрытом режиме (Dredger 2.0) возрастное окно не нужно: контента
+            анонимам нет вообще — их уводит на /login middleware. */}
+        {isBot || SITE_CLOSED ? null : <AgeGate />}
         {/* Онбординг новичка: один раз, после подтверждения возраста */}
-        {isBot ? null : <Onboarding />}
+        {isBot || SITE_CLOSED ? null : <Onboarding />}
       </body>
     </html>
   );
