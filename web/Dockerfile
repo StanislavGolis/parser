@@ -29,6 +29,9 @@ FROM deps AS build
 # сборки, поэтому значение обязано попасть сюда, а не только в runtime-env.
 ARG SITE_MODE=public
 ENV SITE_MODE=$SITE_MODE
+# Ник Telegram-бота (без @): NEXT_PUBLIC_* попадает в клиентский бандл на сборке
+ARG NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=
+ENV NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=$NEXT_PUBLIC_TELEGRAM_BOT_USERNAME
 COPY . .
 RUN npm run build
 

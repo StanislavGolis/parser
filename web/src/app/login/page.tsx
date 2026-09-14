@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { ApiError, apiSend } from "@/lib/api";
 import { notifyAuthChanged } from "@/lib/authEvents";
+import { TELEGRAM_BOT_USERNAME } from "@/lib/env";
 import type { UserOut } from "@/lib/types";
 
 /** Вход/регистрация: доступ к оригиналам файлов. */
@@ -51,6 +52,25 @@ export default function LoginPage() {
       <p className="mt-1 text-sm text-text-secondary">
         Оригиналы файлов доступны только зарегистрированным пользователям.
       </p>
+
+      {/* Модель Dredger 2.0: основной вход — через Telegram-бота (магическая ссылка),
+          пароль остаётся для админов и VIP-аккаунтов. Кнопку показываем, когда
+          ник бота задан в NEXT_PUBLIC_TELEGRAM_BOT_USERNAME. */}
+      {mode === "login" && TELEGRAM_BOT_USERNAME ? (
+        <div className="mt-6 rounded border border-line bg-ink-secondary p-4">
+          <p className="text-xs text-text-secondary">
+            Вход по подписке — через Telegram: бот проверит статус и пришлёт ссылку.
+          </p>
+          <a
+            href={`https://t.me/${TELEGRAM_BOT_USERNAME}?start=site`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-primary mt-3 block text-center"
+          >
+            Войти через Telegram
+          </a>
+        </div>
+      ) : null}
 
       <form onSubmit={submit} className="mt-6 flex flex-col gap-3">
         <label className="flex flex-col gap-1 text-xs text-text-secondary">

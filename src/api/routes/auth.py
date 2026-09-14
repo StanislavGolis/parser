@@ -5,26 +5,40 @@
 доступны только вошедшим; премиум-контент дополнительно требует подписки.
 Размытые превью (`/asset/thumb_blur`) и деривативы обычных файлов публичны.
 """
+import secrets
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import check_rate_limit, client_ip, ip_hash, require_user
-from src.api.schemas import AuthCredentials, UserOut
+from src.api.schemas import (
+    AuthCredentials,
+    MagicConsumeOut,
+    MagicIssueIn,
+    MagicLinkOut,
+    UserOut,
+)
 from src.core.config import settings
 from src.core.db import get_session
 from src.core.models import MediaMark, User, UserSession
 from src.services import admin_auth
 from src.services import auth as auth_service
+from src.services import magic_link
 from src.services.premium import PROMO_PREMIUM_DAYS, grant_premium, premium_active
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 SESSION_COOKIE_MAX_AGE = int(auth_service.SESSION_TTL.total_seconds())
+
+
+def site_base() -> str:
+    """Публичный адрес сайта для ссылок (magic link): SITE_URL или база писем."""
+    base = (settings.SITE_URL or settings.PUBLIC_BASE_URL or "https://dredg.ru").strip()
+    return base.rstrip("/")
 
 
 def user_out(user: User) -> UserOut:
@@ -198,3 +212,72 @@ async def me(
 ):
     """Текущий пользователь + счётчик меток (401, если не вошёл)."""
     return await user_out_with_counts(session, user)
+
+
+# ── Magic link: вход без пароля (модель Dredger 2.0) ──────────────────────────
+
+def _bot_token_ok(provided: Optional[str]) -> bool:
+    """Проверяет токен бота из заголовка (сравнение постоянного времени)."""
+    expected = (settings.TELEGRAM_BOT_TOKEN or "").strip()
+    if not expected:
+        return False
+    return bool(provided) and secrets.compare_digest(provided, expected)
+
+
+@router.post("/magic/issue", response_model=MagicLinkOut)
+async def magic_issue(
+    payload: MagicIssueIn,
+    request: Request,
+    authorization: Optional[str] = Header(None),
+    x_bot_token: Optional[str] = Header(None),
+    session: AsyncSession = Depends(get_session),
+):
+    """Выпускает одноразовую ссылку входа для Telegram-бота.
+
+    Доступ только по токену бота (`X-Bot-Token` или `Authorization: Bot <token>`):
+    ручка создаёт/находит аккаунт по Telegram ID и возвращает ссылку, которую бот
+    присылает человеку. Если токен бота не настроен — 503 (бот ещё не подключён).
+    """
+    token = x_bot_token
+    if not token and authorization and authorization.lower().startswith("bot "):
+        token = authorization.split(" ", 1)[1].strip()
+    if not (settings.TELEGRAM_BOT_TOKEN or "").strip():
+        raise HTTPException(status_code=503, detail="Telegram-бот не настроен")
+    if not _bot_token_ok(token):
+        raise HTTPException(status_code=403, detail="Неверный токен бота")
+
+    await check_rate_limit(client_ip(request))
+
+    user = await magic_link.get_or_create_telegram_user(
+        session, payload.telegram_id, payload.username
+    )
+    link_token, expires_at = await magic_link.issue(
+        session, user, settings.MAGIC_LINK_TTL_MINUTES, ip_hash(client_ip(request))
+    )
+    return MagicLinkOut(
+        url=f"{site_base()}/auth/magic?token={link_token}",
+        expires_at=expires_at,
+        telegram_id=user.telegram_id,
+        user_id=user.id,
+    )
+
+
+@router.get("/magic", response_model=MagicConsumeOut)
+async def magic_consume(
+    request: Request,
+    response: Response,
+    token: str = Query(..., min_length=10, max_length=200),
+    session: AsyncSession = Depends(get_session),
+):
+    """Вход по одноразовой ссылке: гасит ссылку и ставит cookie сессии.
+
+    Ссылка одноразовая и живёт `MAGIC_LINK_TTL_MINUTES`; повторный переход по ней
+    вернёт 401. Вызывается из web-роута `/auth/magic`, который переносит cookie
+    браузеру и уводит на главную.
+    """
+    user = await magic_link.consume(session, token)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Ссылка недействительна")
+
+    await _issue_session(session, response, user, request)
+    return MagicConsumeOut(ok=True, redirect="/")

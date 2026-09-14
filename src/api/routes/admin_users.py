@@ -13,6 +13,7 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import client_ip, ip_hash, verify_admin
+from src.api.schemas import MagicLinkOut
 from src.core.config import settings
 from src.core.db import get_session
 from src.core.models import (
@@ -25,7 +26,7 @@ from src.core.models import (
     UserSession,
     ViewStat,
 )
-from src.services import admin_auth, mailer
+from src.services import admin_auth, magic_link, mailer
 from src.services.analytics import record_audit
 from src.services.premium import premium_active
 
@@ -331,6 +332,44 @@ async def set_user_premium(
         "premium_until": _iso(user.premium_until),
         "premium_active": premium_active(user),
     }
+
+
+@router.post("/users/{user_id}/magic-link", response_model=MagicLinkOut)
+async def create_magic_link(
+    user_id: int,
+    request: Request,
+    actor: str = Depends(admin_actor),
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Выпустить одноразовую ссылку входа для пользователя (VIP/ручная выдача).
+
+    Тот же механизм, что у Telegram-бота: ссылку можно скопировать и передать
+    человеку, которому доступ выдан вручную. Живёт `MAGIC_LINK_TTL_MINUTES`.
+    """
+    user = await _load_user(session, user_id)
+    token, expires_at = await magic_link.issue(
+        session,
+        user,
+        settings.MAGIC_LINK_TTL_MINUTES,
+        ip_hash(client_ip(request)),
+    )
+    base = (settings.SITE_URL or settings.PUBLIC_BASE_URL or "https://dredg.ru").rstrip("/")
+    await record_audit(
+        session,
+        action="user.magic_link",
+        actor=actor,
+        target=f"user:{user.id}",
+        details=f"{user.email or user.telegram_id}",
+        ip_hash_value=ip_hash(client_ip(request)),
+        user_id=user.id,
+    )
+    return MagicLinkOut(
+        url=f"{base}/auth/magic?token={token}",
+        expires_at=expires_at,
+        telegram_id=user.telegram_id,
+        user_id=user.id,
+    )
 
 
 @router.post("/users/{user_id}/active")

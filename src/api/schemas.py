@@ -464,6 +464,29 @@ class ThreadRefListOut(BaseModel):
     total: int
 
 
+class MagicIssueIn(BaseModel):
+    """Запрос от Telegram-бота: для кого выпустить ссылку входа."""
+
+    telegram_id: int = Field(gt=0)
+    username: Optional[str] = Field(None, max_length=64)
+
+
+class MagicLinkOut(BaseModel):
+    """Одноразовая ссылка входа: отдаётся боту или админке."""
+
+    url: str
+    expires_at: datetime
+    telegram_id: Optional[int] = None
+    user_id: int
+
+
+class MagicConsumeOut(BaseModel):
+    """Результат входа по ссылке (cookie сессии ставится в ответе)."""
+
+    ok: bool
+    redirect: str = "/"
+
+
 class SitemapMediaOut(BaseModel):
     """Файл в карте сайта: только то, что нужно роботу (адрес строится по id)."""
 
