@@ -325,6 +325,26 @@ services:
           cpus: "1.0"
           memory: 1g
 
+  # ── Telegram-бот (модель Dredger 2.0) ──────────────────────────
+  # Витрина и вход: выдаёт одноразовые ссылки на закрытый сайт, показывает статус
+  # подписки. Работает через long polling — публичный вебхук и домен не нужны, а
+  # если сайт лежит, бот продолжает отвечать. Пока токен не задан, процесс ждёт.
+  telegram-gateway:
+    <<: *backend
+    command: ["python", "-m", "src.tools.telegram_bot"]
+    environment:
+      # Бот общается только с нашим API по внутреннему адресу
+      API_INTERNAL_URL: http://api:8000
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
+      TELEGRAM_CHANNEL: ${TELEGRAM_CHANNEL:-}
+      SITE_URL: ${SITE_URL:-https://dredg.ru}
+      SITE_MODE: ${SITE_MODE:-public}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+
   # ── Frontend (Next.js standalone) ──────────────────────────
   web:
     image: parser-web:local

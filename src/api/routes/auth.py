@@ -20,6 +20,7 @@ from src.api.schemas import (
     MagicConsumeOut,
     MagicIssueIn,
     MagicLinkOut,
+    TelegramStatusOut,
     UserOut,
 )
 from src.core.config import settings
@@ -259,6 +260,47 @@ async def magic_issue(
         expires_at=expires_at,
         telegram_id=user.telegram_id,
         user_id=user.id,
+    )
+
+
+@router.get("/telegram/status", response_model=TelegramStatusOut)
+async def telegram_status(
+    telegram_id: int = Query(..., gt=0),
+    authorization: Optional[str] = Header(None),
+    x_bot_token: Optional[str] = Header(None),
+    session: AsyncSession = Depends(get_session),
+):
+    """Статус доступа по Telegram ID — для команды `/status` в боте.
+
+    Доступ только по токену бота. Если аккаунта ещё нет, он не создаётся: бот
+    покажет «нет подписки» (аккаунт появится при `/link`).
+    """
+    token = x_bot_token
+    if not token and authorization and authorization.lower().startswith("bot "):
+        token = authorization.split(" ", 1)[1].strip()
+    if not (settings.TELEGRAM_BOT_TOKEN or "").strip():
+        raise HTTPException(status_code=503, detail="Telegram-бот не настроен")
+    if not _bot_token_ok(token):
+        raise HTTPException(status_code=403, detail="Неверный токен бота")
+
+    user = (
+        await session.execute(select(User).where(User.telegram_id == telegram_id))
+    ).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="Аккаунт не найден")
+
+    marks = (
+        await session.execute(
+            select(func.count(MediaMark.id)).where(MediaMark.user_id == user.id)
+        )
+    ).scalar_one()
+    return TelegramStatusOut(
+        user_id=user.id,
+        telegram_id=telegram_id,
+        is_active=bool(user.is_active),
+        premium_active=premium_active(user),
+        premium_until=user.premium_until,
+        marks_count=int(marks or 0),
     )
 
 
