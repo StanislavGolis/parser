@@ -99,39 +99,53 @@ docker compose -f docker-compose.prod.yml down -v      # остановить + 
    ```
    Автопродление — cron/systemd-timer с той же командой `certonly --webroot`.
 
-Обновление после изменений кода (актуальный порядок для нашего VPS):
+Обновление после изменений кода: два пути.
+
+**A. Через GitHub (штатный, когда работает deploy-ключ сервера).**
 
 ```bash
-# 0) на боевом сервере репозиторий НЕ обновляется через git pull:
-#    в /opt/dredge накопились незакоммиченные изменения (выкатки переносом файлов),
-#    поэтому история разошлась с origin. Пока расхождение не снято (см. «Обслуживание»),
-#    изменения выкатываются переносом файлов:
-#    локально:  tar -czf patch.tar.gz -- <список файлов>
-#               scp patch.tar.gz root@37.221.66.168:/tmp/
-#    на сервере: cd /opt/dredge && tar -xzf /tmp/patch.tar.gz
-
-# 1) остановить парсеры: иначе сборка образа воюет с ними за диск
-docker compose -f docker-compose.prod.yml stop parser-dvach parser-slivach
-
-# 2) пересобрать общий образ (api, парсеры, бот, планировщик, migrate — один образ)
+cd /opt/dredge
+git fetch origin && git pull --ff-only        # ff-only: история линейная, конфликтов быть не должно
+docker compose -f docker-compose.prod.yml stop parser-dvach parser-slivach   # сборка воюет с ними за диск
 docker compose -f docker-compose.prod.yml build api web
-
-# 3) поднять стек (миграции применит сервис migrate) и вернуть парсеры
 docker compose -f docker-compose.prod.yml up -d
 docker compose -f docker-compose.prod.yml start parser-dvach parser-slivach
-
-# 4) проверить
-docker compose -f docker-compose.prod.yml ps
 curl -sk -o /dev/null -w '%{http_code}\n' -H 'Host: dredg.ru' https://127.0.0.1/healthz
 ```
 
-Если репозиторий на сервере синхронизирован с origin (нет незакоммиченных файлов),
-можно вернуться к обычному `git pull`:
+На 15.09.2026 этот путь недоступен: GitHub отвергает ключ сервера
+(`git ls-remote origin` → `Permission denied (publickey)`). Нужно добавить в
+GitHub → Settings → Deploy keys публичную часть `/root/.ssh/dredge_deploy.pub`
+(или переключить `origin` на HTTPS с токеном).
+
+**B. Без GitHub: перенос git-bundle (работает всегда).**
 
 ```bash
-git pull
-docker compose -f docker-compose.prod.yml up -d --build
+# локальная машина
+git bundle create prod.bundle main
+scp prod.bundle root@37.221.66.168:/tmp/
+
+# сервер
+cd /opt/dredge
+git pull --ff-only /tmp/prod.bundle main
+docker compose -f docker-compose.prod.yml stop parser-dvach parser-slivach
+docker compose -f docker-compose.prod.yml build api web
+docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml start parser-dvach parser-slivach
 ```
+
+**Регламент, чтобы расхождения больше не появлялись** (был инцидент 15.09.2026 —
+две параллельные линии, 109 и 54 «двойных» коммита):
+
+1. **Коммитим только на рабочей машине и пушим в `origin/main`.** На сервере
+   правок и коммитов нет: он только получает готовое (`git pull` или bundle).
+2. **Переводы строк** — по `.gitattributes` (`* text=auto eol=lf`): в репозитории
+   всегда LF. Перенос файлов через `tar` на Windows приносил CRLF, из-за чего
+   одинаковый код считался «полностью разным» и любой merge конфликтовал на весь файл.
+3. Файлы переносим **через git**, а не архивом: `tag`/`tar` остаются только как
+   аварийный вариант (например, при правке одного файла на горячую).
+4. `git pull` на сервере — только с `--ff-only`: если он просит merge, значит
+   линии снова разошлись, и это надо разбирать, а не «разрешать конфликты» вслепую.
 
 ## Переезд на VPS: пошагово (ava.hosting)
 
@@ -322,7 +336,7 @@ git-истории (`git filter-repo`), отключение входа по п�
 | Кэш медиа | том `mediacache`, `/data/cache` | лимит 40 ГБ, LRU; прогревается из админки («Прогреть кэш») и автоматически (парсер отдаёт туда скачанные файлы). Мониторится в карточке «Кэш медиа на диске»; при росте библиотеки лимит поднять в `MEDIA_CACHE_MAX_BYTES` |
 | Просмотр | `docker compose -f docker-compose.prod.yml logs -f api\|parser-dvach\|parser-slivach\|telegram-gateway\|telegram-publisher` | `tail -f /var/log/dredge-health.log` — журнал проверок, `tail -f /var/log/dredge-indexnow.log` — уведомления поисковикам (в закрытом режиме не нужны) |
 | Канал и карантин | `/admin/telegram` → журнал отправок | автопост выключен по умолчанию; включив его, задайте `TELEGRAM_ADMIN_CHAT_ID` (иначе черновику некуда прийти). Планировщик — сервис `telegram-publisher`, публикует отложенные посты и разыгрывает истёкшие розыгрыши раз в минуту |
-| Обновление кода | см. «Обновление после изменений кода» выше | на 15.09.2026 в `/opt/dredge` 55 незакоммиченных файлов: `git pull` не сработает, пока расхождение с origin не снято (`git checkout -b prod-state && git add -A && git commit`) |
+| Обновление кода | «Обновление после изменений кода» выше | путь A: `git pull --ff-only` на сервере (нужен рабочий deploy-key); путь B: перенос `git bundle`. Правки и коммиты — только с рабочей машины, на сервере — нет |
 
 ### 11. Доступ в админку и восстановление пароля
 

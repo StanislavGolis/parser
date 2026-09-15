@@ -1045,13 +1045,18 @@ DELETE /api/v1/admin/reset                           полный сброс (Б
 
 - запуск: `cp .env.prod.example .env` → заполнить `S3_*`, `ADMIN_TOKEN`, `TELEGRAM_*` →
   `docker compose -f docker-compose.prod.yml up -d --build`;
-- **обновление кода на проде:** репозиторий на сервере не обновляется через `git pull`
-  (нет доступа к origin) — изменения выкатываются переносом файлов: локально
-  `tar -czf patch.tar.gz -- <файлы>` → `scp patch.tar.gz root@<сервер>:/tmp/` →
-  на сервере `tar -xzf` в `/opt/dredge`. Скрипты выкатки лежат в
-  `C:\Users\Stas\dredge-backups\`. Порядок обязательный: **остановить парсеры**
+- **обновление кода на проде** — два пути (подробно в `DEPLOY.md`):
+  **A)** `cd /opt/dredge && git fetch origin && git pull --ff-only` (когда работает
+  deploy-ключ сервера — на 15.09.2026 GitHub его отвергает);
+  **B)** перенос `git bundle`: локально `git bundle create prod.bundle main` →
+  `scp` → на сервере `git pull --ff-only /tmp/prod.bundle main`.
+  Дальше обязательный порядок: **остановить парсеры**
   (`stop parser-dvach parser-slivach` — иначе сборка образа воюет с ними за диск),
-  `build api web` → `up -d` → поднять парсеры;
+  `build api web` → `up -d` → `start parser-dvach parser-slivach`;
+- **регламент git**: правки и коммиты — только с рабочей машины и в `origin/main`,
+  на сервере коммитов нет; в репозитории всегда LF (`.gitattributes`), потому что
+  перенос файлов архивом с Windows заносил CRLF и превращал одинаковый код в «разный»;
+  `git pull` на сервере — только `--ff-only` (если просит merge — линии разошлись);
 - помните про общий образ `parser-backend:local`: `api`, парсеры, `telegram-gateway`,
   `telegram-publisher` и `migrate` используют один образ — пересобирать нужно `api`;
 - миграции применяются сервисом `migrate` при старте; текущая голова — `b9c0d1e2f3a4`
