@@ -774,16 +774,14 @@ export default function Lightbox({
             <ChevronRightIcon className="h-4 w-4" />
           </button>
           {locked ? (
-            <a
+            <Link
               href={PREMIUM_CTA_URL}
-              target="_blank"
-              rel="noreferrer"
               className="btn-primary px-3 py-1.5 text-xs"
-              title="Приватный раздел: тарифы и оплата — в боте"
+              title="Приватный раздел: подписка и тарифы"
             >
               <LockIcon className="h-4 w-4" />
               Premium
-            </a>
+            </Link>
           ) : (
             <DownloadButton mediaId={media.id} size="sm" />
           )}

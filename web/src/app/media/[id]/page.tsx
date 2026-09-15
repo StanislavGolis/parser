@@ -139,14 +139,12 @@ export default async function MediaDetailPage({ params }: DetailProps) {
                 Приватный раздел: доступ по подписке. Открытые разделы можно смотреть
                 бесплатно — подписка снимает ограничения и открывает скачивание.
               </p>
-              <a
+              <Link
                 href={PREMIUM_CTA_URL}
-                target="_blank"
-                rel="noreferrer"
                 className="btn-primary px-4 py-2 text-xs"
               >
-                Тарифы и оплата — в боте
-              </a>
+                Тарифы и оплата
+              </Link>
             </div>
           ) : previewUrl ? (
             media.media_type === "image" ? (

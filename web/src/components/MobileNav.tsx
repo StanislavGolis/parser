@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { BookmarkIcon, ImageIcon, LayersIcon, SearchIcon, StarIcon } from "@/components/icons";
+import { BookmarkIcon, ImageIcon, LayersIcon, SearchIcon, StarIcon, TagIcon } from "@/components/icons";
 
 const ITEMS = [
   {
@@ -26,6 +26,14 @@ const ITEMS = [
     match: (p: string) => p.startsWith("/marks"),
   },
   { href: "/search", label: "Поиск", Icon: SearchIcon, match: (p: string) => p.startsWith("/search") },
+  // Подписка — в самом низком меню: на телефоне это единственный ход к тарифам,
+  // кроме профиля и кнопок в закрытых превью
+  {
+    href: "/subscribe",
+    label: "Тарифы",
+    Icon: TagIcon,
+    match: (p: string) => p.startsWith("/subscribe"),
+  },
 ];
 
 /**
@@ -40,7 +48,7 @@ export default function MobileNav() {
 
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-40 grid h-[calc(3.5rem+env(safe-area-inset-bottom))] grid-cols-5 border-t border-line bg-ink-secondary pb-[env(safe-area-inset-bottom)] md:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 grid h-[calc(3.5rem+env(safe-area-inset-bottom))] grid-cols-6 border-t border-line bg-ink-secondary pb-[env(safe-area-inset-bottom)] md:hidden"
       aria-label="Мобильная навигация"
     >
       {ITEMS.map(({ href, label, Icon, match }) => {

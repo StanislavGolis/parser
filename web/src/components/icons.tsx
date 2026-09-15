@@ -36,6 +36,16 @@ export function DownloadIcon(props: IconProps) {
   );
 }
 
+/** Ярлык — тарифы/подписка (нижнее меню на телефоне). */
+export function TagIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M20.6 13.4 12.6 21.4a2 2 0 0 1-2.8 0l-7.2-7.2a2 2 0 0 1-.6-1.4V4.6A1.6 1.6 0 0 1 3.6 3h8.2c.5 0 1 .2 1.4.6l7.4 7.4a2 2 0 0 1 0 2.4Z" />
+      <circle cx="7.5" cy="7.5" r="1.4" />
+    </svg>
+  );
+}
+
 export function PlayIcon(props: IconProps) {
   return (
     <svg {...base(props)} fill="currentColor" stroke="none">

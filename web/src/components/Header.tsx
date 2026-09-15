@@ -19,6 +19,7 @@ const NAV = [
   { href: "/top", label: "Популярное", match: (p: string) => p === "/top" },
   { href: "/marks", label: "Закладки", match: (p: string) => p.startsWith("/marks") },
   { href: "/search", label: "Поиск", match: (p: string) => p.startsWith("/search") },
+  { href: "/subscribe", label: "Подписка", match: (p: string) => p.startsWith("/subscribe") },
 ];
 
 /**

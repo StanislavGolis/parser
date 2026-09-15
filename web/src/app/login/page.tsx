@@ -9,36 +9,43 @@ import { notifyAuthChanged } from "@/lib/authEvents";
 import { TELEGRAM_BOT_USERNAME } from "@/lib/env";
 import type { UserOut } from "@/lib/types";
 
-/** Вход/регистрация: доступ к оригиналам файлов. */
+/**
+ * Вход на сайт.
+ *
+ * Модель Dredger 2.0: вход один — через Telegram-бота, он же проверяет подписку
+ * и присылает одноразовую ссылку. Форма email/пароля осталась только для админов
+ * и VIP: она спрятана за маленькой ссылкой, чтобы не отвлекать посетителя.
+ */
 export default function LoginPage() {
   const router = useRouter();
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const [showAdmin, setShowAdmin] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  /** Возврат туда, куда шёл пользователь: middleware добавляет `?next=/board/...`. */
+  function goNext() {
+    const next = new URLSearchParams(window.location.search).get("next");
+    router.push(next && next.startsWith("/") && !next.startsWith("//") ? next : "/");
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      await apiSend<UserOut>(`/api/v1/auth/${mode}`, {
+      await apiSend<UserOut>("/api/v1/auth/login", {
         method: "POST",
         body: { email, password },
       });
-      // Шапка — клиентский компонент с собственным состоянием: сообщаем ей о входе
-      // событием, иначе имя профиля появлялось только после перезагрузки.
-      // Серверные компоненты (премиум-превью, метки) обновляем через refresh.
+      // Шапка — клиентский компонент с собственным состоянием: сообщаем ей о входе,
+      // иначе имя профиля появилось бы только после перезагрузки.
       notifyAuthChanged();
       router.refresh();
-      // Возвращаем туда, куда шёл пользователь: в закрытом режиме middleware
-      // добавляет `?next=/board/...` при редиректе на вход. Проверяем, что путь
-      // свой (начинается с «/» и не «//»), иначе уходим на главную.
-      const next = new URLSearchParams(window.location.search).get("next");
-      router.push(next && next.startsWith("/") && !next.startsWith("//") ? next : "/");
+      goNext();
     } catch (err) {
-      setError(err instanceof ApiError ? (err.detail ?? err.message) : "Ошибка");
+      setError(err instanceof ApiError ? (err.detail ?? err.message) : "Ошибка входа");
     } finally {
       setBusy(false);
     }
@@ -46,83 +53,95 @@ export default function LoginPage() {
 
   return (
     <div className="container-site max-w-md py-10">
-      <h1 className="text-xl font-bold text-text-primary">
-        {mode === "login" ? "Вход" : "Регистрация"}
-      </h1>
+      <h1 className="text-xl font-bold text-text-primary">Вход</h1>
       <p className="mt-1 text-sm text-text-secondary">
-        Оригиналы файлов доступны только зарегистрированным пользователям.
+        Доступ к архиву — через Telegram-бота: он выдаёт одноразовую ссылку и показывает
+        статус подписки.
       </p>
 
-      {/* Модель Dredger 2.0: основной вход — через Telegram-бота (магическая ссылка),
-          пароль остаётся для админов и VIP-аккаунтов. Кнопку показываем, когда
-          ник бота задан в NEXT_PUBLIC_TELEGRAM_BOT_USERNAME. */}
-      {mode === "login" && TELEGRAM_BOT_USERNAME ? (
-        <div className="mt-6 rounded border border-line bg-ink-secondary p-4">
-          <p className="text-xs text-text-secondary">
-            Вход по подписке — через Telegram: бот проверит статус и пришлёт ссылку.
-          </p>
+      <div className="mt-6 rounded border border-line bg-ink-secondary p-4">
+        <ol className="flex flex-col gap-2 text-xs text-text-secondary">
+          <li>1. Нажмите кнопку — откроется наш бот.</li>
+          <li>2. Отправьте /link или нажмите «🔓 Войти на сайт».</li>
+          <li>3. Ссылка одноразовая и живёт 10 минут — вход произойдёт автоматически.</li>
+        </ol>
+        {TELEGRAM_BOT_USERNAME ? (
           <a
             href={`https://t.me/${TELEGRAM_BOT_USERNAME}?start=site`}
             target="_blank"
             rel="noopener noreferrer"
-            className="btn-primary mt-3 block text-center"
+            className="btn-primary mt-4 block text-center"
           >
             Войти через Telegram
           </a>
-        </div>
-      ) : null}
-
-      <form onSubmit={submit} className="mt-6 flex flex-col gap-3">
-        <label className="flex flex-col gap-1 text-xs text-text-secondary">
-          Email
-          <input
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="rounded border border-line bg-ink-secondary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent-primary"
-            autoComplete="email"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-xs text-text-secondary">
-          Пароль
-          <input
-            type="password"
-            required
-            minLength={6}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="rounded border border-line bg-ink-secondary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent-primary"
-            autoComplete={mode === "login" ? "current-password" : "new-password"}
-          />
-        </label>
-
-        {error ? <p className="text-sm text-accent-danger">{error}</p> : null}
-
-        <button type="submit" disabled={busy} className="btn-primary mt-1">
-          {busy ? "Подождите…" : mode === "login" ? "Войти" : "Зарегистрироваться"}
-        </button>
-      </form>
-
-      <div className="mt-4 text-sm text-text-secondary">
-        {mode === "login" ? (
-          <>
-            Нет аккаунта?{" "}
-            <button type="button" onClick={() => setMode("register")} className="text-accent-primary hover:underline">
-              Зарегистрироваться
-            </button>
-          </>
         ) : (
-          <>
-            Уже есть аккаунт?{" "}
-            <button type="button" onClick={() => setMode("login")} className="text-accent-primary hover:underline">
-              Войти
-            </button>
-          </>
+          <p className="mt-4 text-xs text-text-muted">
+            Ник бота не задан в сборке — вход временно недоступен, напишите администратору.
+          </p>
         )}
+        <p className="mt-2 text-[11px] leading-relaxed text-text-muted">
+          Подписка для входа не нужна: открытые разделы доступны сразу, приватные
+          откроются после оплаты.
+        </p>
       </div>
 
-      <p className="mt-6 text-xs text-text-muted">
+      {/* Админский вход: спрятан, чтобы не отвлекать обычных посетителей */}
+      {showAdmin ? (
+        <form onSubmit={submit} className="mt-6 flex flex-col gap-3">
+          <p className="text-xs text-text-muted">
+            Вход по email и паролю — для админов и VIP-аккаунтов.
+          </p>
+          <label className="flex flex-col gap-1 text-xs text-text-secondary">
+            Email
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="rounded border border-line bg-ink-secondary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent-primary"
+              autoComplete="email"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-text-secondary">
+            Пароль
+            <input
+              type="password"
+              required
+              minLength={6}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="rounded border border-line bg-ink-secondary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent-primary"
+              autoComplete="current-password"
+            />
+          </label>
+
+          {error ? <p className="text-sm text-accent-danger">{error}</p> : null}
+
+          <button type="submit" disabled={busy} className="btn-primary mt-1">
+            {busy ? "Подождите…" : "Войти"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowAdmin(false);
+              setError(null);
+            }}
+            className="text-left text-xs text-text-muted hover:text-text-secondary"
+          >
+            ← Обычный вход через Telegram
+          </button>
+        </form>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowAdmin(true)}
+          className="mt-4 text-xs text-text-muted underline-offset-2 hover:text-text-secondary hover:underline"
+        >
+          Вход для админов
+        </button>
+      )}
+
+      <p className="mt-8 text-xs text-text-muted">
         <Link href="/" className="hover:text-text-secondary">
           ← На главную
         </Link>

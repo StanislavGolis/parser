@@ -117,19 +117,17 @@ export default function ProfilePage() {
         </p>
 
         {user.is_premium ? null : (
-          <a
+          <Link
             href={PREMIUM_CTA_URL}
-            target="_blank"
-            rel="noreferrer"
             className="btn-primary mt-4 block w-full text-center"
           >
-            Тарифы и оплата — в боте
-          </a>
+            Тарифы и оплата
+          </Link>
         )}
         <p className="mt-2 text-[11px] leading-relaxed text-text-muted">
-          Подписка открывает приватные разделы, скачивание и убирает ограничения
-          открытых разделов. В боте — тарифы и акции; если оплата ещё не подключена,
-          доступ выдадим вручную по заявке.
+          Подписка открывает приватные разделы и скачивание и убирает ограничения
+          открытых разделов. Тарифы и акции — на странице «Подписка», оплата — звёздами
+          Telegram в боте.
         </p>
       </div>
 
