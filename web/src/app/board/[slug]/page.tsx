@@ -111,15 +111,19 @@ export default async function BoardPage({ params, searchParams }: BoardPageProps
 }
 
 function BoardHeader({ board, slug, threadsTotal }: { board?: Board; slug: string; threadsTotal: number }) {
+  // В заголовке — человеческое название («Тиктокерши»), а адрес уходит тихой
+  // сноской: читателю нужнее имя раздела, чем «/tiktokershi». Если имени нет,
+  // заголовком остаётся адрес — пустого места на странице не будет.
+  const human = board?.title?.trim();
+  const named = Boolean(human) && human !== slug && human !== `/${slug}`;
+  const title = named && human ? human : `/${slug}`;
   return (
     <div className="mb-6 border-b border-line pb-4">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 className="font-mono text-lg font-bold uppercase tracking-[0.12em] text-text-primary">
-          /{slug}
+        <h1 className="text-lg font-semibold text-text-primary" title={title}>
+          {title}
         </h1>
-        {board?.title && board.title !== slug && board.title !== `/${slug}` ? (
-          <span className="text-sm text-text-secondary">— {board.title}</span>
-        ) : null}
+        {named ? <span className="font-mono text-[11px] text-text-muted">/{slug}</span> : null}
         {board?.is_premium ? (
           <span
             className="badge badge-warn"

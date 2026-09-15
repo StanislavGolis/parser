@@ -20,6 +20,16 @@ const FILTERS: Array<{ value: Filter; label: string }> = [
 const MOSAIC_TILES = 4;
 
 /**
+ * Название раздела для заголовка карточки. Обычно это человеческое имя с сайта
+ * («Тиктокерши»), а если его нет — слаг: тогда адрес и есть имя, дублировать нечего.
+ */
+function boardTitle(board: Board): string {
+  const title = board.title?.trim();
+  if (title && title !== board.slug && title !== `/${board.slug}`) return title;
+  return board.slug;
+}
+
+/**
  * Пропорции обложки (ширина / высота). Одна константа на все карточки:
  * высота мозаики не зависит ни от размеров превью, ни от числа файлов
  * в разделе — подписи у всех карточек начинаются на одной линии.
@@ -148,14 +158,17 @@ export default function BoardsCatalog({ boards }: { boards: Board[] }) {
             <div className="flex flex-1 flex-col justify-between gap-2 p-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <span className="font-mono text-sm font-bold uppercase tracking-wider text-text-primary">
-                    <span className="mr-1 text-[10px] font-normal tracking-normal text-text-muted">
-                      раздел
-                    </span>
-                    /{b.slug}
-                  </span>
-                  <p className="mt-0.5 truncate text-xs text-text-secondary" title={b.title || b.slug}>
-                    {b.title && b.title !== b.slug && b.title !== `/${b.slug}` ? b.title : b.slug}
+                  {/* Крупно и читабельно — человеческое название: его ищут глазами.
+                      Адрес «раздел/…» — служебная сноска мелким тусклым шрифтом,
+                      чтобы не спорил с названием за внимание. */}
+                  <h3
+                    className="truncate text-base font-semibold leading-snug text-text-primary"
+                    title={boardTitle(b)}
+                  >
+                    {boardTitle(b)}
+                  </h3>
+                  <p className="mt-0.5 truncate font-mono text-[10px] text-text-muted">
+                    <span className="opacity-70">раздел</span>/{b.slug}
                   </p>
                 </div>
                 {b.is_premium ? (
