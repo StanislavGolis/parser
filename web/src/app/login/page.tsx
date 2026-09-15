@@ -55,33 +55,26 @@ export default function LoginPage() {
     <div className="container-site max-w-md py-10">
       <h1 className="text-xl font-bold text-text-primary">Вход</h1>
       <p className="mt-1 text-sm text-text-secondary">
-        Доступ к архиву — через Telegram-бота: он выдаёт одноразовую ссылку и показывает
-        статус подписки.
+        Доступ к архиву — по одноразовой ссылке из Telegram-бота.
       </p>
 
       <div className="mt-6 rounded border border-line bg-ink-secondary p-4">
-        <ol className="flex flex-col gap-2 text-xs text-text-secondary">
-          <li>1. Нажмите кнопку — откроется наш бот.</li>
-          <li>2. Отправьте /link или нажмите «🔓 Войти на сайт».</li>
-          <li>3. Ссылка одноразовая и живёт 10 минут — вход произойдёт автоматически.</li>
-        </ol>
         {TELEGRAM_BOT_USERNAME ? (
           <a
             href={`https://t.me/${TELEGRAM_BOT_USERNAME}?start=site`}
             target="_blank"
             rel="noopener noreferrer"
-            className="btn-primary mt-4 block text-center"
+            className="btn-primary block text-center"
           >
             Войти через Telegram
           </a>
         ) : (
-          <p className="mt-4 text-xs text-text-muted">
+          <p className="text-xs text-text-muted">
             Ник бота не задан в сборке — вход временно недоступен, напишите администратору.
           </p>
         )}
-        <p className="mt-2 text-[11px] leading-relaxed text-text-muted">
-          Подписка для входа не нужна: открытые разделы доступны сразу, приватные
-          откроются после оплаты.
+        <p className="mt-2 text-[11px] text-text-muted">
+          Ссылка действует 10 минут. Подписка для входа не нужна.
         </p>
       </div>
 
