@@ -306,7 +306,7 @@ chmod +x /etc/cron.daily/dredge-backup
 | Доступ | ключ владельца + deploy-key сервера `/root/.ssh/dredge_deploy` (alias `github-dredge` в `~/.ssh/config`) |
 | Стек | хост-nginx на `80/443` (TLS, редирект 80→443) → контейнер `nginx` на `8080` → api/web |
 | `.env` | `HTTP_PORT=8080`, `SESSION_COOKIE_SECURE=1`, `PUBLIC_BASE_URL=https://dredg.ru`, `API_CORS_ORIGINS=https://dredg.ru`, `SQL_ECHO=0` |
-| База | восстановлена из дампа: head `s4t5u6v7w8x9` (на 12.09.2026; **актуальная голова — `b9c0d1e2f3a4`**, 23 таблицы), media 3557 (все в S3), users 1, boards 2, threads 223 |
+| База | восстановлена из дампа: head `s4t5u6v7w8x9` (на 12.09.2026; **актуальная голова — `c0d1e2f3a4b5`**, 26 таблиц), media 3557 (все в S3), users 1, boards 2, threads 223 |
 | Бэкапы | `/etc/cron.daily/dredge-backup` → `/opt/dredge/backups/db-<дата>.pgc`, хранение 14 дней. Копии локальные (на том же диске); **восстановление из дампа ещё не проверялось** — см. `LAUNCH.md` §3.1 |
 | Парсер | **на паузе** (ключ `parser:enabled` не выставлен) — включается кнопкой «Запустить» в админке |
 | Админы | `ADMIN_EMAILS=shksns35@gmail.com,stanislav.golis@yandex.ru` — две админ-учётки: `shksns35@gmail.com` (id 8) и `stanislav.golis@yandex.ru` (id 3, он же публичный аккаунт сайта с премиумом; прежний адрес с опечаткой `staniskav@…` исправлен). Отправка писем идёт с **Gmail**: `SMTP_HOST=smtp.gmail.com:465 (ssl)`, `SMTP_USER/SMTP_FROM=shksns35@gmail.com`, пароль — «пароль приложения» Google (проверено 13.09.2026: тестовое письмо, админский сброс и ссылка смены пароля посетителю доходят; Gmail→Яндекс доставка подтверждена). Пароли приложений Google **сбрасываются при смене пароля аккаунта** — тогда почту надо перенастроить заново (`SMTP_PASSWORD` в `.env`) |
