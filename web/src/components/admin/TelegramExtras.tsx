@@ -40,7 +40,12 @@ function when(iso: string | null): string {
  * попадает только после «Опубликовать». Здесь включаются лимиты, окна тишины и
  * белый список разделов, а также ведутся розыгрыши премиума.
  */
-export default function TelegramExtras() {
+export default function TelegramExtras({
+  section = "all",
+}: {
+  /** Что показать: `autopost` — расписание и карантин, `giveaways` — розыгрыши, `all` — оба. */
+  section?: "all" | "autopost" | "giveaways";
+}) {
   const { token, logout } = useAdminToken();
   const [autopost, setAutopost] = useState<TelegramAutopost | null>(null);
   const [giveaways, setGiveaways] = useState<GiveawayItem[] | null>(null);
@@ -179,8 +184,10 @@ export default function TelegramExtras() {
     "rounded border border-line bg-ink-tertiary px-2 py-1 text-xs text-text-primary outline-none focus:border-accent-primary";
 
   return (
-    <div className="mt-8 rounded border border-line bg-ink-secondary p-4">
-      {/* Автопостинг с карантином */}
+    <div className="rounded border border-line bg-ink-secondary p-4">
+      {/* ── Автопостинг с карантином ─────────────────────────────────────── */}
+      {section !== "giveaways" ? (
+        <>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold">Автопостинг</h3>
         <span className="font-mono text-[11px] text-text-muted">
@@ -313,9 +320,13 @@ export default function TelegramExtras() {
       ) : null}
 
       {error ? <p className="mt-2 text-xs text-accent-danger">{error}</p> : null}
+        </>
+      ) : null}
 
-      {/* Розыгрыши премиума */}
-      <div className="mt-6 border-t border-line pt-4">
+      {/* ── Розыгрыши премиума ───────────────────────────────────────────── */}
+      {section !== "autopost" ? (
+        <>
+      <div className={section === "all" ? "mt-6 border-t border-line pt-4" : ""}>
         <h3 className="text-sm font-semibold">Розыгрыши премиума</h3>
         <p className="mt-1 text-xs text-text-secondary">
           Участие — через бота: в посте-анонсе кнопка «Участвовать» проверяет подписку
@@ -423,6 +434,8 @@ export default function TelegramExtras() {
           ) : null}
         </div>
       </div>
+        </>
+      ) : null}
     </div>
   );
 }

@@ -46,7 +46,12 @@ function when(iso: string | null): string {
  * и собранная картинка), затем отправляет пост в канал. Каждая отправка попадает в
  * журнал — с ошибкой, если Telegram не принял, и кнопкой «повторить».
  */
-export default function TelegramPanel() {
+export default function TelegramPanel({
+  section = "all",
+}: {
+  /** Что показать: `composer` — сборка поста, `log` — журнал публикаций, `all` — оба. */
+  section?: "all" | "composer" | "log";
+}) {
   const { token, logout } = useAdminToken();
   const [status, setStatus] = useState<TelegramStatus | null>(null);
   const [items, setItems] = useState<TelegramCandidate[] | null>(null);
@@ -211,7 +216,9 @@ export default function TelegramPanel() {
 
   return (
     <div>
-      {/* Композер */}
+      {/* ── Композер: сборка и публикация поста ─────────────────────────── */}
+      {section !== "log" ? (
+        <>
       {status && !status.configured ? (
         <div className="mb-4 rounded border border-accent-warning/40 bg-ink-secondary px-3 py-2 text-sm text-accent-warning">
           Публикация не настроена: нужны `TELEGRAM_BOT_TOKEN` и `TELEGRAM_CHANNEL`, а бот — администратор канала.
@@ -416,9 +423,13 @@ export default function TelegramPanel() {
         ) : null}
 
       </div>
+        </>
+      ) : null}
 
-      {/* Журнал публикаций */}
-      <div className="mt-6 flex flex-wrap items-center gap-2">
+      {/* ── Журнал публикаций: отдельная вкладка ────────────────────────── */}
+      {section !== "composer" ? (
+        <>
+      <div className="flex flex-wrap items-center gap-2">
         {STATUSES.map((item) => {
           const count = log?.counts?.[item.value];
           return (
@@ -522,8 +533,8 @@ export default function TelegramPanel() {
           </div>
         ))}
       </div>
-
-
+        </>
+      ) : null}
     </div>
   );
 }
