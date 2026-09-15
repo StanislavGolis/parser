@@ -8,11 +8,22 @@
 
 html {
   scroll-behavior: smooth;
+  /* Не даём мобильному браузеру «дорисовывать» текст при повороте экрана */
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   background-color: #0a0c0f;
   color: #c7d0d9;
+  /* Мобильный скролл: без «резинки» страницы и без случайного pull-to-refresh,
+     из-за которых контент прыгал при протяжке */
+  overscroll-behavior-y: none;
+}
+
+/* Медиа не вылезает за экран: горизонтального скролла на телефоне нет */
+img,
+video {
+  max-width: 100%;
 }
 
 ::selection {

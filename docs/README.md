@@ -1,10 +1,16 @@
-# Dredger — техническая документация (v6)
+# Dredger — техническая документация (v7, актуализировано 15.09.2026)
 
 > Dredger — архив // отбор // доступ: медиа-архив, который парсит медиа с разделов
 > форума (2ch), скачивает и архивирует в объектное хранилище S3 (Timeweb Cloud),
 > каталогизирует и публикует на сайте — каталог «досок» → треды → файлы с
 > техпанелью, новинки, топ, поиск, аккаунты, **закладки** (наш аналог лайка,
 > «отличный контент» в старых текстах) и премиум-подписка. Тёмный «технический» интерфейс.
+>
+> С 14–15.09.2026 проект живёт по модели **Dredger 2.0 «Telegram продаёт, сайт
+> показывает»**: сайт закрыт (вход — по ссылке из бота), канал работает витриной с
+> тизерами и дайджестами, доступ выдаёт бот. См.
+> [`Dredger 2.0 — план перехода.md`](Dredger%202.0%20—%20план%20перехода.md) и
+> **актуальный план до продакшена** — [`LAUNCH.md`](LAUNCH.md).
 >
 > Один документ: статус, архитектура, модули, доступ, БД, API, эксплуатация.
 > Дизайн-спека: [`DESIGN.md`](DESIGN.md) · Деплой: [`../DEPLOY.md`](../DEPLOY.md) ·
@@ -180,10 +186,12 @@ docker compose -f docker-compose.prod.yml up -d --build
 - [x] «Очистить S3» (объекты без записей в БД), «Сбросить всё».
 
 *Инфраструктура*
-- [x] Docker Compose (postgres, redis, migrate, parser, api, web, nginx) +
-      Alembic-миграции на старте; nginx кэширует деривативы на диске
-      (`X-Cache-Status`, immutable, `slice` для видео).
-- [ ] Прод-деплой на VPS (домен/SSL/выкатка) — **не выполнен**, см. §8.
+- [x] Docker Compose (10 работающих сервисов + разовый `migrate`: postgres, redis,
+      parser-dvach, parser-slivach, parser-wayback, api, web, nginx,
+      telegram-gateway, telegram-publisher) + Alembic-миграции на старте;
+      nginx кэширует деривативы на диске (`X-Cache-Status`, immutable, `slice` для видео).
+- [x] Прод-деплой на VPS: домен `dredg.ru` + SSL (certbot), ежедневный `pg_dump`,
+      health-check в cron, лимиты логов docker — см. §8.
 
 **Особенности и нюансы (важно для эксплуатации)**
 - Счётчики «скачано / в хранилище / видимых / в каталоге» **не учитывают
@@ -199,20 +207,39 @@ docker compose -f docker-compose.prod.yml up -d --build
 - Legacy-медиа без `thumb_blur` (до прогона «Оптимизировать медиа») отдаются
   публично как обычное превью + клиентский blur.
 
+**Dredger 2.0: переход к модели «Telegram продаёт, сайт показывает»** (15.09.2026)
+
+- [x] **Закрытый режим** (`SITE_MODE=closed`): анонимы → `307` на `/login`,
+      `X-Robots-Tag: noindex, nofollow, noarchive`, снятие карт и IndexNow.
+- [x] **Бот + вход по magic link**: `telegram-gateway`, одноразовые ссылки (10 минут),
+      аккаунт по Telegram ID, `/link`, `/status`, `/subscribe`, `/help`, `/id`.
+- [x] **Канал-витрина** (`/admin/telegram`): тизеры с размытой картинкой, дайджесты
+      «за сутки/неделю», расписание (`telegram-publisher`), автопостинг с карантином
+      (черновик приходит админу в ЛС бота), розыгрыши премиума через бота.
+- [x] **Модерация и юридика**: жалобы из просмотра → `/admin/reports`, автоскрытие
+      по CSAM, блок-лист хешей, страницы `/tos`, `/dmca`, `/privacy` (черновики текстов).
+- [ ] **Оплата и подписки (Фаза 4)** — единственный блокер продаж: тарифы, Free-лимит,
+      `/subscribe` с CryptoBot. План работ с оценками и приёмкой — [`LAUNCH.md`](LAUNCH.md).
+
 **Ограничения и открытые задачи**
-- Прод-деплой (домен, SSL, ротация `ADMIN_TOKEN`) — не выполнен.
-- Оплата премиума не подключена: активация промо-бесплатная (1 день, продлевается).
-- Старые ключи Backblaze, попавшие в git-историю, нужно отозвать и
-  вычистить историю (`git filter-repo`, см. `DEPLOY.md`).
-- Выкатка «Убрать дубли» из админки — при необходимости повторить чистку
-  данных на других инсталляциях (одноразовый SQL в `DEPLOY.md` §Диагностика).
+- Прод-деплой выполнен (домен, SSL, бэкапы БД), но **автоматизацию бэкапов и выгрузку
+  копий вне сервера** нужно доделать (сейчас локальные `pg_dump` в `/opt/dredge/backups`).
+- Оплата премиума не подключена: активация пока ручная (админка) — см. Фазу 4.
+- Почта на домене не поднята: `support@`/`dmca@dredg.ru` в текстах нерабочие, ждём ящик.
+- Блок-лист хешей пуст, мониторинг/алерты не настроены, второго S3-бакета и резервного
+  домена нет — расписано в [`LAUNCH.md`](LAUNCH.md) §2–3.
+- Старые ключи Backblaze, попавшие в git-историю, нужно отозвать и вычистить историю
+  (`git filter-repo`, см. `DEPLOY.md`).
+- Выкатка «Убрать дубли» из админки — при необходимости повторить чистку данных на
+  других инсталляциях (одноразовый SQL в `DEPLOY.md` §Диагностика).
 
 ## 2. Архитектура
 
-Один VPS, один Docker Compose-стек: `postgres`, `redis`, `migrate`, `parser`,
-`api`, `web`, `nginx`. Наружу открыт только хост-nginx (80/443, TLS Let's Encrypt →
-редирект на HTTPS), он проксирует на контейнер `nginx` (порт `HTTP_PORT`, в проде
-`8080`), тот — на `api` и `web`.
+Один VPS, один Docker Compose-стек (10 сервисов): `postgres`, `redis`, `migrate`,
+`parser-dvach`, `parser-slivach`, `parser-wayback`, `api`, `web`, `nginx`,
+`telegram-gateway`, `telegram-publisher`. Наружу открыт только хост-nginx (80/443,
+TLS Let's Encrypt → редирект на HTTPS), он проксирует на контейнер `nginx`
+(порт `HTTP_PORT`, в проде `8080`), тот — на `api` и `web`.
 
 | Сервис | Роль | Образ |
 |---|---|---|
@@ -220,13 +247,16 @@ docker compose -f docker-compose.prod.yml up -d --build
 | `api` | FastAPI (публичные + админ + auth) | `parser-backend:local` |
 | `parser-dvach` | прогон источника 2ch (`PARSER_SOURCE=dvach`) | `parser-backend:local` |
 | `parser-slivach` | прогон источника slivach (`PARSER_SOURCE=slivach`) | тот же образ |
+| `parser-wayback` | докачка разделов из веб-архива (`PARSER_SOURCE=wayback`) | тот же образ |
+| `telegram-gateway` | бот: вход по magic link, карантин, розыгрыши (long polling) | тот же образ |
+| `telegram-publisher` | публикация в канал: расписание, автопост, итоги розыгрышей | тот же образ |
 | `migrate` | `alembic upgrade head`, затем завершается | `parser-backend:local` |
 | `web` | Next.js 14 (SSR + статика) | `parser-web:local` |
 | `postgres`, `redis` | БД и состояние/лимиты/прогресс | официальные образы |
 
-Код `api`, `parser` и `migrate` — **общий образ** `parser-backend:local`
-(`build:` объявлен только у `api`). Отсюда важный нюанс деплоя: `up -d --build parser`
-код не пересобирает — см. `DEPLOY.md` §Диагностика.
+Код `api`, парсеров, бота, планировщика и `migrate` — **общий образ**
+`parser-backend:local` (`build:` объявлен только у `api`). Отсюда важный нюанс деплоя:
+`up -d --build parser-dvach` код не пересобирает — нужно `build api` (см. `DEPLOY.md`).
 
 **Поток парсинга.** Демон (`src/main.py`) идёт **по реестру источников**
 (`sources`): у каждого свои флаги прогона (`parser:{code}:enabled|up|alive|current|progress`)
@@ -431,6 +461,10 @@ S3 у провайдера отдаёт ~3 МБ/с (4 потока — ~8 МБ/�
 | `thread_discovery` | каталог и треды 2ch, `res/{id}.json` (глубокий скан), `scan:board:{slug}` |
 | `storage`, `reconciliation` | локальный кэш и сверка хранилища |
 | `media_cache` | дисковый кэш объектов S3 (LRU по лимиту), `CachingUploader` для парсера: отдача повторных запросов с диска вместо S3 |
+| `telegram_api` | Bot API без зависимостей: отправка фото/текста, кнопки, удаление, `getChatMember`/`getChatMemberCount` |
+| `telegram_publisher` | сборка тизера канала 1280×720 из наших превью + размытие (`DEFAULT_BLUR`) и шаблоны подписей |
+| `telegram_service` | ядро менеджера канала: подбор файлов, дайджест (`day`/`week`), публикация, расписание, карантин, розыгрыши |
+| `magic_link` | вход через бота: одноразовые ссылки и аккаунты по Telegram ID |
 
 ### 3.3 API (`src/api/`)
 - Публичные роуты: `boards`, `boards/{slug}/threads`, `boards/{slug}/media`,
@@ -513,6 +547,9 @@ S3 у провайдера отдаёт ~3 МБ/с (4 потока — ~8 МБ/�
 - Каталог разделов: карточка — мозаика 2×2 свежих превью (`cover_thumbs` в
   `/api/v1/boards`, один запрос с оконной функцией), плитки со скелетоном до загрузки.
   Карточки автосортируются по числу файлов (крупные сверху, при равенстве — по слагу).
+  Превью можно закрепить вручную: в админке у раздела кнопка «Превью» открывает
+  галерею свежих файлов (`boards.cover_media_ids`, до 4 id в порядке плиток;
+  пусто — автоматический подбор), каталог отдаёт ровно выбранные плитки.
 - «Продолжить просмотр»: при показе файла треда запоминается точка возврата
   (`lib/resume.ts`, localStorage `dredge.resume.v2` — 200 тредов, 60 дней), и в
   карточке треда появляется «смотрели файл N из M · когда» с кнопкой «продолжить»
@@ -636,6 +673,14 @@ S3 у провайдера отдаёт ~3 МБ/с (4 потока — ~8 МБ/�
   треды»); статус живёт в Redis `board:catalog_error:{slug}`.
 - Легаси-страница `/admin/boards/{slug}` (полный список тредов доски) осталась, но
   из UI больше не линкуется — управление тредами доступно в аккордеоне карточки.
+- Вкладка **«Канал»** (`/admin/telegram`) — менеджер Telegram-канала: композер тизера
+  (до 4 файлов, мозаика/один кадр/без картинки, размытие, кнопка в бота), кнопки
+  дайджеста «за сутки / за неделю», публикация сразу или в очередь на конкретное время,
+  блок «Автопостинг» (лимит в сутки, окна тишины, белый список разделов, карантин,
+  «Собрать сейчас»), блок «Розыгрыши премиума» (создать, анонс, разыгрывать, итоги) и
+  журнал отправок с «повторить»/«удалить» (отложенный пост при этом отменяется).
+- Вкладка **«Жалобы»** (`/admin/reports`) — очередь жалоб из просмотра файла:
+  причина, комментарий, файл, автор, статус; закрытие с решением и скрытие контента.
 
 - Список разделов источника (`GET /api/v1/admin/sources/{code}/catalog`) читает
   адаптер источника: у 2ch — `index.json`, у сайтов — категории из меню. Оттуда
@@ -784,8 +829,34 @@ full      то же + ошибки прогонов (для отладки)
 - **user_resume_points**: `user_id, thread_id, media_id, position, total, updated_at`
   (UNIQUE user+thread) — точка возврата «продолжить просмотр» для авторизованных:
   localStorage остаётся фолбэком для анонимов (`web/src/lib/resume.ts`)
-- **users**: `id, email, password_hash, is_active, premium_until, created_at`;
-  **sessions**: `user_id, token_hash, expires_at`
+- **users**: `id, email (nullable), password_hash (nullable), telegram_id (UNIQUE,
+  nullable), telegram_username, is_active, is_admin, premium_until, created_at` —
+  аккаунт создаётся либо по email/паролю (админы, VIP), либо автоматически по
+  Telegram ID при входе из бота; **sessions**: `user_id, token_hash, expires_at`
+- **auth_magic_links**: `user_id, token_hash, expires_at, used_at, ip_hash` — одноразовая
+  ссылка входа из бота (TTL `MAGIC_LINK_TTL_MINUTES`, по умолчанию 10 минут)
+- **telegram_posts**: `id, created_at, published_at, kind (teaser|digest|announce),
+  caption, media_ids, image_mode (mosaic|single|none), button_text, button_url, channel,
+  message_id, status (draft|scheduled|published|failed|deleted|cancelled|rejected),
+  scheduled_at, error, created_by` — журнал публикаций в канал: и ручных, и от
+  планировщика, и черновиков карантина
+- **telegram_autopost**: `id (одна строка), enabled, posts_per_day, quiet_from, quiet_to,
+  require_approval, boards (JSONB), period (day|week), blur, last_check_at, last_post_at,
+  updated_at` — настройки автопостинга с карантином
+- **giveaways**: `id, created_at, title, kind (daily|weekly), prize_days, starts_at,
+  ends_at, status (draft|announced|drawn|cancelled), winners (JSONB),
+  announce_message_id, result_message_id, created_by`;
+  **giveaway_entries**: `giveaway_id, user_id, telegram_id, created_at`
+  (UNIQUE `giveaway + user` — один аккаунт, одно участие)
+- **media_reports**: `media_id, user_id, reason, comment, status, created_at,
+  resolved_at, resolved_by` — жалобы на контент (очередь `/admin/reports`)
+- **blocked_hashes**: `file_hash, reason, created_at, source` — блок-лист хешей
+  (CSAM): файлы скрываются автоматически, повторная загрузка блокируется
+- **feedback**: `id, user_id, email, topic, message, status, created_at` — обратная связь
+- **admin_audit**: `actor, action, target, details, created_at` — аудит действий админов
+  и автоопераций (публикации, карантин, розыгрыши, модерация)
+- **page_hits**: `path, user_id, session_id, occurred_at, …` — посещаемость страниц
+  (вкладка «Статистика», без внешних счётчиков)
 
 Значения:
 - `download_status`: `new` → `downloaded` (лежит локально, не выгружен) →
@@ -874,6 +945,8 @@ GET   /api/v1/resume                       точки возврата акка�
 POST  /api/v1/resume                       запомнить точку: тред + последний файл (аккаунт)
 DELETE /api/v1/resume/{thread_id}          забыть точку треда (аккаунт)
 POST  /api/v1/feedback                     обращение (баг/идея/премиум-доступ): БД + письмо админам
+POST  /api/v1/media/{id}/report            жалоба на файл: очередь модерации; причина «детская
+                                           безопасность» скрывает файл и тред сразу и блокирует хеш
 POST  /api/v1/auth/register | /login | /logout
 GET   /api/v1/auth/me                      профиль + премиум + счётчик закладок
 POST  /api/v1/auth/reset                   смена пароля по ссылке из админки (token + password)
@@ -914,11 +987,35 @@ POST  /api/v1/admin/sources/{code}/stop    остановить прогон и�
 GET   /api/v1/admin/sources/{code}/catalog  разделы, которые предлагает источник (2ch — index.json, сайты — категории)
 GET   /api/v1/admin/feedback               приёмная обратной связи: заявки, статусы, счётчики
 PATCH /api/v1/admin/feedback/{id}           статус и заметка-ответ по обращению
+GET   /api/v1/admin/reports                очередь жалоб на файлы (status=open|…|all) со счётчиками
+GET   /api/v1/admin/reports/count          сколько жалоб ждёт разбора (для бейджа)
+PATCH /api/v1/admin/reports/{id}           разбор: hide_media | hide_thread | remove_media | reject (+ note)
+GET   /api/v1/admin/blocked-hashes         блок-лист SHA-256 запрещённого контента (с числом файлов)
+POST  /api/v1/admin/blocked-hashes         добавить хеш + сразу скрыть файлы архива с ним
+DELETE /api/v1/admin/blocked-hashes/{id}   убрать хеш (скрытые файлы остаются скрытыми)
+GET   /api/v1/admin/telegram/status        настройки канала: заданы ли токен бота и канал
+GET   /api/v1/admin/telegram/candidates    свежие файлы для тизера (галерея выбора в композере)
+POST  /api/v1/admin/telegram/preview       предпросмотр поста: подпись + собранная картинка (без отправки)
+POST  /api/v1/admin/telegram/post          публикация тизера в канал (картинка-мозаика + кнопка в бота)
+GET   /api/v1/admin/telegram/posts         журнал публикаций (status=all|draft|scheduled|published|failed|deleted|cancelled|rejected)
+POST  /api/v1/admin/telegram/posts/{id}/retry  повторить неудачную публикацию из журнала
+DELETE /api/v1/admin/telegram/posts/{id}   удалить сообщение из канала или отменить отложенный пост
+GET   /api/v1/admin/telegram/digest        подборка для дайджеста (period=day|week, board — раздел)
+GET   /api/v1/admin/telegram/autopost      настройки автопостинга: лимит, окна тишины, карантин, разделы
+PATCH /api/v1/admin/telegram/autopost      изменить настройки автопостинга
+POST  /api/v1/admin/telegram/autopost/run  собрать автопост сейчас (карантин: черновик в ЛС бота)
+POST  /api/v1/admin/telegram/posts/{id}/approve|reject|later  карантин: кнопки в ЛС бота (только X-Bot-Token)
+GET   /api/v1/admin/telegram/giveaways     розыгрыши премиума: статус, участники, ссылка на анонс
+POST  /api/v1/admin/telegram/giveaways     создать розыгрыш (daily|weekly, prize_days, hours)
+POST  /api/v1/admin/telegram/giveaways/{id}/announce|draw|results  анонс, жеребьёвка, итоги
+POST  /api/v1/admin/telegram/giveaways/join  участие из бота (проверка подписки на канал — в боте)
 GET   /api/v1/admin/reports/daily          предпросмотр ежедневного отчёта (today|yesterday, МСК)
 POST  /api/v1/admin/reports/daily/send      отправить ежедневный отчёт сейчас
 GET   /api/v1/admin/boards                 разделы с флагами и статистикой
 POST  /api/v1/admin/boards                 добавить раздел по slug
-PATCH /api/v1/admin/boards/{slug}          флаги, title, parse_mode, is_premium
+PATCH /api/v1/admin/boards/{slug}          флаги, title, parse_mode, is_premium, cover_media_ids
+GET   /api/v1/admin/boards/{slug}/cover-candidates?limit=&ids=  фото раздела для выбора превью
+                                           карточки каталога (до 4 плиток, ?ids= — уже выбранные)
 DELETE /api/v1/admin/boards/{slug}         удалить раздел (БД + объекты S3)
 POST  /api/v1/admin/boards/reorder         порядок очереди парсинга
 GET   /api/v1/admin/boards/{slug}/threads  треды раздела (state: all|active|parsing|visible|premium|queued|lagging|off|dead|stale, q, page)
@@ -943,32 +1040,46 @@ DELETE /api/v1/admin/reset                           полный сброс (Б
 
 ## 8. Эксплуатация и деплой
 
-Подробная инструкция — [`../DEPLOY.md`](../DEPLOY.md). Кратко:
+Подробная инструкция — [`../DEPLOY.md`](../DEPLOY.md). Актуальный список работ до
+открытия продаж (бэкапы, мониторинг, юридика) — [`LAUNCH.md`](LAUNCH.md). Кратко:
 
-- запуск: `cp .env.prod.example .env` → заполнить `S3_*` и `ADMIN_TOKEN` →
+- запуск: `cp .env.prod.example .env` → заполнить `S3_*`, `ADMIN_TOKEN`, `TELEGRAM_*` →
   `docker compose -f docker-compose.prod.yml up -d --build`;
-- обновление кода: `git pull && docker compose -f docker-compose.prod.yml up -d --build`
-  (помните про общий образ `parser-backend` — §2);
-- миграции применяются сервисом `migrate` при старте; текущая голова —
-  `t5u6v7w8x9y0`;
-- проверка после выкатки: `X-Cache-Status` у `thumb_blur` (`MISS → HIT`), 403 у
-  премиум-`web` без подписки, 401 у `/raw` без сессии;
-- SEO и заголовки: `robots.txt`/`sitemap.xml` отдаются, `SITE_URL` задаёт canonical
-  и адреса в микроразметке; в ответах нет версии nginx (`server_tokens off`) и
-  `X-Powered-By` (`poweredByHeader: false`), `www` → `301` на основной домен;
-- обязательные переменные парсера: `DB_COMMIT_EVERY_FILES` (дефолт 25),
-  `REQUEST_DELAY`, `PARSE_INTERVAL`, `MAX_FILE_SIZE`, `RECONCILE_MINUTES`;
-- резервные копии: `pg_dump` + версионирование бакета S3 (см. `DEPLOY.md`);
+- **обновление кода на проде:** репозиторий на сервере не обновляется через `git pull`
+  (нет доступа к origin) — изменения выкатываются переносом файлов: локально
+  `tar -czf patch.tar.gz -- <файлы>` → `scp patch.tar.gz root@<сервер>:/tmp/` →
+  на сервере `tar -xzf` в `/opt/dredge`. Скрипты выкатки лежат в
+  `C:\Users\Stas\dredge-backups\`. Порядок обязательный: **остановить парсеры**
+  (`stop parser-dvach parser-slivach` — иначе сборка образа воюет с ними за диск),
+  `build api web` → `up -d` → поднять парсеры;
+- помните про общий образ `parser-backend:local`: `api`, парсеры, `telegram-gateway`,
+  `telegram-publisher` и `migrate` используют один образ — пересобирать нужно `api`;
+- миграции применяются сервисом `migrate` при старте; текущая голова — `b9c0d1e2f3a4`
+  (23 таблицы);
+- Telegram-переменные: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`,
+  `TELEGRAM_CHANNEL` (канал-витрина) и `TELEGRAM_ADMIN_CHAT_ID` — получатель карантина
+  автопоста (свой id владелец узнаёт командой `/id` у бота; без него черновик создаётся,
+  но в ЛС не доставляется);
+- проверка после выкатки: `healthz: 200`, `X-Cache-Status` у `thumb_blur`
+  (`MISS → HIT`), 403 у премиум-`web` без подписки, 401 у `/raw` без сессии,
+  `docker compose ps` — все 10 сервисов `running`;
+- резервные копии: `pg_dump`-копии лежат в `/opt/dredge/backups` (локально, на том же
+  диске) — нужна автоматизация и выгрузка вне сервера (см. `LAUNCH.md` §3.1);
 - диагностика: застрявшие ключи `parser:progress` / `backfill:variants` со статусом
-  `running` после аварийного рестарта → `docker compose exec redis redis-cli del …`.
+  `running` после аварийного рестарта → `docker compose exec redis redis-cli del …`;
+- логи: лимиты `logging` заданы в compose; при росте диска смотреть `/var/lib/docker`
+  (на 15.09.2026 диск 51 ГБ из 87 ГБ, 59%).
 
 ## 9. Планы
 
-> **Статус (13.09.2026): запланированный объём фич закрыт.** Реализованы этапы 1–5,
-> мульти-источники (`dvach` + `slivach`), отчётность/обратная связь, SEO-блок
-> (robots с превью, sitemap с картинками, `rating=adult`, JSON-LD, бот без
-> возрастного окна) и UX-правки (закладки, онбординг, «скрыть премиум», путь к
-> треду, точка возврата в БД). Дальше — эксплуатация и идеи ниже.
+> **Статус (15.09.2026): фичи этапов 1–5 закрыты, идёт Dredger 2.0.** Реализованы
+> мульти-источники (`dvach` + `slivach` + архив `wayback`), отчётность/обратная связь,
+> SEO-блок (работает в публичном режиме, в закрытом — выключен), UX-правки (закладки,
+> онбординг, «скрыть премиум», точка возврата в БД, мобильная версия) и переход к
+> модели «Telegram продаёт, сайт показывает»: закрытый режим, бот с magic link,
+> канал-витрина с тизерами/дайджестами/карантином/розыгрышами, модерация и юридика.
+> **Актуальный список работ до открытия продаж — [`LAUNCH.md`](LAUNCH.md)** (блокер:
+> Фаза 4 — оплата и подписки). Ниже — идеи и отменённое.
 
 **Идея на будущее: «похожие файлы» (perceptual hash)** — отложено по решению
 от 13.09.2026.
@@ -994,10 +1105,11 @@ perceptual hash. Что понадобится:
 `rating=adult` и `isAccessibleForFree` уже стоят.
 
 **Ближайшее (эксплуатация)**
-1. **Прод-деплой**: домен + SSL (certbot), выкатка compose, мониторинг/uptime,
-   ротация `ADMIN_TOKEN`, отзыв старых ключей Backblaze + `git filter-repo`.
-2. **Бэкапы БД в S3** по cron (сейчас `pg_dump` руками, см. `DEPLOY.md`) +
-   контроль лимитов бакета.
+1. Работы до открытия продаж — [`LAUNCH.md`](LAUNCH.md): Фаза 4 (тарифы, Free-лимит,
+   `/subscribe` + CryptoBot), почта на домене, блок-лист хешей, автоматизация бэкапов
+   с выгрузкой вне сервера, мониторинг и алерты.
+2. Снятие индексации, шаг 4: `robots.txt` → `Disallow: /` и панели вебмастеров
+   (через 2–4 недели после `noindex`), плюс `sitemap.xml` → `404/410`.
 
 **Парсер**
 3. ~~Параллельные загрузки~~ — сделано (`MAX_PARALLEL_DOWNLOADS`): качаем пачками,
@@ -1027,6 +1139,21 @@ docker compose -f docker-compose.prod.yml exec -T api \
 # боевой прогон (в фоне, лог в файл — процесс длинный)
 docker compose -f docker-compose.prod.yml exec -T api \
   python -m src.tools.wayback_import --board e --limit 400 --no-video-transcode
+```
+
+**Постеры для файлов без превью (`src/tools/backfill_posters.py`).** Нужен, когда
+файл лежит в S3, но превью-дериватива нет (скачан до появления деривативов, сбой
+ffmpeg, транскод был выключен): карточка в лентах показывала заглушку «недоступно».
+Инструмент строит `thumb` + `thumb_blur` и **не** перекодирует видео, поэтому
+быстрый — в отличие от полного бэкфилла вариантов из админки:
+
+```bash
+# что попадёт в работу (видимые файлы)
+docker compose -f docker-compose.prod.yml exec -T api \
+  python -m src.tools.backfill_posters --visible-only --dry-run
+# боевой прогон
+docker compose -f docker-compose.prod.yml exec -T api \
+  python -m src.tools.backfill_posters --visible-only
 ```
 
 Как работает: CDX API архива → список снапшотов `/board/src/*`; метаданные (тема
@@ -1151,18 +1278,25 @@ Cloudflare), `--hosts` (где искать `catalog.json`), `--limit`, `--delay
 
 ```
 src/                    python-бэкенд
-  api/                  FastAPI: роуты (boards/media/feed/top/search/admin/auth),
-                        сервисы агрегации (threads_service, stats_service), схемы
-  parsers/dvach.py      парсер 2ch (циклы, дедуп, загрузка в S3, деривативы)
-  services/             s3_storage, derivatives, premium, auth, thread_discovery,
-                        media_validator, storage, reconciliation
+  api/                  FastAPI: роуты (boards/media/feed/top/search/admin/auth/
+                        reports/admin_reports/admin_telegram), сервисы агрегации
+                        (threads_service, stats_service), схемы
+  parsers/              парсеры источников: dvach.py (2ch), slivach.py, wayback.py
+  services/             s3_storage, derivatives, premium, auth, magic_link,
+                        telegram_api, telegram_publisher, telegram_service,
+                        thread_discovery, media_validator, storage, reconciliation
   repositories/         доступ к БД (boards/threads/media)
   core/                 config, db, models, redis
-migrations/versions/    alembic-миграции (head: s4t5u6v7w8x9)
-web/                    Next.js 14: app/ (страницы), components/, lib/
+  tools/                вспомогательные процессы: telegram_bot (бот),
+                        telegram_autopost (планировщик канала), indexnow,
+                        backfill_posters, check_mail
+migrations/versions/    alembic-миграции (head: b9c0d1e2f3a4)
+web/                    Next.js 14: app/ (страницы), components/ (+ admin/), lib/
 nginx/nginx.conf        конфиг nginx (прокси + дисковый кэш деривативов)
 docker-compose.prod.yml, Dockerfile, .env.example, .env.prod.example
 DEPLOY.md               деплой, эксплуатация, диагностика
 docs/README.md          этот документ
 docs/DESIGN.md          дизайн-спека интерфейса
+docs/LAUNCH.md          план работ до продакшена (чек-лист запуска)
+docs/Dredger 2.0*.md    концепт и план перехода к модели «Telegram продаёт…»
 ```

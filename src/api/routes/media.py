@@ -345,6 +345,34 @@ STREAM_CHUNK_SIZE = 256 * 1024
 # Публичные варианты деривативов (оригинал — /raw)
 ASSET_KINDS = ("thumb", "thumb_blur", "web", "video")
 
+# Расширение файла дериватива → MIME. Тип берём по самому файлу, а не по типу
+# оригинала: постер видео — это JPEG, а `thumb` картинки — WebP. Иначе браузер
+# получает `video/mp4` на картинку и не рисует её (мобильные особенно строги),
+# и превью видео в лентах выглядело «недоступным».
+_ASSET_MIME = {
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+    "webp": "image/webp",
+    "gif": "image/gif",
+    "mp4": "video/mp4",
+    "webm": "video/webm",
+}
+
+
+def _asset_content_type(kind: str, key: Optional[str]) -> Optional[str]:
+    """MIME дериватива: по расширению ключа в хранилище, с фолбэком на вид."""
+    ext = (key or "").rsplit(".", 1)[-1].lower()
+    if ext in _ASSET_MIME:
+        return _ASSET_MIME[ext]
+    if kind == "video":
+        return "video/mp4"
+    if kind == "thumb":
+        return "image/jpeg"
+    if kind in ("thumb_blur", "web"):
+        return "image/webp"
+    return None
+
 
 def _content_disposition(filename: str) -> str:
     """Content-Disposition с поддержкой не-ASCII имён (RFC 5987)."""
@@ -710,6 +738,7 @@ async def media_asset(
             request=request,
             s3=s3,
             cache=cache,
+            content_type=_asset_content_type("thumb_blur", key),
             cache_control="public, max-age=31536000, immutable",
         )
 
@@ -718,7 +747,7 @@ async def media_asset(
     if not key:
         raise HTTPException(status_code=404, detail="Asset not available")
 
-    content_type = "video/mp4" if (kind == "video") else None
+    content_type = _asset_content_type(kind, key)
     # ВАЖНО: имя не `cache` — иначе локальная переменная перекрывает объект кэша,
     # пришедший из Depends(get_media_cache), и _stream_object получает строку.
     cache_control = (

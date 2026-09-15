@@ -67,7 +67,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
 
   return (
     <html lang="ru" className={`${inter.variable} ${jetbrains.variable}`}>
-      <body className="flex min-h-screen flex-col bg-ink-primary font-sans text-text-primary antialiased">
+      <body className="flex min-h-[100dvh] flex-col bg-ink-primary font-sans text-text-primary antialiased">
         <Header />
         <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 pb-24 sm:px-6 md:pb-8">
           {children}

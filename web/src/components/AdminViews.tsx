@@ -13,6 +13,7 @@ import {
   TrashIcon,
 } from "@/components/icons";
 import AdminBoardThreads from "@/components/AdminBoardThreads";
+import BoardCoverEditor from "@/components/BoardCoverEditor";
 import { Switch } from "@/components/Switch";
 import { formatNumber } from "@/lib/format";
 import type { AdminBoard, ParserStatus, SourceBoard } from "@/lib/types";
@@ -35,7 +36,7 @@ export function BoardsTable({
   parserStatus?: ParserStatus | null;
   busyKey: string | null;
   rowError: Record<string, string>;
-  onPatch: (slug: string, body: Record<string, unknown>) => Promise<void>;
+  onPatch: (slug: string, body: Record<string, unknown>) => Promise<boolean>;
   onMove: (slug: string, dir: -1 | 1) => Promise<void>;
   onRename: (slug: string, title: string) => Promise<void>;
   onDelete: (slug: string) => Promise<void>;
@@ -88,7 +89,7 @@ function BoardRow({
   parserStatus?: ParserStatus | null;
   busyKey: string | null;
   rowError: Record<string, string>;
-  onPatch: (slug: string, body: Record<string, unknown>) => Promise<void>;
+  onPatch: (slug: string, body: Record<string, unknown>) => Promise<boolean>;
   onMove: (slug: string, dir: -1 | 1) => Promise<void>;
   onRename: (slug: string, title: string) => Promise<void>;
   onDelete: (slug: string) => Promise<void>;
@@ -96,6 +97,7 @@ function BoardRow({
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(board.title);
   const [showThreads, setShowThreads] = useState(false);
+  const [showCover, setShowCover] = useState(false);
 
   // Прогресс парсера по этой доске (если сейчас парсится именно она)
   const parser = parserStatus ?? null;
@@ -207,6 +209,19 @@ function BoardRow({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowCover((v) => !v)}
+            className="btn-ghost px-2.5 py-1.5 text-xs"
+            title="Выбрать 4 фото для карточки раздела в каталоге"
+          >
+            Превью {showCover ? "▴" : "▾"}
+            {board.cover_media_ids?.length ? (
+              <span className="ml-1 text-accent-primary">{board.cover_media_ids.length}/4</span>
+            ) : (
+              <span className="ml-1 text-text-muted">авто</span>
+            )}
+          </button>
           <button
             type="button"
             onClick={() => setShowThreads((v) => !v)}
@@ -324,6 +339,14 @@ function BoardRow({
             />
           </div>
         </div>
+      ) : null}
+
+      {showCover ? (
+        <BoardCoverEditor
+          board={board}
+          busy={busyKey === board.slug}
+          onSave={(ids) => onPatch(board.slug, { cover_media_ids: ids })}
+        />
       ) : null}
 
       {showThreads ? (

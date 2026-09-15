@@ -22,6 +22,8 @@ export interface Board {
 export interface AdminBoard extends Board {
   /** Источник раздела: по нему админка раскладывает доски по вкладкам источников. */
   source_id?: number | null;
+  /** Ручные превью карточки раздела: id файлов в порядке плиток (пусто — авто). */
+  cover_media_ids?: number[];
   parse_enabled: boolean;
   is_visible: boolean;
   sort_order: number;
@@ -359,6 +361,45 @@ export interface FeedbackList {
   counts: Record<string, number>;
 }
 
+/** Жалоба на файл (кнопка «Пожаловаться», очередь `/admin/reports`). */
+export interface MediaReportItem {
+  id: number;
+  created_at: string;
+  media_id: number;
+  user_id: number | null;
+  reason: string; // csam | copyright | illegal | spam | other
+  reason_label: string | null;
+  comment: string | null;
+  status: string; // open | hidden | thread_hidden | removed | rejected
+  resolved_at: string | null;
+  resolution_note: string | null;
+  // Контекст файла, на который пожаловались
+  media_name: string | null;
+  board_slug: string | null;
+  thread_id: number | null;
+  media_type: string | null;
+  thumb_url: string | null;
+  media_visible: boolean | null;
+  reporter: string | null;
+}
+
+export interface MediaReportList {
+  items: MediaReportItem[];
+  total: number;
+  counts: Record<string, number>;
+}
+
+/** Хеш в блок-листе запрещённого контента (`blocked_hashes`). */
+export interface BlockedHashItem {
+  id: number;
+  sha256: string;
+  reason: string; // csam | copyright | other
+  note: string | null;
+  created_at: string;
+  created_by: string | null;
+  media_count: number;
+}
+
 /** Результат переключения метки («отличный контент»). */
 export interface MarkResult {
   media_id: number;
@@ -381,6 +422,59 @@ export interface SiteStatus {
   period_end?: string | null;
   period_label?: string;
 }
+
+/** Пост в Telegram-канале (журнал менеджера канала). */
+export interface TelegramPostItem {
+  id: number;
+  created_at: string;
+  published_at: string | null;
+  kind: string; // teaser | digest | announce
+  caption: string;
+  media_ids: number[] | null;
+  image_mode: string; // mosaic | single | none
+  status: string; // draft | scheduled | published | failed | deleted | cancelled | rejected
+  channel: string | null;
+  message_id: number | null;
+  error: string | null;
+  created_by: string | null;
+  link: string | null;
+  scheduled_at: string | null;
+}
+
+export interface TelegramPostList {
+  items: TelegramPostItem[];
+  total: number;
+  counts: Record<string, number>;
+}
+
+/** Файл-кандидат для тизера (галерея выбора). */
+export interface TelegramCandidate {
+  id: number;
+  media_type: string;
+  thumb_url: string | null;
+  board_slug: string | null;
+}
+
+/** Предпросмотр поста: текст и готовая картинка (data URL). */
+export interface TelegramPreview {
+  caption: string;
+  image_data_url: string | null;
+  chat: string | null;
+  configured: boolean;
+  warning: string | null;
+}
+
+/** Настройки публикации в канал (задан ли токен и канал). */
+export interface TelegramStatus {
+  configured: boolean;
+  channel: string | null;
+  bot: string | null;
+  chat: string | null;
+  kinds: string[];
+  image_modes: string[];
+  default_blur: number;
+}
+
 
 /** Публичная страница треда `/t/{id}`: метаданные и счётчики файлов. */
 export interface ThreadDetail {
@@ -546,6 +640,43 @@ export interface StatsContentMedia {
   name: string;
   board: string;
   count: number;
+}
+
+export interface TelegramDigest {
+  media_ids: number[];
+  boards: string[];
+  caption: string;
+  period: string;
+}
+
+export interface TelegramAutopost {
+  enabled: boolean;
+  posts_per_day: number;
+  quiet_from: number;
+  quiet_to: number;
+  require_approval: boolean;
+  boards: string[] | null;
+  period: string;
+  blur: number;
+  last_check_at: string | null;
+  last_post_at: string | null;
+  published_last_day: number;
+  allowed: boolean;
+  reason: string | null;
+}
+
+export interface GiveawayItem {
+  id: number;
+  created_at: string;
+  title: string;
+  kind: string;
+  prize_days: number;
+  starts_at: string;
+  ends_at: string;
+  status: string;
+  winners: Array<Record<string, string | number>> | null;
+  entries: number;
+  link: string | null;
 }
 
 export interface StatsContent {

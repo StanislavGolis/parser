@@ -20,7 +20,9 @@ from src.api.routes import (
     admin,
     admin_auth,
     admin_feedback,
+    admin_reports,
     admin_stats,
+    admin_telegram,
     admin_users,
     auth,
     boards,
@@ -28,6 +30,7 @@ from src.api.routes import (
     feedback,
     marks,
     media,
+    reports,
     resume,
     search,
     sitemap,
@@ -172,9 +175,12 @@ app.include_router(feed.router)
 app.include_router(status.router)
 app.include_router(search.router)
 app.include_router(feedback.router)
+app.include_router(reports.router)
 app.include_router(admin.router)
 app.include_router(admin_auth.router)
 app.include_router(admin_feedback.router)
+app.include_router(admin_reports.router)
+app.include_router(admin_telegram.router)
 app.include_router(admin_stats.router)
 app.include_router(admin_users.router)
 app.include_router(track.router)

@@ -43,8 +43,19 @@ export const TELEGRAM_BOT_USERNAME = (process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERN
   .trim()
   .replace(/^@/, "");
 
-/** Пути, доступные без входа в закрытом режиме (проверяем по префиксу). */
-export const PUBLIC_PATHS = ["/login", "/auth", "/healthz", "/robots.txt", "/favicon.ico"];
+/** Пути, доступные без входа в закрытом режиме (проверяем по префиксу).
+ *  Правовые страницы открыты: правообладатель и проверяющий должны прочитать
+ *  правила и контакты без регистрации. */
+export const PUBLIC_PATHS = [
+  "/login",
+  "/auth",
+  "/healthz",
+  "/robots.txt",
+  "/favicon.ico",
+  "/tos",
+  "/dmca",
+  "/privacy",
+];
 
 /** Разрешает URL медиа из API (относительный /api/... → адрес клиентского API). */
 export function mediaUrl(url: string | null | undefined): string | undefined {

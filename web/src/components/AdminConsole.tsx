@@ -207,8 +207,8 @@ export default function AdminConsole() {
     );
   }
 
-  async function patch(slug: string, body: Record<string, unknown>) {
-    if (!token) return;
+  async function patch(slug: string, body: Record<string, unknown>): Promise<boolean> {
+    if (!token) return false;
     setBusyKey(slug);
     setRowError((prev) => ({ ...prev, [slug]: "" }));
     try {
@@ -218,8 +218,10 @@ export default function AdminConsole() {
         token,
       );
       replaceBoard(updated);
+      return true;
     } catch (err) {
       setRowError((prev) => ({ ...prev, [slug]: errText(err) }));
+      return false;
     } finally {
       setBusyKey(null);
     }

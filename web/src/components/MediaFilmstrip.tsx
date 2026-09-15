@@ -4,8 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { FilmIcon, ImageIcon, PlayIcon } from "@/components/icons";
 import { formatDuration } from "@/lib/format";
-import { mediaUrl } from "@/lib/env";
-import { thumbSrc } from "@/lib/media";
+import { thumbSrc, webSrc } from "@/lib/media";
 import type { MediaItem } from "@/lib/types";
 
 /**
@@ -27,6 +26,9 @@ function Thumb({
   const ref = useRef<HTMLButtonElement | null>(null);
   const [near, setNear] = useState(false);
   const isVideo = media.media_type === "video";
+  // Постер миниатюры (thumb → размытый вариант) и кадр-фолбэк для видео без постера
+  const preview = thumbSrc(media);
+  const video = isVideo ? webSrc(media) : undefined;
 
   useEffect(() => {
     const el = ref.current;
@@ -71,20 +73,22 @@ function Thumb({
         active ? "border-accent-primary ring-1 ring-accent-primary" : "border-line hover:border-line-hover"
       }`}
     >
-      {near && media.thumb_url ? (
+      {near && preview ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={thumbSrc(media)}
+          src={preview}
           alt=""
           loading="lazy"
           decoding="async"
           referrerPolicy="no-referrer"
           className={`h-full w-full object-cover ${media.locked ? "blur-[5px] scale-110" : ""}`}
         />
-      ) : near && media.url && isVideo && active ? (
-        // Для текущего видео без постера показываем кадр (preload=metadata)
+      ) : near && isVideo && active && video ? (
+        // Постера нет (файл до бэкфилла вариантов) — для текущего видео показываем
+        // кадр плеером: на мобильных он может не отрисоваться, но это лучше пустой
+        // миниатюры, а после бэкфилла здесь будет обычный постер.
         <video
-          src={mediaUrl(media.url)}
+          src={video}
           muted
           playsInline
           preload="metadata"

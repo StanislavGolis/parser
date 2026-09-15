@@ -1,8 +1,22 @@
 import { mediaUrl } from "./env";
 
-/** URL превью (thumb-дериватив) с фолбэком на оригинал. */
-export function thumbSrc(m: { thumb_url?: string | null; url: string | null }): string | undefined {
-  return mediaUrl(m.thumb_url ?? m.url);
+/**
+ * URL превью: дериватив `thumb`, иначе размытый вариант, а оригинал — только
+ * для изображений.
+ *
+ * Для видео оригинал не подставляем: `<img>` не умеет показывать видеофайл, он
+ * падал с ошибкой, и карточка рисовала «недоступно». Если постера у видео нет
+ * вовсе, функция вернёт `undefined` — карточка покажет кадр плеером (`MediaCard`).
+ */
+export function thumbSrc(m: {
+  media_type?: string | null;
+  thumb_url?: string | null;
+  blur_url?: string | null;
+  url?: string | null;
+}): string | undefined {
+  const preview = mediaUrl(m.thumb_url) ?? mediaUrl(m.blur_url);
+  if (preview) return preview;
+  return m.media_type === "video" ? undefined : mediaUrl(m.url);
 }
 
 /**
