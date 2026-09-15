@@ -42,3 +42,6 @@ backups/
 certbot/
 docker-compose.override.yml
 
+# Выгрузки для чтения/правки (описания разделов и т.п.): файл-артефакт, не код
+board_descriptions.txt
+
