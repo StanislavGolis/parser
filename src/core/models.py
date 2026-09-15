@@ -605,6 +605,85 @@ class GiveawayEntry(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
+class Plan(Base):
+    """Тариф подписки: неделя / месяц / год / навсегда.
+
+    Модель доступа «открытый архив»: Free видит только открытые разделы (и получает
+    рекламу), Premium открывает приватные разделы, скачивание и убирает рекламу.
+
+    Цена хранится в рублях — для крипты пересчитывается по курсу на момент счёта,
+    поэтому «цена в тарифе» остаётся понятной человеку и не зависит от валюты.
+    """
+
+    __tablename__ = "plans"
+
+    code = Column(String(16), primary_key=True)      # week | month | year | forever
+    title = Column(String(64), nullable=False)
+    description = Column(String(200), nullable=False, default="")
+    days = Column(Integer, nullable=False)           # сколько дней доступа даёт тариф
+    price_rub = Column(Integer, nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+    sort_order = Column(Integer, nullable=False, default=0)
+    badge = Column(String(32), nullable=True)        # «выгодно», «хит» и т. п.
+    updated_at = Column(
+        DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class PricingPromo(Base):
+    """Стартовая акция: скидка на все тарифы, пока не истёк срок и не набран лимит.
+
+    Условие старта (по требованию): «первые 30 дней ИЛИ до первых 50 платящих» —
+    акция прекращается, как только сработает **любое** из условий, поэтому здесь
+    и дата окончания, и лимит оплат. Строка одна, id=1.
+    """
+
+    __tablename__ = "pricing_promo"
+
+    id = Column(Integer, primary_key=True)
+    enabled = Column(Boolean, nullable=False, default=True)
+    percent = Column(Integer, nullable=False, default=50)
+    starts_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    ends_at = Column(DateTime, nullable=True)
+    max_paid = Column(Integer, nullable=True)        # сколько оплат допускаем по акции
+    note = Column(String(200), nullable=True)
+    updated_at = Column(
+        DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class Payment(Base):
+    """Журнал платежей: ручная выдача, CryptoBot (позже — Stars).
+
+    Нужен и для истории, и для акции: «до первых 50 платящих» считаем по статусу
+    `paid`. Выдача премиума идемпотентна по `external_id` — вебхук/поллинг платежа
+    не должен продлить подписку дважды.
+    """
+
+    __tablename__ = "payments"
+    __table_args__ = (
+        Index("ix_payments_user", "user_id"),
+        Index("ix_payments_status", "status"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    paid_at = Column(DateTime, nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    plan_code = Column(String(16), nullable=False)
+    # Сколько заплачено: с учётом скидки — эту сумму видит человек в счёте
+    amount_rub = Column(Integer, nullable=False, default=0)
+    discount_percent = Column(Integer, nullable=False, default=0)
+    # manual | cryptobot | stars
+    provider = Column(String(16), nullable=False, default="manual")
+    external_id = Column(String(64), nullable=True)
+    # pending | paid | cancelled | failed | refunded
+    status = Column(String(16), nullable=False, default="pending")
+    days = Column(Integer, nullable=False, default=0)
+    premium_until = Column(DateTime, nullable=True)
+    note = Column(String(200), nullable=True)
+
+
 class BlockedHash(Base):
     """Блок-лист хешей файлов (запрещённый контент, в первую очередь CSAM).
 

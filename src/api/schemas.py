@@ -525,6 +525,105 @@ class TelegramCandidateOut(BaseModel):
     board_slug: Optional[str] = None
 
 
+class PlanPriceOut(BaseModel):
+    """Тариф на витрине: цена «как есть» и цена со скидкой (если акция активна)."""
+
+    code: str
+    title: str
+    description: str = ""
+    days: int
+    price_rub: int
+    price_now: int
+    discount_percent: int = 0
+    badge: Optional[str] = None
+    is_forever: bool = False
+
+
+class PromoOut(BaseModel):
+    """Стартовая акция: −50% первые 30 дней или до первых 50 оплат."""
+
+    active: bool = False
+    percent: int = 0
+    reason: str = ""
+    ends_at: Optional[datetime] = None
+    days_left: Optional[int] = None
+    paid: int = 0
+    max_paid: Optional[int] = None
+    paid_left: Optional[int] = None
+    note: Optional[str] = None
+
+
+class PlansOut(BaseModel):
+    """Витрина тарифов: то, что показывают сайт и бот."""
+
+    plans: List[PlanPriceOut]
+    promo: PromoOut
+
+
+class AdminPlanOut(BaseModel):
+    """Тариф для админки: с флагами и служебными полями."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    code: str
+    title: str
+    description: str
+    days: int
+    price_rub: int
+    is_active: bool
+    sort_order: int
+    badge: Optional[str] = None
+
+
+class AdminPlansOut(BaseModel):
+    plans: List[AdminPlanOut]
+    promo: PromoOut
+    # Продажи: paid — сколько оплат, amount_rub — сумма
+    sales: Dict[str, int] = {}
+
+
+class PlanIn(BaseModel):
+    """Правка тарифа из админки: меняем только то, что передали."""
+
+    title: Optional[str] = None
+    description: Optional[str] = None
+    days: Optional[int] = None
+    price_rub: Optional[int] = None
+    is_active: Optional[bool] = None
+    sort_order: Optional[int] = None
+    badge: Optional[str] = None
+
+
+class PromoIn(BaseModel):
+    """Правка акции: включение, процент, срок и лимит оплат."""
+
+    enabled: Optional[bool] = None
+    percent: Optional[int] = None
+    ends_at: Optional[datetime] = None
+    max_paid: Optional[int] = None
+    note: Optional[str] = None
+
+
+class PaymentOut(BaseModel):
+    """Строка журнала платежей."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    paid_at: Optional[datetime] = None
+    user_id: Optional[int] = None
+    plan_code: str
+    amount_rub: int
+    discount_percent: int
+    provider: str
+    external_id: Optional[str] = None
+    status: str
+    days: int
+    premium_until: Optional[datetime] = None
+    note: Optional[str] = None
+
+
 class MediaOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -745,3 +745,69 @@ export interface AdminAuditItem {
 export interface AdminAuditList {
   items: AdminAuditItem[];
 }
+
+/** Тариф для админки: цена и срок правятся без деплоя. */
+export interface AdminPlan {
+  code: string;
+  title: string;
+  description: string;
+  days: number;
+  price_rub: number;
+  is_active: boolean;
+  sort_order: number;
+  badge: string | null;
+}
+
+/** Стартовая акция: −50% первые 30 дней или до первых 50 оплат. */
+export interface PricingPromo {
+  active: boolean;
+  percent: number;
+  reason: string;
+  ends_at: string | null;
+  days_left: number | null;
+  paid: number;
+  max_paid: number | null;
+  paid_left: number | null;
+  note: string | null;
+}
+
+export interface AdminPlans {
+  plans: AdminPlan[];
+  promo: PricingPromo;
+  sales: Record<string, number>;
+}
+
+/** Строка журнала оплат. */
+export interface PaymentItem {
+  id: number;
+  created_at: string;
+  paid_at: string | null;
+  user_id: number | null;
+  plan_code: string;
+  amount_rub: number;
+  discount_percent: number;
+  provider: string;
+  external_id: string | null;
+  status: string;
+  days: number;
+  premium_until: string | null;
+  note: string | null;
+}
+
+/** Витрина тарифов (то же, что видит бот и сайт). */
+export interface PlanPrice {
+  code: string;
+  title: string;
+  description: string;
+  days: number;
+  price_rub: number;
+  price_now: number;
+  discount_percent: number;
+  badge: string | null;
+  is_forever: boolean;
+}
+
+export interface PlansView {
+  plans: PlanPrice[];
+  promo: PricingPromo;
+}

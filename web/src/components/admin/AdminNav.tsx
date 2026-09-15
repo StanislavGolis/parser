@@ -14,6 +14,7 @@ const TABS: Array<{ href: string; label: string; match: (p: string) => boolean }
   { href: "/admin/sources", label: "Источники", match: (p) => p.startsWith("/admin/sources") },
   { href: "/admin/feedback", label: "Обратная связь", match: (p) => p.startsWith("/admin/feedback") },
   { href: "/admin/reports", label: "Жалобы", match: (p) => p.startsWith("/admin/reports") },
+  { href: "/admin/plans", label: "Тарифы", match: (p) => p.startsWith("/admin/plans") },
   { href: "/admin/telegram", label: "Telegram", match: (p) => p.startsWith("/admin/telegram") },
   { href: "/admin/users", label: "Пользователи", match: (p) => p.startsWith("/admin/users") },
   { href: "/admin/stats", label: "Статистика", match: (p) => p.startsWith("/admin/stats") },

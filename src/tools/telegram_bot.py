@@ -57,6 +57,49 @@ SUBSCRIBE_TEXT = (
 )
 
 
+def plans_text(data: Optional[dict]) -> str:
+    """Витрина тарифов для `/subscribe`: цены, сроки и условия стартовой акции.
+
+    Данные приходят из API (`GET /api/v1/plans`) — бот и сайт показывают одни и те же
+    цены, поэтому «акция кончилась» не превращается в два разных ответа.
+    """
+    if not data or not data.get("plans"):
+        return SUBSCRIBE_TEXT
+
+    promo = data.get("promo") or {}
+    percent = int(promo.get("percent") or 0)
+    lines = ["Подписка Dredger — приватные разделы, скачивание и без рекламы.\n"]
+
+    for plan in data["plans"]:
+        title = plan.get("title") or plan.get("code")
+        price = int(plan.get("price_now") or plan.get("price_rub") or 0)
+        old = int(plan.get("price_rub") or 0)
+        days = int(plan.get("days") or 0)
+        if plan.get("is_forever"):
+            term = "без срока"
+        elif days % 30 == 0 and days >= 30:
+            term = f"{days // 30} мес."
+        else:
+            term = f"{days} дн."
+        tail = f" (вместо {old} ₽)" if percent and price != old else ""
+        lines.append(f"• {title} — {price} ₽{tail}, {term}")
+
+    if percent:
+        left: list[str] = []
+        if promo.get("days_left") is not None:
+            left.append(f"{promo['days_left']} дн.")
+        if promo.get("paid_left") is not None:
+            left.append(f"{promo['paid_left']} оплат")
+        tail = f" Осталось: {', '.join(left)}." if left else ""
+        lines.append(f"\nСтартовая акция: −{promo['percent']}% на все тарифы.{tail}")
+
+    lines.append(
+        "\nОплата подключается (крипта). Пока доступ выдаём вручную: напишите "
+        "администратору или нажмите «🔓 Войти на сайт» и оставьте заявку в профиле."
+    )
+    return "\n".join(lines)
+
+
 def _api_base() -> str:
     """Адрес нашего API: внутри compose — `http://api:8000` (переменная API_INTERNAL_URL)."""
     return os.environ.get("API_INTERNAL_URL", "http://api:8000").rstrip("/")
@@ -351,7 +394,9 @@ async def handle_message(session: aiohttp.ClientSession, bot: BotClient, message
         return
 
     if command == "/subscribe":
-        await bot.send(chat_id, SUBSCRIBE_TEXT, keyboard=MAIN_KEYBOARD)
+        # Тарифы берём из API: бот и сайт показывают одни и те же цены и условия акции
+        data = await api_request(session, "GET", "/api/v1/plans")
+        await bot.send(chat_id, plans_text(data), keyboard=MAIN_KEYBOARD)
         return
 
     if command == "/id":
