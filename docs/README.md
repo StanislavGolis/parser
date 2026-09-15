@@ -885,8 +885,9 @@ full      то же + ошибки прогонов (для отладки)
 - **payments**: `id, created_at, paid_at, user_id, plan_code, amount_rub,
   discount_percent, provider (manual|cryptobot|stars), external_id, status
   (pending|paid|cancelled|failed|refunded), days, premium_until, note` — журнал оплат;
-  выдача премиума идемпотентна по статусу и `external_id` (звёзды — по
-  `telegram_payment_charge_id`)
+  `external_id` — `varchar(255)` (у Telegram Stars `telegram_payment_charge_id` длиннее
+  64 символов — на этом упал первый тестовый платёж 15.09.2026); выдача премиума
+  идемпотентна по статусу и `external_id`
 
 Значения:
 - `download_status`: `new` → `downloaded` (лежит локально, не выгружен) →
