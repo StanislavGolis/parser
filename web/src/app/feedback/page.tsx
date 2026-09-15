@@ -7,11 +7,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, apiSend } from "@/lib/api";
 import type { FeedbackItem, UserOut } from "@/lib/types";
 
-/** Темы обращения: `?topic=premium` приходит с кнопки «Запросить премиум». */
+/** Темы обращения. `?topic=premium` приходит из старых ссылок — понимаем его по-прежнему. */
 const TOPICS: Array<{ value: string; label: string; hint: string }> = [
-  { value: "premium", label: "Премиум-доступ", hint: "Запросить или продлить доступ" },
-  { value: "bug", label: "Баг", hint: "Что-то не работает или выглядит сломанным" },
-  { value: "idea", label: "Идея", hint: "Чего не хватает и что улучшить" },
+  { value: "premium", label: "Подписка", hint: "Тарифы и оплата — в боте" },
+  { value: "bug", label: "Баг", hint: "Что-то не работает" },
+  { value: "idea", label: "Идея", hint: "Что улучшить" },
   { value: "content", label: "Контент", hint: "Файл, раздел или запись" },
   { value: "other", label: "Другое", hint: "Всё остальное" },
 ];
@@ -181,8 +181,11 @@ export default function FeedbackPage() {
       </form>
 
       <p className="mt-6 text-xs leading-relaxed text-text-muted">
-        Премиум-доступ включается вручную: отправьте заявку с темой «Премиум-доступ» — доступ
-        выдадут вашему аккаунту. Статус и срок видны в{" "}
+        Подписка оформляется в боте: тарифы и оплата звёздами — в{" "}
+        <Link href="/subscribe" className="text-accent-primary hover:underline">
+          тарифах
+        </Link>
+        . Статус и срок — в{" "}
         <Link href="/profile" className="text-accent-primary hover:underline">
           профиле
         </Link>
