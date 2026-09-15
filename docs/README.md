@@ -1001,6 +1001,9 @@ GET   /api/v1/admin/stats/content?days=      топ файлов по просм
 GET   /api/v1/admin/stats/health?days=       счётчики ошибок API по дням (429 / 5xx)
 # пользователи (вкладка «Пользователи»):
 GET   /api/v1/admin/users?q=&filter=&sort=&page=   список аккаунтов с агрегатами
+                                                   (имя: email → @ник → Telegram ID;
+                                                   поиск по email, @нику и Telegram ID,
+                                                   sort=email — «по аккаунту»)
 GET   /api/v1/admin/users/{id}                     карточка: сессии (ip-хеш, UA), метки, скачивания, аудит
 POST  /api/v1/admin/users/{id}/premium             выдать премиум {days} или снять {days: null}
 POST  /api/v1/admin/users/{id}/active              блокировка/разблокировка (сессии снимаются)
