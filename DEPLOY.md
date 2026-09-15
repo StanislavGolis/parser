@@ -101,7 +101,7 @@ docker compose -f docker-compose.prod.yml down -v      # остановить + 
 
 Обновление после изменений кода: два пути.
 
-**A. Через GitHub (штатный, когда работает deploy-ключ сервера).**
+**A. Через GitHub (штатный; deploy-ключ сервера подключён 15.09.2026).**
 
 ```bash
 cd /opt/dredge
@@ -113,10 +113,14 @@ docker compose -f docker-compose.prod.yml start parser-dvach parser-slivach
 curl -sk -o /dev/null -w '%{http_code}\n' -H 'Host: dredg.ru' https://127.0.0.1/healthz
 ```
 
-На 15.09.2026 этот путь недоступен: GitHub отвергает ключ сервера
-(`git ls-remote origin` → `Permission denied (publickey)`). Нужно добавить в
-GitHub → Settings → Deploy keys публичную часть `/root/.ssh/dredge_deploy.pub`
-(или переключить `origin` на HTTPS с токеном).
+Проверка доступа (должно ответить приветствием GitHub, а не `Permission denied`):
+
+```bash
+ssh -o BatchMode=yes -i /root/.ssh/dredge_deploy -T git@github.com
+# Hi <владелец>! You've successfully authenticated, but GitHub does not provide shell access.
+```
+
+Если ключ когда-нибудь отзовут — есть запасной путь B.
 
 **B. Без GitHub: перенос git-bundle (работает всегда).**
 

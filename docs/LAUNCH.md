@@ -28,7 +28,7 @@
 | S3 и домены | один бакет (`s3.twcstorage.ru`); второго бакета, резервного домена и бэкап-канала нет |
 | Ресурсы | диск 51 ГБ из 87 ГБ (59%): 39 ГБ — кэш медиа, ~12 ГБ образы + build-cache (9 ГБ можно освободить), RAM 7.9 ГБ |
 | Мониторинг и cron | `certbot.timer` (TLS, автопродление), `/etc/cron.hourly/dredge-health` (раз в час: `healthz` + заполнение диска, при падении поднимает стек, лог `/var/log/dredge-health.log`), `/etc/cron.hourly/dredge-indexnow` — **в закрытом режиме не нужен, но всё ещё стоит**; в `/etc/cron.d`: `dredg-dns-check`, `certbot`, `sysstat`, `e2scrub_all` |
-| Git | `/opt/dredge` синхронизирован с `origin/main` (15.09.2026, коммит `b1a3053`), дерево чистое, в репозитории LF (`.gitattributes`). Прежняя «вторая линия» сохранена веткой `local-archive` в origin. Deploy-ключ сервера GitHub пока отвергает (`Permission denied`) — обновление идёт через `git bundle`, см. `DEPLOY.md` |
+| Git | `/opt/dredge` синхронизирован с `origin/main`, дерево чистое, в репозитории LF (`.gitattributes`); штатный `git pull` работает (deploy-key подключён 15.09.2026). Прежняя «вторая линия» сохранена веткой `local-archive`. Резерв — перенос `git bundle`, см. `DEPLOY.md` |
 
 ---
 
@@ -134,12 +134,13 @@
       55 файлов выглядели «полностью разными»). Сделано: `.gitattributes` (`eol=lf`),
       нормализация blob'ов, прод-состояние зафиксировано, `origin/main` переведён на
       прод-линию, прежняя линия сохранена веткой `local-archive`, деревья совпадают.
-- [ ] Доступ сервера к GitHub: `git ls-remote origin` → `Permission denied (publickey)`.
-      Нужно добавить в GitHub → Settings → Deploy keys публичный ключ сервера
-      (`/root/.ssh/dredge_deploy.pub`, отпечаток `SHA256:dmaEpF23Tqu9eh+6QIH4g9y+Nq3Mxo2SDDKoEJuiWDs`).
-      Пока не сделано — выкатка идёт через `git bundle` (см. `DEPLOY.md`).
-- [ ] Дисциплина деплоя: правки и коммиты — только с рабочей машины, на сервере — лишь
-      `git pull --ff-only` (или bundle). Так расхождение не появится снова.
+- [x] **Доступ сервера к GitHub восстановлен (15.09.2026)**: deploy-key `vps-dredge`
+      (`SHA256:dmaEpF23Tqu9eh+6QIH4g9y+Nq3Mxo2SDDKoEJuiWDs`) добавлен в репозиторий,
+      `git fetch origin && git pull --ff-only` на сервере работает, `main` и `origin/main`
+      совпадают. Резервный путь (перенос `git bundle`) остаётся на случай отзыва ключа.
+- [x] **Регламент деплоя зафиксирован** в `DEPLOY.md`: правки и коммиты — только с рабочей
+      машины в `origin/main`; на сервере — только `git pull --ff-only`; в репозитории LF
+      (`.gitattributes`). Так расхождение истории не появится снова.
 - [ ] Ротация секретов: `ADMIN_TOKEN`, ключи S3, токен бота. Отдельно —
       **перевыпуск токена `@dredger_vip_bot`** (отложенный хвост).
 - [ ] Проверка выживания после перезагрузки VPS: сервисы поднимаются сами

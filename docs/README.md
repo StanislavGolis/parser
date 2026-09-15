@@ -1046,8 +1046,8 @@ DELETE /api/v1/admin/reset                           полный сброс (Б
 - запуск: `cp .env.prod.example .env` → заполнить `S3_*`, `ADMIN_TOKEN`, `TELEGRAM_*` →
   `docker compose -f docker-compose.prod.yml up -d --build`;
 - **обновление кода на проде** — два пути (подробно в `DEPLOY.md`):
-  **A)** `cd /opt/dredge && git fetch origin && git pull --ff-only` (когда работает
-  deploy-ключ сервера — на 15.09.2026 GitHub его отвергает);
+  **A)** `cd /opt/dredge && git fetch origin && git pull --ff-only` — штатный путь,
+  deploy-ключ сервера подключён 15.09.2026;
   **B)** перенос `git bundle`: локально `git bundle create prod.bundle main` →
   `scp` → на сервере `git pull --ff-only /tmp/prod.bundle main`.
   Дальше обязательный порядок: **остановить парсеры**
