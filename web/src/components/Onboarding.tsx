@@ -58,21 +58,16 @@ export default function Onboarding() {
           id="onboarding-title"
           className="font-mono text-sm font-bold uppercase tracking-[0.08em] text-text-primary"
         >
-          dredger — автоматический медиа-архив
+          dredger — архив
         </h2>
-        <p className="mt-3 text-sm leading-relaxed text-text-secondary">
-          Смотри бесплатно, отмечай лучшее, скачивай нужное. Файлы обновляются каждый день.
-        </p>
 
-        <ul className="mt-4 space-y-2.5 text-sm text-text-secondary">
+        <ul className="mt-4 space-y-2 text-sm text-text-secondary">
           <li className="rounded border border-line bg-ink-primary/40 px-3 py-2">
             <span className="font-mono text-[11px] uppercase tracking-wider text-accent-primary">
               закладка
             </span>
             <p className="mt-1 text-[13px] leading-relaxed">
-              Личный список лучшего: нажмите 🔖 на карточке или пробел в просмотре — файл
-              появится на странице <span className="text-text-primary">«Закладки»</span>. Нужен
-              аккаунт.
+              🔖 на карточке или пробел в просмотре — файл попадёт в «Закладки».
             </p>
           </li>
           <li className="rounded border border-line bg-ink-primary/40 px-3 py-2">
@@ -80,16 +75,15 @@ export default function Onboarding() {
               аккаунт
             </span>
             <p className="mt-1 text-[13px] leading-relaxed">
-              Закладки, настройки лент и продолжение просмотра на любом устройстве. Регистрация
-              занимает минуту.
+              Закладки и «продолжить просмотр» — на всех ваших устройствах.
             </p>
           </li>
           <li className="rounded border border-line bg-ink-primary/40 px-3 py-2">
             <span className="font-mono text-[11px] uppercase tracking-wider text-accent-warning">
-              премиум
+              premium
             </span>
             <p className="mt-1 text-[13px] leading-relaxed">
-              Закрытые разделы, скачивание файлов и оригиналы.
+              Закрытые разделы, оригиналы и скачивание.
             </p>
           </li>
         </ul>
@@ -99,7 +93,7 @@ export default function Onboarding() {
             Понятно
           </button>
           <Link href="/boards" className="btn-ghost px-4 py-2 text-xs">
-            К разделам архива →
+            К разделам →
           </Link>
         </div>
       </div>

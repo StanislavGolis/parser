@@ -106,7 +106,7 @@ export default function FeedbackPage() {
     <div className="container-site max-w-lg py-10">
       <h1 className="dredge-title">обратная связь</h1>
       <p className="mt-2 text-sm text-text-secondary">
-        Баги, идеи, запросы премиум-доступа и вопросы по контенту.{" "}
+        Баги, идеи, вопросы по контенту и правам.{" "}
         {user ? `Ответим на ${user.email}.` : "Укажите email, если хотите получить ответ."}
       </p>
 

@@ -35,25 +35,17 @@ POLL_TIMEOUT = 30
 NO_TOKEN_SLEEP = 60
 
 HELP_TEXT = (
-    "Что умеет бот:\n"
-    "/link — ссылка для входа на сайт (живёт 10 минут, одноразовая)\n"
-    "/status — активна ли подписка и до какого числа\n"
-    "/subscribe — тарифы\n"
-    "/id — ваш Telegram ID (нужен для настройки карантина)\n"
+    "/link — войти на сайт (ссылка на 10 минут)\n"
+    "/status — подписка и срок\n"
+    "/subscribe — тарифы и оплата\n"
+    "/id — ваш Telegram ID\n"
     "/help — эта справка\n\n"
-    "Сайт закрытый: без подписки доступны только несколько файлов.\n"
-    "Новинки и розыгрыши — в канале: кнопка «Участвовать» под постом-анонсом\n"
-    "записывает вас в розыгрыш премиума (нужна подписка на канал).\n\n"
-    "Если нашли запрещённый контент — нажмите «пожаловаться» в просмотре файла:\n"
-    "жалоба уходит модератору, а материалы с несовершеннолетними закрываются сразу.\n"
-    "Правообладателям: dmca@dredg.ru (удаление контента — в течение 48 часов)."
+    "Запрещённый контент — кнопка «Пожаловаться» в просмотре файла.\n"
+    "Правообладателям — раздел /dmca на сайте."
 )
 
 SUBSCRIBE_TEXT = (
-    "Тарифы готовятся к запуску.\n\n"
-    "Планируем: месяц, год и «навсегда» — оплата криптой (быстро и без блокировок). "
-    "Пока доступ можно получить по заявке: напишите администратору, и мы включим его "
-    "вручную."
+    "Тарифы сейчас недоступны — попробуйте позже или напишите администратору."
 )
 
 
@@ -252,8 +244,7 @@ async def handle_giveaway(
         if status not in ("creator", "administrator", "member", "restricted"):
             await bot.send(
                 chat_id,
-                f"Чтобы участвовать, подпишитесь на канал {channel} и нажмите /start "
-                f"giveaway_{giveaway_id} ещё раз.",
+                f"Участие — для подписчиков {channel}. Подпишитесь и нажмите кнопку ещё раз.",
             )
             return
 
@@ -263,33 +254,31 @@ async def handle_giveaway(
         f"/api/v1/admin/telegram/giveaways/join?telegram_id={telegram_id}",
     )
     if not data or data.get("error"):
-        await bot.send(chat_id, "Не получилось записать вас в розыгрыш. Попробуйте позже.")
+        await bot.send(chat_id, "Не удалось записать — попробуйте позже.")
         return
 
     status = data.get("status")
     if status == "unknown":
         await bot.send(
             chat_id,
-            "Сначала заведите аккаунт: нажмите «🔓 Войти на сайт», откройте архив "
-            "и вернитесь к розыгрышу.",
+            "Сначала войдите на сайт (кнопка «🔓 Войти на сайт»), потом вернитесь к розыгрышу.",
             keyboard=MAIN_KEYBOARD,
         )
         return
     if status == "none":
-        await bot.send(chat_id, "Сейчас активных розыгрышей нет. Заглядывайте в канал!")
+        await bot.send(chat_id, "Активных розыгрышей нет.")
         return
     if status == "already":
         await bot.send(
             chat_id,
-            f"Вы уже участвуете в розыгрыше «{data.get('title')}». "
+            f"Вы уже участвуете: «{data.get('title')}». "
             f"Итоги: {str(data.get('ends_at') or '')[:16]} UTC.",
         )
         return
 
     await bot.send(
         chat_id,
-        f"Готово! Вы участвуете в розыгрыше «{data.get('title')}» "
-        f"на {data.get('prize_days')} дн. премиума.\n"
+        f"Готово: «{data.get('title')}», {data.get('prize_days')} дн. премиума.\n"
         f"Итоги: {str(data.get('ends_at') or '')[:16]} UTC.",
     )
 
@@ -380,16 +369,14 @@ async def handle_successful_payment(
     if not data or data.get("error"):
         await bot.send(
             chat_id,
-            "Оплата прошла, но доступ не включился автоматически. "
-            "Напишите администратору — включим вручную.",
+            "Оплата прошла, но доступ не включился. Напишите администратору — включим вручную.",
         )
         return
 
     until = str(data.get("premium_until") or "")[:10]
     await bot.send(
         chat_id,
-        f"Спасибо! Оплата {stars} ⭐ получена.\n"
-        f"Подписка активна до {until}.\nСсылка на сайт — /link",
+        f"Оплата {stars} ⭐ получена. Подписка до {until}.",
         keyboard=MAIN_KEYBOARD,
     )
 
@@ -496,9 +483,7 @@ async def handle_message(session: aiohttp.ClientSession, bot: BotClient, message
     if command in ("/start", "/help"):
         await bot.send(
             chat_id,
-            "Dredger — закрытый архив.\n\n"
-            "Вход на сайт — по ссылке из бота: она одноразовая и живёт 10 минут.\n\n"
-            + HELP_TEXT,
+            "Dredger — архив. Вход на сайт — по ссылке (живёт 10 минут).\n\n" + HELP_TEXT,
             keyboard=MAIN_KEYBOARD,
         )
         return
@@ -515,9 +500,7 @@ async def handle_message(session: aiohttp.ClientSession, bot: BotClient, message
             return
         await bot.send(
             chat_id,
-            "Ссылка для входа на сайт (одноразовая, 10 минут):\n"
-            f"{data['url']}\n\n"
-            "Откройте её в браузере — вход произойдёт автоматически.",
+            "Ссылка для входа (10 минут):\n" f"{data['url']}",
         )
         return
 
@@ -531,17 +514,15 @@ async def handle_message(session: aiohttp.ClientSession, bot: BotClient, message
         if data.get("error") == 404:
             await bot.send(
                 chat_id,
-                "Аккаунта ещё нет. Нажмите «🔓 Войти на сайт» — создадим его и пришлём ссылку.",
+                "Аккаунта нет — нажмите «🔓 Войти на сайт».",
                 keyboard=MAIN_KEYBOARD,
             )
             return
         until = (data.get("premium_until") or "")[:10]
         if data.get("premium_active"):
-            await bot.send(chat_id, f"Подписка активна до {until}.\nСсылка на сайт — /link")
+            await bot.send(chat_id, f"Подписка активна до {until}.")
         else:
-            await bot.send(
-                chat_id, "Подписка не активна.\nТарифы — /subscribe, вход на сайт — /link"
-            )
+            await bot.send(chat_id, "Подписка не активна. Тарифы — /subscribe.")
         return
 
     if command == "/subscribe":
@@ -557,7 +538,7 @@ async def handle_message(session: aiohttp.ClientSession, bot: BotClient, message
         await bot.send(chat_id, f"Ваш Telegram ID: {telegram_id}")
         return
 
-    await bot.send(chat_id, "Не понял команду.\n\n" + HELP_TEXT, keyboard=MAIN_KEYBOARD)
+    await bot.send(chat_id, "Не понял команду. Список — /help.", keyboard=MAIN_KEYBOARD)
 
 
 async def main() -> None:

@@ -37,19 +37,19 @@ export default function DownloadButton({
       if (status === 401) {
         // Оригиналы и скачивание доступны только с аккаунтом и подпиской
         setState("idle");
-        if (window.confirm("Скачивание доступно премиум-подписчикам. Войти?")) {
+        if (window.confirm("Нужен вход. Перейти ко входу?")) {
           window.location.assign("/login");
         }
       } else if (status === 403) {
         // Оригиналы и скачивание входят в подписку: ведём в бота, где тарифы и оплата
         setState("idle");
-        if (window.confirm("Скачивание и оригиналы входят в подписку. Купить подписку?")) {
+        if (window.confirm("Оригиналы и скачивание — в подписке. Купить?")) {
           window.location.assign(BUY_CTA_URL);
         }
       } else if (status === 409 || status === 503) {
         // Файл пока недоступен (нет объекта в S3) — сервер отвечает осознанно.
         setState("idle");
-        window.alert("Файл временно недоступен. Попробуйте позже.");
+        window.alert("Файл пока недоступен — попробуйте позже.");
       } else {
         setState("error");
       }

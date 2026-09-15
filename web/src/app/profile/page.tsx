@@ -106,14 +106,12 @@ export default function ProfilePage() {
 
         <p className="mt-2 text-sm text-text-secondary">
           {user.is_premium
-            ? "Доступны премиум-разделы, скачивание и оригиналы файлов."
-            : "Закладки и бесплатный контент доступны. Премиум — закрытые разделы и скачивание."}
+            ? "Закрытые разделы, оригиналы и скачивание — открыты."
+            : "Закладки и открытые разделы — доступны. Закрытые разделы и скачивание — по подписке."}
         </p>
 
         <p className="mt-2 font-mono text-[11px] text-text-muted">
-          {user.is_premium
-            ? `Действует до: ${formatDate(user.premium_until)}`
-            : "Тарифы и оплата — в Telegram-боте."}
+          {user.is_premium ? `Действует до: ${formatDate(user.premium_until)}` : ""}
         </p>
 
         {user.is_premium ? null : (
@@ -124,11 +122,6 @@ export default function ProfilePage() {
             Тарифы и оплата
           </Link>
         )}
-        <p className="mt-2 text-[11px] leading-relaxed text-text-muted">
-          Подписка открывает приватные разделы и скачивание и убирает ограничения
-          открытых разделов. Тарифы и акции — на странице «Подписка», оплата — звёздами
-          Telegram в боте.
-        </p>
       </div>
 
       {error ? <p className="mt-4 text-sm text-accent-danger">{error}</p> : null}
@@ -147,11 +140,6 @@ export default function ProfilePage() {
           {formatNumber(user.marks_count ?? 0)}
         </span>
       </Link>
-
-      <p className="mt-3 text-[11px] leading-relaxed text-text-muted">
-        Закладка — личный список: отмеченный файл поднимается в «Популярном» и собирается
-        на странице «Закладки».
-      </p>
 
       {/* Аккаунт и связь */}
       <div className="mt-4 rounded border border-line bg-ink-secondary px-4 py-3">

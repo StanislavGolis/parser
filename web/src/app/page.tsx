@@ -163,7 +163,7 @@ export default async function HomePage({
         boardsById={boardsById}
         infinite={false}
         moreHref="/new"
-        moreLabel="Смотреть дальше в полном потоке →"
+        moreLabel="Дальше в потоке →"
         emptyTitle="Пока нет файлов"
         emptyHint="Новые файлы появятся здесь автоматически."
       />
@@ -203,11 +203,15 @@ export default async function HomePage({
               <Link
                 key={b.id}
                 href={`/board/${b.slug}`}
-                className="group inline-flex items-baseline gap-2 rounded border border-line bg-ink-secondary px-3 py-1.5 font-mono text-xs text-text-primary transition-colors hover:border-accent-primary"
+                className="group inline-flex items-baseline gap-2 rounded border border-line bg-ink-secondary px-3 py-1.5 text-xs text-text-primary transition-colors hover:border-accent-primary"
                 title={b.title || b.slug}
               >
-                /{b.slug}
-                <span className="text-[11px] text-text-muted transition-colors group-hover:text-accent-primary">
+                {/* Как в каталоге: человеческое имя — крупно, адрес — служебной сноской */}
+                {b.title || b.slug}
+                <span className="font-mono text-[10px] text-text-muted transition-colors group-hover:text-accent-primary">
+                  /{b.slug}
+                </span>
+                <span className="font-mono text-[11px] text-text-muted">
                   {formatNumber(b.media_count)}
                 </span>
               </Link>

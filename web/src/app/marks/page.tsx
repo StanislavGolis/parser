@@ -35,9 +35,6 @@ export default async function MarksPage() {
       <h1 className="dredge-title mb-1">
         закладки // {list ? `${formatNumber(list.total)} файлов` : "мой список"}
       </h1>
-      <p className="mb-4 font-mono text-[11px] text-text-muted">
-        закладка поднимает файл в «Популярном» и собирает здесь ваш личный список
-      </p>
 
       {list ? (
         <Gallery
@@ -46,7 +43,7 @@ export default async function MarksPage() {
           perPage={PER_PAGE}
           boardsById={boardsById}
           emptyTitle="Пока нет закладок"
-          emptyHint="Нажмите 🔖 на карточке или пробел в просмотре файла — он появится здесь."
+          emptyHint="🔖 на карточке или пробел в просмотре."
         />
       ) : (
         <div className="flex flex-col items-center gap-3 rounded border border-dashed border-line py-16 text-center">
@@ -54,8 +51,7 @@ export default async function MarksPage() {
             нужен аккаунт
           </p>
           <p className="max-w-md text-sm text-text-secondary">
-            Закладки доступны зарегистрированным пользователям. Войдите или создайте аккаунт —
-            это займёт минуту.
+            Войдите, чтобы отмечать файлы и вернуться к ним позже.
           </p>
           <Link href="/login" className="btn-primary mt-1">
             Войти

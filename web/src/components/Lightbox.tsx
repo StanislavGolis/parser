@@ -647,8 +647,7 @@ export default function Lightbox({
               премиум-контент
             </p>
             <p className="max-w-sm text-xs text-text-secondary">
-              Приватный раздел: открывается по подписке. Открытые разделы смотрятся
-              бесплатно — подписка открывает приватные и разрешает скачивание.
+              Закрытый раздел. Подписка открывает такие разделы, оригиналы и скачивание.
             </p>
             <a
               href={BUY_CTA_URL}
@@ -666,7 +665,7 @@ export default function Lightbox({
               файл недоступен
             </p>
             <p className="max-w-sm text-xs text-text-secondary">
-              Не удалось загрузить объект из хранилища (возможно, временный лимит или файл удалён).
+              Файл не отдался из хранилища — попробуйте позже.
             </p>
           </div>
         )}
@@ -685,7 +684,7 @@ export default function Lightbox({
                 <HintRow keys="колесо" text="листать файлы" />
                 <HintRow keys="пробел" text="добавить или снять закладку" />
                 <HintRow keys="Esc" text="закрыть — как и клик по фону" />
-                <HintRow keys="? →" text="подробная подсказка (кнопка «подсказка» внизу)" />
+                <HintRow keys="?" text="все подсказки" />
                 <div className="sm:hidden">
                   <HintRow keys="свайп" text="вниз — закрыть, влево/вправо — листать" />
                 </div>

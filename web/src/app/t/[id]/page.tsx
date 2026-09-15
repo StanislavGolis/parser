@@ -211,14 +211,6 @@ export default async function ThreadPage({ params }: ThreadPageProps) {
           ) : null}
         </div>
 
-        {thread.is_premium ? (
-          <p className="mt-1 text-xs text-accent-warning">
-            {thread.locked
-              ? "Контент треда доступен по премиум-подписке."
-              : "Контент треда доступен по вашей подписке."}
-          </p>
-        ) : null}
-
         {thread.comment ? (
           <p className="mt-2 max-w-3xl whitespace-pre-line text-sm leading-relaxed text-text-secondary">
             {thread.comment.slice(0, COMMENT_LIMIT)}
@@ -233,7 +225,7 @@ export default async function ThreadPage({ params }: ThreadPageProps) {
         params={{ thread: String(thread.thread_id) }}
         perPage={PER_PAGE}
         emptyTitle="В этом треде пока нет файлов"
-        emptyHint="Файлы появятся здесь после следующего прохода парсера."
+        emptyHint="Файлы появятся после следующего прохода парсера."
       />
 
       {/* Перелинковка: соседние треды раздела — ссылки для людей и роботов */}
