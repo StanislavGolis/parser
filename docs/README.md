@@ -686,10 +686,11 @@ S3 у провайдера отдаёт ~3 МБ/с (4 потока — ~8 МБ/�
   журнал отправок с «повторить»/«удалить» (отложенный пост при этом отменяется).
 - Вкладка **«Жалобы»** (`/admin/reports`) — очередь жалоб из просмотра файла:
   причина, комментарий, файл, автор, статус; закрытие с решением и скрытие контента.
-- Вкладка **«Тарифы»** (`/admin/plans`) — цены и сроки тарифов (неделя / месяц / год /
-  навсегда), включение тарифа, стартовая акция «−50% первые 30 дней или до первых
-  50 оплат» (видно, сколько оплат и дней осталось), ручная выдача тарифа аккаунту и
-  журнал оплат с суммой и скидкой.
+- Вкладка **«Тарифы»** (`/admin/plans`) — цены тарифов в рублях и **в звёздах Telegram**
+      (звёзды оплачиваются без провайдера, счёт выставляет бот), условия **акций**
+      (название, описание, процент, срок, лимит оплат, список тарифов; акции создаются
+      выключенными и включаются вручную под событие), ручная выдача тарифа аккаунту и
+      журнал оплат с суммой и скидкой.
 
 - Список разделов источника (`GET /api/v1/admin/sources/{code}/catalog`) читает
   адаптер источника: у 2ch — `index.json`, у сайтов — категории из меню. Оттуда
@@ -869,15 +870,18 @@ full      то же + ошибки прогонов (для отладки)
 - **page_hits**: `path, user_id, session_id, occurred_at, …` — посещаемость страниц
   (вкладка «Статистика», без внешних счётчиков)
 - **plans**: `code (week|month|year|forever), title, description, days, price_rub,
-  is_active, sort_order, badge, updated_at` — тарифы подписки; цена в рублях, «навсегда»
-  хранится как 36500 дней; витрина читается из этой таблицы (сайт и бот)
-- **pricing_promo**: `id (одна строка), enabled, percent, starts_at, ends_at, max_paid,
-  note, updated_at` — стартовая акция «−50% первые 30 дней **или** до первых 50 оплат»:
-  гаснет автоматически по любому из условий
+  price_stars, is_active, sort_order, badge, updated_at` — тарифы подписки; цена в рублях
+  и в звёздах Telegram (звёзды задаются вручную, `NULL` — оплата звёздами выключена),
+  «навсегда» хранится как 36500 дней; витрину читают сайт и бот
+- **promos**: `id, title, description, percent, is_active, starts_at, ends_at, max_paid,
+  applies_to (JSONB), created_at, updated_at` — акции: у каждой своё название, описание,
+  процент, срок, лимит оплат и список тарифов (`NULL` — все). Создаются выключенными и
+  включаются вручную; витрина берёт самую выгодную активную акцию для каждого тарифа
 - **payments**: `id, created_at, paid_at, user_id, plan_code, amount_rub,
   discount_percent, provider (manual|cryptobot|stars), external_id, status
   (pending|paid|cancelled|failed|refunded), days, premium_until, note` — журнал оплат;
-  выдача премиума идемпотентна по статусу (повторный вебхук не продлит подписку дважды)
+  выдача премиума идемпотентна по статусу и `external_id` (звёзды — по
+  `telegram_payment_charge_id`)
 
 Значения:
 - `download_status`: `new` → `downloaded` (лежит локально, не выгружен) →
@@ -1030,12 +1034,16 @@ GET   /api/v1/admin/telegram/giveaways     розыгрыши премиума: 
 POST  /api/v1/admin/telegram/giveaways     создать розыгрыш (daily|weekly, prize_days, hours)
 POST  /api/v1/admin/telegram/giveaways/{id}/announce|draw|results  анонс, жеребьёвка, итоги
 POST  /api/v1/admin/telegram/giveaways/join  участие из бота (проверка подписки на канал — в боте)
-GET   /api/v1/plans                        витрина тарифов: цена и цена со скидкой (без сессии — её читает бот)
-GET   /api/v1/admin/plans                  тарифы, условия акции и сводка продаж (вкладка «Тарифы»)
-PATCH /api/v1/admin/plans/{code}           правка тарифа: цена, срок, название, включение
-PATCH /api/v1/admin/plans/promo            условия акции: включение, процент, срок, лимит оплат
+GET   /api/v1/plans                        витрина тарифов: цены в рублях и звёздах, скидки, активные акции
+GET   /api/v1/admin/plans                  тарифы, акции (состояние) и сводка продаж (вкладка «Тарифы»)
+PATCH /api/v1/admin/plans/{code}           правка тарифа: рублёвая цена, цена в звёздах, срок, включение
+GET   /api/v1/admin/plans/promos           список акций: включена, идёт, остаток дней и оплат
+POST  /api/v1/admin/plans/promos           создать акцию (создаётся выключенной)
+PATCH /api/v1/admin/plans/promos/{id}      правка акции: название, описание, процент, срок, тарифы, включение
+DELETE /api/v1/admin/plans/promos/{id}     удалить акцию
 POST  /api/v1/admin/plans/{code}/grant     выдать тариф аккаунту вручную (можно со скидкой)
 GET   /api/v1/admin/plans/payments         журнал оплат (тариф, сумма, скидка, провайдер, статус)
+POST  /api/v1/billing/stars                зачислить оплату звёздами (только бот, X-Bot-Token), идемпотентно
 GET   /api/v1/admin/reports/daily          предпросмотр ежедневного отчёта (today|yesterday, МСК)
 POST  /api/v1/admin/reports/daily/send      отправить ежедневный отчёт сейчас
 GET   /api/v1/admin/boards                 разделы с флагами и статистикой
@@ -1086,7 +1094,7 @@ DELETE /api/v1/admin/reset                           полный сброс (Б
   `git pull` на сервере — только `--ff-only` (если просит merge — линии разошлись);
 - помните про общий образ `parser-backend:local`: `api`, парсеры, `telegram-gateway`,
   `telegram-publisher` и `migrate` используют один образ — пересобирать нужно `api`;
-- миграции применяются сервисом `migrate` при старте; текущая голова — `c0d1e2f3a4b5`
+- миграции применяются сервисом `migrate` при старте; текущая голова — `d1e2f3a4b5c6`
   (26 таблиц);
 - Telegram-переменные: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`,
   `TELEGRAM_CHANNEL` (канал-витрина) и `TELEGRAM_ADMIN_CHAT_ID` — получатель карантина
