@@ -150,8 +150,12 @@ function BoardHeader({ board, slug, threadsTotal }: { board?: Board; slug: strin
           </span>
         ) : null}
       </div>
+      {/* Описание раздела (текст из админки или с источника): переносы строк
+          сохраняем — авторские абзацы видны как абзацы */}
       {board?.description ? (
-        <p className="mt-1 max-w-xl text-sm text-text-secondary">{board.description}</p>
+        <p className="mt-1 max-w-xl whitespace-pre-line text-sm text-text-secondary">
+          {board.description}
+        </p>
       ) : null}
       {board?.is_premium ? (
         <p className="mt-1 max-w-xl text-xs text-accent-warning">
