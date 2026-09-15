@@ -125,7 +125,7 @@ export default function AuthMenu() {
           target={BUY_CTA_EXTERNAL ? "_blank" : undefined}
           rel="noreferrer"
           className="btn-primary hidden px-3 py-1.5 text-xs sm:inline-flex"
-          title="Купить подписку: приватные разделы, скачивание, без рекламы"
+          title="Купить подписку: приватные разделы, оригиналы и скачивание"
         >
           <StarIcon className="h-3.5 w-3.5" />
           Купить подписку
