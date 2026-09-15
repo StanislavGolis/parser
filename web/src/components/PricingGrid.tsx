@@ -67,11 +67,6 @@ export default function PricingGrid() {
                 осталось {promo.days_left} дн.
               </span>
             ) : null}
-            {promo.paid_left !== null ? (
-              <span className="font-mono text-[11px] text-text-muted">
-                · {promo.paid_left} оплат
-              </span>
-            ) : null}
           </p>
           {promo.description ? (
             <p className="mt-1 text-xs text-text-secondary">{promo.description}</p>
@@ -94,17 +89,23 @@ export default function PricingGrid() {
   );
 }
 
-/** Карточка тарифа: цена в звёздах, срок и кнопка «оплатить в боте». */
+/** Карточка тарифа: цена в звёздах, конкретика по сроку и кнопка «оплатить в боте». */
 function PlanCard({ plan }: { plan: PlanPrice }) {
   const stars = plan.stars_now ?? plan.price_stars ?? 0;
   const base = plan.price_stars ?? 0;
   const discount = base > stars;
+  // Бейдж показываем, только если он не повторяет название («Навсегда» + «навсегда»)
+  const badge =
+    plan.badge && plan.badge.trim().toLowerCase() !== plan.title.trim().toLowerCase()
+      ? plan.badge
+      : null;
 
-  function days(): string {
-    if (plan.is_forever) return "без срока";
-    if (plan.days >= 30 && plan.days % 30 === 0) return `${plan.days / 30} мес.`;
-    return `${plan.days} дн.`;
-  }
+  // Цена за день: она и есть польза — сразу видно, что выгоднее.
+  // Для «навсегда» считать нечего (100 лет), там важнее «оплата один раз».
+  const perDay = plan.is_forever || plan.days <= 0 ? null : stars / plan.days;
+  const perDayText = perDay
+    ? `≈ ${perDay.toFixed(perDay < 10 ? 1 : 0).replace(".", ",")} ⭐ в день`
+    : "оплата один раз — продлевать не нужно";
 
   return (
     <div
@@ -114,13 +115,8 @@ function PlanCard({ plan }: { plan: PlanPrice }) {
     >
       <div className="flex items-start justify-between gap-2">
         <span className="text-sm font-semibold text-text-primary">{plan.title}</span>
-        {plan.badge ? (
-          <span className="badge badge-ok shrink-0">{plan.badge}</span>
-        ) : null}
+        {badge ? <span className="badge badge-ok shrink-0">{badge}</span> : null}
       </div>
-      <p className="mt-1 font-mono text-[11px] uppercase tracking-widest text-text-muted">
-        {days()}
-      </p>
 
       <p className="mt-3 flex flex-wrap items-baseline gap-x-2">
         <span className="font-mono text-2xl text-text-primary">{stars}</span>
@@ -129,19 +125,19 @@ function PlanCard({ plan }: { plan: PlanPrice }) {
           <span className="font-mono text-xs text-text-muted line-through">{base} ⭐</span>
         ) : null}
       </p>
+      {/* Вместо «30 дней доступа» (дублировало название) — цена за день */}
+      <p className="mt-1 font-mono text-[11px] text-text-muted">{perDayText}</p>
 
-      {plan.description ? (
-        <p className="mt-2 text-xs text-text-secondary">{plan.description}</p>
-      ) : null}
-
-      <a
-        href={TELEGRAM_BOT_URL || "#"}
-        target="_blank"
-        rel="noreferrer"
-        className="btn-primary mt-4 block text-center text-sm"
-      >
-        Оплатить в боте
-      </a>
+      <div className="mt-auto pt-4">
+        <a
+          href={TELEGRAM_BOT_URL || "#"}
+          target="_blank"
+          rel="noreferrer"
+          className="btn-primary block text-center text-sm"
+        >
+          Оплатить в боте
+        </a>
+      </div>
     </div>
   );
 }

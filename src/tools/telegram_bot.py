@@ -67,7 +67,7 @@ def plans_text(data: Optional[dict]) -> str:
     if not data or not data.get("plans"):
         return SUBSCRIBE_TEXT
 
-    lines = ["Подписка Dredger — приватные разделы, скачивание и без рекламы.\n"]
+    lines = ["Подписка Dredger — приватные разделы, оригиналы и скачивание.\n"]
 
     for plan in data["plans"]:
         title = plan.get("title") or plan.get("code")
@@ -77,26 +77,30 @@ def plans_text(data: Optional[dict]) -> str:
             continue
         base_stars = plan.get("price_stars")
         days = int(plan.get("days") or 0)
-        if plan.get("is_forever"):
-            term = "без срока"
-        elif days >= 30 and days % 30 == 0:
-            term = f"{days // 30} мес."
+        # Вместо повторов названия («Навсегда … без срока») — то, что реально полезно:
+        # цена за день у срочных тарифов и «оплата один раз» у бессрочного.
+        if plan.get("is_forever") or days <= 0:
+            detail = "оплата один раз"
         else:
-            term = f"{days} дн."
+            per_day = int(stars) / days
+            shown = (
+                f"{per_day:.1f}".replace(".", ",") if per_day < 10 else f"{per_day:.0f}"
+            )
+            detail = f"≈ {shown} ⭐ в день"
         tail = (
             f" (вместо {int(base_stars)} ⭐)"
             if base_stars and int(base_stars) != int(stars)
             else ""
         )
-        lines.append(f"• {title} — {int(stars)} ⭐{tail}, {term}")
+        lines.append(f"• {title} — {int(stars)} ⭐{tail} · {detail}")
 
     for promo in data.get("promos") or []:
         left: list[str] = []
         if promo.get("days_left") is not None:
             left.append(f"{promo['days_left']} дн.")
         if promo.get("paid_left") is not None:
-            left.append(f"{promo['paid_left']} оплат")
-        tail = f" Осталось: {', '.join(left)}." if left else ""
+            left.append(f"{promo['paid_left']} оплат по лимиту")
+        tail = f" Осталось: {' или '.join(left)}." if left else ""
         description = ""
         if promo.get("description"):
             text = promo["description"].strip()
@@ -106,7 +110,7 @@ def plans_text(data: Optional[dict]) -> str:
             f"{description}{tail}"
         )
 
-    lines.append("\nОплата звёздами — кнопками ниже. Крипта появится позже.")
+    lines.append("\nОплата звёздами — кнопками ниже.")
     return "\n".join(lines)
 
 
