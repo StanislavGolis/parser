@@ -96,6 +96,9 @@ function BoardRow({
 }) {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(board.title);
+  // Описание раздела: текст для сайта (показывается под заголовком и в мета-данных)
+  const [editingDesc, setEditingDesc] = useState(false);
+  const [descDraft, setDescDraft] = useState(board.description ?? "");
   const [showThreads, setShowThreads] = useState(false);
   const [showCover, setShowCover] = useState(false);
 
@@ -119,6 +122,13 @@ function BoardRow({
     const title = titleDraft.trim();
     if (title && title !== board.title) await onRename(board.slug, title);
     setEditingTitle(false);
+  }
+
+  /** Сохраняем описание раздела: пустая строка очищает текст (уйдёт и с сайта). */
+  async function saveDesc() {
+    const text = descDraft.trim();
+    if (text !== (board.description ?? "")) await onPatch(board.slug, { description: text });
+    setEditingDesc(false);
   }
 
   return (
@@ -233,6 +243,22 @@ function BoardRow({
               {formatNumber(board.threads_parsing)}/{formatNumber(board.threads_active)}
             </span>
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setDescDraft(board.description ?? "");
+              setEditingDesc((v) => !v);
+            }}
+            className="btn-ghost px-2.5 py-1.5 text-xs"
+            title="Текст раздела для сайта: под заголовком страницы и в мета-описании"
+          >
+            Описание {editingDesc ? "▴" : "▾"}
+            {board.description ? (
+              <span className="ml-1 text-text-muted">{board.description.length} зн.</span>
+            ) : (
+              <span className="ml-1 text-accent-danger">нет</span>
+            )}
+          </button>
           <Switch
             checked={board.parse_enabled}
             label="Парсить"
@@ -307,6 +333,67 @@ function BoardRow({
         <span>В каталоге: {formatNumber(board.files_in_catalog)}</span>
         <span>Видимых: {formatNumber(board.media_count)}</span>
       </div>
+
+      {/* Описание раздела: это текст для людей на странице /board/<slug> и для поиска */}
+      {editingDesc ? (
+        <div className="mt-3 rounded border border-line bg-ink-tertiary/30 p-3">
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-text-muted">
+              описание раздела
+            </span>
+            <span className="font-mono text-[10px] text-text-muted">{descDraft.length}/600</span>
+          </div>
+          <textarea
+            autoFocus
+            rows={4}
+            maxLength={600}
+            value={descDraft}
+            onChange={(e) => setDescDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setDescDraft(board.description ?? "");
+                setEditingDesc(false);
+              }
+            }}
+            placeholder="О чём раздел: что внутри, откуда файлы, чем он интересен"
+            className="mt-2 w-full rounded border border-line bg-ink-secondary px-2 py-1.5 text-sm text-text-primary outline-none focus:border-accent-primary"
+          />
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void saveDesc()}
+              className="btn-primary px-3 py-1.5 text-xs"
+            >
+              Сохранить
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDescDraft(board.description ?? "");
+                setEditingDesc(false);
+              }}
+              className="btn-ghost px-3 py-1.5 text-xs"
+            >
+              Отмена
+            </button>
+            <span className="text-[11px] text-text-muted">
+              Парсер не тронет ваш текст: он заполняет описание, только пока оно пустое.
+            </span>
+          </div>
+        </div>
+      ) : board.description ? (
+        <div className="mt-3 rounded border border-line p-3">
+          <span className="font-mono text-[10px] uppercase tracking-wider text-text-muted">
+            описание раздела
+          </span>
+          <p className="mt-1 whitespace-pre-line text-xs text-text-secondary">{board.description}</p>
+        </div>
+      ) : (
+        <div className="mt-3 rounded border border-dashed border-line px-3 py-2 text-[11px] text-text-muted">
+          Описания нет — на сайте под заголовком раздела пусто. Нажмите «Описание», чтобы
+          добавить текст.
+        </div>
+      )}
 
       {/* Премиум-доступ: включается переключателем FREE/PREMIUM в шапке */}
       {board.is_premium ? (

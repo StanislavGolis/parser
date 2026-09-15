@@ -187,6 +187,9 @@ class BoardUpdate(BaseModel):
     is_premium: Optional[bool] = None
     parse_mode: Optional[str] = None  # all | selected
     title: Optional[str] = None
+    # Текст раздела для сайта: показывается под заголовком и уходит в мета-описание
+    # (JSON-LD CollectionPage, description страницы). Пустая строка очищает текст.
+    description: Optional[str] = None
     # Ручные превью карточки раздела: до 4 id файлов этого же раздела, в нужном
     # порядке. Пустой список — вернуть автоматический выбор (4 свежих файла).
     cover_media_ids: Optional[List[int]] = None

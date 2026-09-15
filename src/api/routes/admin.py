@@ -549,6 +549,13 @@ async def update_board(
         title = payload.title.strip()
         board.title = title[:100] if title else board.slug
 
+    # Описание раздела: у источников оно есть не всегда (2ch отдаёт пустое
+    # `info_outer`), поэтому админ может вписать своё — парсер чужой текст не
+    # перезапишет (`scan_planner` пишет описание только когда его ещё нет).
+    if payload.description is not None:
+        description = payload.description.strip()
+        board.description = description[:600] if description else None
+
     # Превью карточки раздела: выбранные админом файлы (пустой список — авто)
     if payload.cover_media_ids is not None:
         board.cover_media_ids = await _resolve_cover_ids(

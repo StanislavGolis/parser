@@ -31,9 +31,17 @@ export async function generateMetadata({ params }: BoardPageProps): Promise<Meta
     Boolean(current.title) && current.title !== current.slug && current.title !== `/${current.slug}`;
   const title = named ? `/${current.slug} — ${current.title}` : `/${current.slug}`;
   const files = current.media_count ? `${formatNumber(current.media_count)} файлов — ` : "";
+  // Мета-описание: если у раздела есть свой текст (у slivach — с сайта, у 2ch —
+  // написанный в админке), берём его начало — выдача получается живой, а не шаблонной.
+  const own = current.description?.replace(/\s+/g, " ").trim();
+  const description = own
+    ? own.length > 160
+      ? `${own.slice(0, 156).trimEnd()}…`
+      : own
+    : `Раздел /${current.slug}: ${files}фото и видео в архиве, треды, превью и оригиналы файлов.`;
   return {
     title,
-    description: `Раздел /${current.slug}: ${files}фото и видео в архиве, треды, превью и оригиналы файлов.`,
+    description,
     alternates: { canonical: `/board/${current.slug}` },
     // Возрастная метка: контент раздела 18+
     other: { rating: "adult" },
