@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { BookmarkIcon, ImageIcon, LayersIcon, SearchIcon, StarIcon, TagIcon } from "@/components/icons";
+import { BookmarkIcon, ImageIcon, LayersIcon, StarIcon } from "@/components/icons";
 
 const ITEMS = [
   {
@@ -25,15 +25,10 @@ const ITEMS = [
     Icon: BookmarkIcon,
     match: (p: string) => p.startsWith("/marks"),
   },
-  { href: "/search", label: "Поиск", Icon: SearchIcon, match: (p: string) => p.startsWith("/search") },
-  // Подписка — в самом низком меню: на телефоне это единственный ход к тарифам,
-  // кроме профиля и кнопок в закрытых превью
-  {
-    href: "/subscribe",
-    label: "Тарифы",
-    Icon: TagIcon,
-    match: (p: string) => p.startsWith("/subscribe"),
-  },
+  // «Поиск» и «Тарифы» из нижнего меню убраны — они и так под рукой на телефоне:
+  // поиск иконкой в шапке (она липкая и видна всегда), тарифы — пунктом «Подписка
+  // и тарифы» в меню аккаунта. Шесть пунктов не влезали: подписи сжимались, и
+  // вместо четырёх крупных кнопок получалась полоса мелких, куда трудно попасть.
 ];
 
 /**
@@ -48,7 +43,7 @@ export default function MobileNav() {
 
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-40 grid h-[calc(3.5rem+env(safe-area-inset-bottom))] grid-cols-6 border-t border-line bg-ink-secondary pb-[env(safe-area-inset-bottom)] md:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 grid h-[calc(3.5rem+env(safe-area-inset-bottom))] grid-cols-4 border-t border-line bg-ink-secondary pb-[env(safe-area-inset-bottom)] md:hidden"
       aria-label="Мобильная навигация"
     >
       {ITEMS.map(({ href, label, Icon, match }) => {
@@ -58,7 +53,11 @@ export default function MobileNav() {
             key={href}
             href={href}
             aria-current={active ? "page" : undefined}
-            className="flex flex-col items-center justify-center gap-0.5"
+            // Полоска сверху у активного пункта: на телефоне она читается быстрее,
+            // чем цвет подписи, и сразу показывает, где мы находимся.
+            className={`flex flex-col items-center justify-center gap-0.5 border-t-2 ${
+              active ? "border-accent-primary" : "border-transparent"
+            }`}
           >
             <Icon
               className={`h-5 w-5 ${active ? "text-accent-primary" : "text-text-muted"}`}
