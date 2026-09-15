@@ -689,7 +689,9 @@ class Payment(Base):
     discount_percent = Column(Integer, nullable=False, default=0)
     # manual | cryptobot | stars
     provider = Column(String(16), nullable=False, default="manual")
-    external_id = Column(String(64), nullable=True)
+    # Идентификатор платежа у провайдера: у Telegram Stars это
+    # `telegram_payment_charge_id`, и он длиннее 64 символов — держим 255
+    external_id = Column(String(255), nullable=True)
     # pending | paid | cancelled | failed | refunded
     status = Column(String(16), nullable=False, default="pending")
     days = Column(Integer, nullable=False, default=0)

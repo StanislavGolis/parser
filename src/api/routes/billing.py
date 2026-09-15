@@ -22,7 +22,7 @@ from src.api.schemas import PaymentOut
 from src.core.config import settings
 from src.core.db import get_session
 from src.core.models import Payment, User
-from src.services import pricing
+from src.services import magic_link, pricing
 from src.services.analytics import record_audit
 
 router = APIRouter(prefix="/api/v1/billing", tags=["billing"])
@@ -71,10 +71,10 @@ async def stars_paid(
         await session.execute(select(User).where(User.telegram_id == payload.telegram_id))
     ).scalar_one_or_none()
     if user is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Аккаунт не привязан: сначала откройте сайт по ссылке из бота (/link)",
-        )
+        # Человек оплатил, ещё не заходя на сайт: заводим аккаунт сразу, чтобы оплата
+        # не потерялась — доступ всё равно выдаётся тому же telegram_id, а на сайте
+        # он войдёт по ссылке из бота.
+        user = await magic_link.get_or_create_telegram_user(session, payload.telegram_id)
 
     percent = 0
     if payload.promo_id:
@@ -87,7 +87,8 @@ async def stars_paid(
         plan=plan,
         user=user,
         provider="stars",
-        external_id=payload.charge_id,
+        # `telegram_payment_charge_id` бывает длинным: держим запас, обрезая до 255
+        external_id=(payload.charge_id or "").strip()[:255] or None,
         percent=percent,
         note=f"Telegram Stars: {payload.stars} ⭐",
     )

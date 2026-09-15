@@ -348,18 +348,31 @@ async def handle_successful_payment(
     stars = int(payment.get("total_amount") or 0)
     promo_id = int(promo_raw) if promo_raw.isdigit() and int(promo_raw) > 0 else None
 
-    data = await api_request(
-        session,
-        "POST",
-        "/api/v1/billing/stars",
-        json={
-            "telegram_id": telegram_id,
-            "plan_code": plan_code or "month",
-            "stars": stars,
-            "charge_id": charge,
-            "promo_id": promo_id,
-        },
+    # Пишем в лог: если оплата не зачислится, у нас останется, что именно пришло
+    logger.info(
+        "Оплата звёздами: payload=%s stars=%s charge=%s",
+        payload or "—",
+        stars,
+        charge or "—",
     )
+
+    body = {
+        "telegram_id": telegram_id,
+        "plan_code": plan_code or "month",
+        "stars": stars,
+        "charge_id": charge,
+        "promo_id": promo_id,
+    }
+    data = None
+    # Две попытки: чаще всего это разовый сбой API/сети. Повтор безопасен —
+    # зачисление идемпотентно по charge_id и не продлит подписку дважды.
+    for attempt in (1, 2):
+        data = await api_request(session, "POST", "/api/v1/billing/stars", json=body)
+        if data and not data.get("error"):
+            break
+        logger.warning("Зачисление оплаты не прошло (попытка %s): %s", attempt, data)
+        await asyncio.sleep(3)
+
     if not data or data.get("error"):
         await bot.send(
             chat_id,
