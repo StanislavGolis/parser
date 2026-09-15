@@ -45,3 +45,7 @@ docker-compose.override.yml
 # Выгрузки для чтения/правки (описания разделов и т.п.): файл-артефакт, не код
 board_descriptions.txt
 
+# Исходник логотипа (4 МБ): из него собираются иконки скриптом make_icons.py.
+# В репозиторий кладём уже уменьшенные icon.png / apple-icon.png / logo.png.
+fav.png
+

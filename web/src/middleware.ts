@@ -140,9 +140,9 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   // Все страницы, кроме служебного: `_next`, API (его закрывает FastAPI в закрытом
-  // режиме), входа, healthz, robots, favicon и файла ключа IndexNow.
+  // режиме), входа, healthz, robots, иконок сайта и файла ключа IndexNow.
   // Формат `:path*` и regexp — то, что Next гарантированно подхватывает.
   matcher: [
-    "/((?!_next|api|auth|login|healthz|robots\\.txt|favicon|indexnow-key).*)",
+    "/((?!_next|api|auth|login|healthz|robots\\.txt|icon\\.png|apple-icon\\.png|logo\\.png|favicon|indexnow-key).*)",
   ],
 };

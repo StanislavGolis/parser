@@ -44,9 +44,12 @@ export default function Header() {
         {/* Логотип */}
         <Link
           href="/"
-          className="flex shrink-0 items-baseline gap-3"
+          className="flex shrink-0 items-center gap-2"
           aria-label="DREDGER — на главную"
         >
+          {/* Тот же знак, что в favicon (app/icon.png), только крупнее */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="" width={28} height={28} className="h-7 w-7 shrink-0" />
           <span className="font-mono text-base font-bold uppercase tracking-[0.15em] text-text-primary md:text-lg">
             DREDGER
           </span>

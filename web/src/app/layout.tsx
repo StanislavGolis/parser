@@ -46,9 +46,9 @@ export const metadata: Metadata = {
     type: "website",
   },
   twitter: { card: "summary_large_image" },
-  icons: {
-    icon: "/favicon.svg",
-  },
+  // Иконки сайта — файлами: `app/icon.png` (favicon) и `app/apple-icon.png`
+  // (домашний экран iOS). Next добавляет <link rel="icon"> сам, дублировать путь
+  // в metadata не нужно; раньше здесь был /favicon.svg со старым лого.
 };
 
 /**

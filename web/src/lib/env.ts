@@ -68,6 +68,10 @@ export const PUBLIC_PATHS = [
   "/auth",
   "/healthz",
   "/robots.txt",
+  // Иконки и логотип: файлы из `app/` и `public/` — они нужны браузеру до входа
+  "/icon.png",
+  "/apple-icon.png",
+  "/logo.png",
   "/favicon.ico",
   "/tos",
   "/dmca",
