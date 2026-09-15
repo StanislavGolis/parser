@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError, apiPatch, apiPost, apiSend } from "@/lib/api";
 import { useAdminToken } from "@/lib/adminAuth";
 import { formatNumber, parseUtc } from "@/lib/format";
-import type { AdminPlan, AdminPlans, PaymentItem, PricingPromo } from "@/lib/types";
+import type { AdminPlan, AdminPlans, PaymentItem, PromoItem } from "@/lib/types";
 
 const PLAN_ORDER = ["week", "month", "year", "forever"];
 
@@ -42,9 +42,15 @@ export default function PlansPanel() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<Record<string, Partial<AdminPlan>>>({});
-  const [promoEnds, setPromoEnds] = useState("");
-  const [promoPercent, setPromoPercent] = useState<number | null>(null);
-  const [promoLimit, setPromoLimit] = useState<number | null>(null);
+  const [promoDraft, setPromoDraft] = useState<Record<number, Partial<PromoItem>>>({});
+  const [newPromo, setNewPromo] = useState({
+    title: "",
+    description: "",
+    percent: 20,
+    ends_at: "",
+    max_paid: 0,
+    applies_to: "",
+  });
   const [grantUser, setGrantUser] = useState("");
   const [grantPlan, setGrantPlan] = useState("month");
   const [grantPercent, setGrantPercent] = useState(0);
@@ -101,15 +107,63 @@ export default function PlansPanel() {
     }
   }
 
-  async function savePromo(patch: Record<string, unknown>) {
+  async function createPromo() {
     if (!token) return;
     setBusy(true);
     setError(null);
     try {
-      await apiPatch<Record<string, unknown>>("/api/v1/admin/plans/promo", patch, token);
-      setPromoEnds("");
-      setPromoPercent(null);
-      setPromoLimit(null);
+      await apiPost<PromoItem>(
+        "/api/v1/admin/plans/promos",
+        {
+          title: newPromo.title.trim() || "Акция",
+          description: newPromo.description.trim(),
+          percent: newPromo.percent,
+          max_paid: newPromo.max_paid || null,
+          applies_to: newPromo.applies_to
+            .split(",")
+            .map((code) => code.trim())
+            .filter(Boolean),
+          ...(newPromo.ends_at ? { ends_at: new Date(newPromo.ends_at).toISOString() } : {}),
+        },
+        token,
+      );
+      setNewPromo({ title: "", description: "", percent: 20, ends_at: "", max_paid: 0, applies_to: "" });
+      await load(token);
+    } catch (err) {
+      guard(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function patchPromo(id: number, patch: Record<string, unknown>) {
+    if (!token) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiPatch<PromoItem>(`/api/v1/admin/plans/promos/${id}`, patch, token);
+      setPromoDraft((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      await load(token);
+    } catch (err) {
+      guard(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deletePromo(id: number, title: string) {
+    if (!token || !window.confirm(`Удалить акцию «${title}»?`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiSend<{ ok: boolean }>(`/api/v1/admin/plans/promos/${id}`, {
+        method: "DELETE",
+        token,
+      });
       await load(token);
     } catch (err) {
       guard(err);
@@ -142,7 +196,15 @@ export default function PlansPanel() {
     }
   }
 
-  const promo = data?.promo;
+  const promos = data?.promos ?? [];
+  const activePromos = promos.filter((item) => item.active);
+  /** Скидка для тарифа: самая выгодная из активных акций, применимых к нему. */
+  function discountFor(code: string): number {
+    const list = activePromos.filter(
+      (item) => !item.applies_to.length || item.applies_to.includes(code),
+    );
+    return list.length ? Math.max(...list.map((item) => item.percent)) : 0;
+  }
   const field =
     "rounded border border-line bg-ink-tertiary px-2 py-1 text-xs text-text-primary outline-none focus:border-accent-primary";
   const plans = [...(data?.plans ?? [])].sort(
@@ -175,7 +237,7 @@ export default function PlansPanel() {
             const price = edit.price_rub ?? plan.price_rub;
             const days = edit.days ?? plan.days;
             const active = edit.is_active ?? plan.is_active;
-            const promoPercent = promo?.active ? promo.percent : 0;
+            const promoPercent = discountFor(plan.code);
             const now = Math.max(1, Math.round((price * (100 - promoPercent)) / 100));
             const dirty = Object.keys(edit).length > 0;
             return (
@@ -203,6 +265,17 @@ export default function PlansPanel() {
                       onChange={(e) => patchPlan(plan.code, { days: Number(e.target.value) })}
                       className={`${field} w-20`}
                     />
+                  </label>
+                  <label className="flex items-center gap-1.5" title="Цена в звёздах Telegram: задаётся вручную, 0 — оплата звёздами выключена">
+                    звёзд:
+                    <input
+                      type="number"
+                      min={0}
+                      value={edit.price_stars ?? plan.price_stars ?? 0}
+                      onChange={(e) => patchPlan(plan.code, { price_stars: Number(e.target.value) })}
+                      className={`${field} w-20`}
+                    />
+                    ⭐
                   </label>
                   <label className="flex items-center gap-1.5">
                     <input
@@ -250,42 +323,170 @@ export default function PlansPanel() {
         </div>
       </div>
 
-      {/* Стартовая акция */}
+      {/* Акции: список + создание; включаются вручную под событие */}
       <div className="rounded border border-line bg-ink-secondary p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold">Стартовая акция</h3>
-          <span className={promo?.active ? "text-xs text-accent-secondary" : "text-xs text-text-muted"}>
-            {promo
-              ? promo.active
-                ? `активна: −${promo.percent}% (осталось оплат: ${promo.paid_left ?? "—"}, дней: ${promo.days_left ?? "—"})`
-                : `не активна: ${promo.reason || "—"}`
+          <h3 className="text-sm font-semibold">Акции</h3>
+          <span className="text-xs text-text-muted">
+            {data
+              ? `всего: ${promos.length} · активных: ${activePromos.length}`
               : "загрузка…"}
           </span>
         </div>
         <p className="mt-1 text-xs text-text-secondary">
-          Условие старта: «−50% первые 30 дней или до первых 50 оплат» — акция выключается
-          автоматически, как только сработает любое из условий.
-          {promo?.note ? ` Сейчас: ${promo.note}` : ""}
+          Акции можно готовить заранее и включать под событие: у каждой своё название,
+          описание, процент, срок и лимит оплат. Витрина и бот берут самую выгодную
+          активную акцию для каждого тарифа.
         </p>
 
-        {promo ? (
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-text-secondary">
-            <label className="flex items-center gap-1.5">
-              <input
-                type="checkbox"
-                checked={promo.active && promo.percent > 0}
-                onChange={(e) => void savePromo({ enabled: e.target.checked })}
-              />
-              включена
-            </label>
+        <div className="mt-3 flex flex-col gap-2">
+          {promos.map((item) => {
+            const edit = promoDraft[item.id] ?? {};
+            const title = edit.title ?? item.title;
+            const description = edit.description ?? item.description;
+            const percent = edit.percent ?? item.percent;
+            const maxPaid = edit.max_paid ?? item.max_paid ?? 0;
+            const applies = (edit.applies_to ?? item.applies_to).join(", ");
+            const dirty = Object.keys(edit).length > 0;
+            return (
+              <div
+                key={item.id}
+                className={`rounded border p-3 ${
+                  item.active ? "border-accent-secondary/50 bg-ink-tertiary" : "border-line bg-ink-tertiary"
+                }`}
+              >
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-text-secondary">
+                  <input
+                    value={title}
+                    placeholder="Название акции"
+                    onChange={(e) =>
+                      setPromoDraft((prev) => ({ ...prev, [item.id]: { ...prev[item.id], title: e.target.value } }))
+                    }
+                    className={`${field} w-52`}
+                  />
+                  <label className="flex items-center gap-1.5">
+                    скидка, %:
+                    <input
+                      type="number"
+                      min={0}
+                      max={90}
+                      value={percent}
+                      onChange={(e) =>
+                        setPromoDraft((prev) => ({ ...prev, [item.id]: { ...prev[item.id], percent: Number(e.target.value) } }))
+                      }
+                      className={`${field} w-16`}
+                    />
+                  </label>
+                  <label className="flex items-center gap-1.5">
+                    лимит оплат:
+                    <input
+                      type="number"
+                      min={0}
+                      value={maxPaid}
+                      onChange={(e) =>
+                        setPromoDraft((prev) => ({ ...prev, [item.id]: { ...prev[item.id], max_paid: Number(e.target.value) } }))
+                      }
+                      className={`${field} w-20`}
+                    />
+                  </label>
+                  <label className="flex items-center gap-1.5" title="Список кодов тарифов через запятую; пусто — на все">
+                    тарифы:
+                    <input
+                      value={applies}
+                      placeholder="все"
+                      onChange={(e) =>
+                        setPromoDraft((prev) => ({
+                          ...prev,
+                          [item.id]: {
+                            ...prev[item.id],
+                            applies_to: e.target.value.split(",").map((code) => code.trim()).filter(Boolean),
+                          },
+                        }))
+                      }
+                      className={`${field} w-36`}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => void patchPromo(item.id, { is_active: !item.is_active })}
+                    disabled={busy}
+                    className={item.is_active ? "btn-ghost px-3 py-1.5 text-xs" : "btn-primary px-3 py-1.5 text-xs"}
+                  >
+                    {item.is_active ? "Выключить" : "Включить"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void patchPromo(item.id, {
+                        title,
+                        description,
+                        percent,
+                        max_paid: maxPaid,
+                        applies_to: edit.applies_to ?? item.applies_to,
+                      })
+                    }
+                    disabled={busy || !dirty}
+                    className={dirty ? "btn-primary px-3 py-1.5 text-xs" : "btn-ghost px-3 py-1.5 text-xs"}
+                  >
+                    Сохранить
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void deletePromo(item.id, item.title)}
+                    disabled={busy}
+                    className="text-text-muted hover:text-accent-danger"
+                  >
+                    удалить
+                  </button>
+                  <span className={item.active ? "text-accent-secondary" : "text-text-muted"}>
+                    {item.active ? `идёт: −${item.percent}%` : `не активна: ${item.reason || "—"}`}
+                  </span>
+                  <span className="font-mono text-[11px] text-text-muted">
+                    до {when(item.ends_at)} · оплат осталось: {item.paid_left ?? "∞"}
+                  </span>
+                </div>
+                <input
+                  value={description}
+                  placeholder="Описание для витрины — его увидят в боте"
+                  onChange={(e) =>
+                    setPromoDraft((prev) => ({ ...prev, [item.id]: { ...prev[item.id], description: e.target.value } }))
+                  }
+                  className={`${field} mt-2 w-full`}
+                />
+              </div>
+            );
+          })}
+          {promos.length === 0 ? (
+            <p className="text-xs text-text-muted">
+              Акций пока нет — заведите первую ниже. Она создаётся выключенной.
+            </p>
+          ) : null}
+        </div>
+
+        {/* Новая акция: заводим заранее, включаем кнопкой у готовой */}
+        <div className="mt-4 border-t border-line pt-3">
+          <h4 className="text-xs font-semibold text-text-primary">Новая акция</h4>
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-text-secondary">
+            <input
+              value={newPromo.title}
+              placeholder="Название (видно покупателю)"
+              onChange={(e) => setNewPromo((prev) => ({ ...prev, title: e.target.value }))}
+              className={`${field} w-52`}
+            />
+            <input
+              value={newPromo.description}
+              placeholder="Описание для витрины"
+              onChange={(e) => setNewPromo((prev) => ({ ...prev, description: e.target.value }))}
+              className={`${field} w-64`}
+            />
             <label className="flex items-center gap-1.5">
               скидка, %:
               <input
                 type="number"
                 min={0}
                 max={90}
-                value={promoPercent ?? promo.percent}
-                onChange={(e) => setPromoPercent(Number(e.target.value))}
+                value={newPromo.percent}
+                onChange={(e) => setNewPromo((prev) => ({ ...prev, percent: Number(e.target.value) }))}
                 className={`${field} w-16`}
               />
             </label>
@@ -294,39 +495,43 @@ export default function PlansPanel() {
               <input
                 type="number"
                 min={0}
-                value={promoLimit ?? promo.max_paid ?? 0}
-                onChange={(e) => setPromoLimit(Number(e.target.value))}
+                value={newPromo.max_paid}
+                onChange={(e) => setNewPromo((prev) => ({ ...prev, max_paid: Number(e.target.value) }))}
                 className={`${field} w-20`}
+              />
+            </label>
+            <label className="flex items-center gap-1.5" title="Коды тарифов через запятую (week, month, year, forever); пусто — на все">
+              тарифы:
+              <input
+                value={newPromo.applies_to}
+                placeholder="все"
+                onChange={(e) => setNewPromo((prev) => ({ ...prev, applies_to: e.target.value }))}
+                className={`${field} w-32`}
               />
             </label>
             <label className="flex items-center gap-1.5">
               до (UTC):
               <input
                 type="datetime-local"
-                value={promoEnds}
-                onChange={(e) => setPromoEnds(e.target.value)}
+                value={newPromo.ends_at}
+                onChange={(e) => setNewPromo((prev) => ({ ...prev, ends_at: e.target.value }))}
                 className={field}
               />
             </label>
-            <span className="font-mono text-[11px] text-text-muted">
-              конец: {when(promo.ends_at)} · оплачено: {promo.paid}
-            </span>
             <button
               type="button"
-              onClick={() =>
-                void savePromo({
-                  percent: promoPercent ?? promo.percent,
-                  max_paid: promoLimit ?? promo.max_paid ?? 0,
-                  ...(promoEnds ? { ends_at: new Date(promoEnds).toISOString() } : {}),
-                })
-              }
+              onClick={() => void createPromo()}
               disabled={busy}
               className="btn-primary px-3 py-1.5 text-xs"
             >
-              Сохранить акцию
+              Создать акцию
             </button>
           </div>
-        ) : null}
+          <p className="mt-1 text-[11px] text-text-muted">
+            Акция создаётся выключенной: подготовьте условия заранее и нажмите «Включить»,
+            когда придёт событие. Скидка применяется и к рублям, и к звёздам.
+          </p>
+        </div>
       </div>
 
       {/* Ручная выдача тарифа */}

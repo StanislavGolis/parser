@@ -58,46 +58,67 @@ SUBSCRIBE_TEXT = (
 
 
 def plans_text(data: Optional[dict]) -> str:
-    """Витрина тарифов для `/subscribe`: цены, сроки и условия стартовой акции.
+    """Витрина тарифов для `/subscribe`: цены в рублях и звёздах + условия акций.
 
     Данные приходят из API (`GET /api/v1/plans`) — бот и сайт показывают одни и те же
-    цены, поэтому «акция кончилась» не превращается в два разных ответа.
+    цены, поэтому «акция включилась» не превращается в два разных ответа. Названия и
+    описания акций задаются в админке, здесь они просто выводятся как есть.
     """
     if not data or not data.get("plans"):
         return SUBSCRIBE_TEXT
 
-    promo = data.get("promo") or {}
-    percent = int(promo.get("percent") or 0)
     lines = ["Подписка Dredger — приватные разделы, скачивание и без рекламы.\n"]
 
     for plan in data["plans"]:
         title = plan.get("title") or plan.get("code")
         price = int(plan.get("price_now") or plan.get("price_rub") or 0)
         old = int(plan.get("price_rub") or 0)
+        stars = plan.get("stars_now") or plan.get("price_stars")
         days = int(plan.get("days") or 0)
         if plan.get("is_forever"):
             term = "без срока"
-        elif days % 30 == 0 and days >= 30:
+        elif days >= 30 and days % 30 == 0:
             term = f"{days // 30} мес."
         else:
             term = f"{days} дн."
-        tail = f" (вместо {old} ₽)" if percent and price != old else ""
-        lines.append(f"• {title} — {price} ₽{tail}, {term}")
+        promo = f" (вместо {old} ₽)" if old and price != old else ""
+        stars_part = f" · {int(stars)} ⭐" if stars else ""
+        lines.append(f"• {title} — {price} ₽{stars_part}{promo}, {term}")
 
-    if percent:
+    for promo in data.get("promos") or []:
         left: list[str] = []
         if promo.get("days_left") is not None:
             left.append(f"{promo['days_left']} дн.")
         if promo.get("paid_left") is not None:
             left.append(f"{promo['paid_left']} оплат")
         tail = f" Осталось: {', '.join(left)}." if left else ""
-        lines.append(f"\nСтартовая акция: −{promo['percent']}% на все тарифы.{tail}")
+        description = f"\n{promo['description']}" if promo.get("description") else ""
+        lines.append(f"\n{promo.get('title') or 'Акция'}: −{promo['percent']}% на тарифы.{description}{tail}")
 
-    lines.append(
-        "\nОплата подключается (крипта). Пока доступ выдаём вручную: напишите "
-        "администратору или нажмите «🔓 Войти на сайт» и оставьте заявку в профиле."
-    )
+    lines.append("\nОплата звёздами — кнопками ниже. Крипта появится позже.")
     return "\n".join(lines)
+
+
+def plans_keyboard(data: Optional[dict]) -> Optional[dict]:
+    """Кнопки оплаты звёздами: свой ряд на тариф, где цена в звёздах задана.
+
+    В `callback_data` кладём и тариф, и акцию: сервер применит ту же скидку, которую
+    человек видел в счёте.
+    """
+    rows = []
+    for plan in (data or {}).get("plans") or []:
+        stars = plan.get("stars_now") or plan.get("price_stars")
+        if not stars:
+            continue
+        rows.append(
+            [
+                {
+                    "text": f"{plan.get('title')} — {int(stars)} ⭐",
+                    "callback_data": f"buy:{plan.get('code')}:{plan.get('promo_id') or 0}",
+                }
+            ]
+        )
+    return {"inline_keyboard": rows} if rows else None
 
 
 def _api_base() -> str:
@@ -161,8 +182,8 @@ class BotClient:
     async def get_updates(self, offset: Optional[int]) -> List[Dict[str, Any]]:
         payload: Dict[str, Any] = {
             "timeout": POLL_TIMEOUT,
-            # `callback_query` нужен для карантина: админ нажимает кнопки под черновиком
-            "allowed_updates": ["message", "callback_query"],
+            # `callback_query` — карантин и кнопки оплаты, `pre_checkout_query` — звёзды
+            "allowed_updates": ["message", "callback_query", "pre_checkout_query"],
         }
         if offset is not None:
             payload["offset"] = offset
@@ -258,6 +279,93 @@ async def handle_giveaway(
     )
 
 
+async def send_stars_invoice(
+    session: aiohttp.ClientSession,
+    bot: BotClient,
+    chat_id: int,
+    plan_code: str,
+    promo_id: int = 0,
+) -> None:
+    """Выставляет счёт на оплату звёздами.
+
+    Сумму берём из витрины API, а не из кнопки: если акцию успели выключить, человек
+    заплатит актуальную цену, а не ту, что осталась в старом сообщении.
+    """
+    data = await api_request(session, "GET", "/api/v1/plans")
+    plan = next(
+        (item for item in (data or {}).get("plans") or [] if item.get("code") == plan_code),
+        None,
+    )
+    stars = (plan or {}).get("stars_now") or (plan or {}).get("price_stars")
+    if not plan or not stars:
+        await bot.send(
+            chat_id, "Этот тариф пока недоступен для оплаты звёздами — загляните позже."
+        )
+        return
+
+    await bot.call(
+        "sendInvoice",
+        chat_id=chat_id,
+        title=f"Подписка Dredger — {plan.get('title')}",
+        description=(plan.get("description") or f"Доступ на {plan.get('days')} дн.")[:255],
+        payload=f"{plan_code}:{promo_id or 0}",
+        currency="XTR",
+        prices=[{"label": plan.get("title") or plan_code, "amount": int(stars)}],
+    )
+
+
+async def handle_pre_checkout(bot: BotClient, query: dict) -> None:
+    """Telegram спрашивает подтверждение перед списанием звёзд — подтверждаем."""
+    await bot.call("answerPreCheckoutQuery", pre_checkout_query_id=query.get("id"), ok=True)
+
+
+async def handle_successful_payment(
+    session: aiohttp.ClientSession,
+    bot: BotClient,
+    chat_id: int,
+    telegram_id: int,
+    payment: dict,
+) -> None:
+    """Оплата звёздами прошла: зачисляем её через API и включаем подписку.
+
+    `payments` идемпотентен по `charge_id`: повторная доставка апдейта не продлит
+    подписку второй раз.
+    """
+    payload = (payment.get("invoice_payload") or "").strip()
+    plan_code, _, promo_raw = payload.partition(":")
+    charge = payment.get("telegram_payment_charge_id") or ""
+    stars = int(payment.get("total_amount") or 0)
+    promo_id = int(promo_raw) if promo_raw.isdigit() and int(promo_raw) > 0 else None
+
+    data = await api_request(
+        session,
+        "POST",
+        "/api/v1/billing/stars",
+        json={
+            "telegram_id": telegram_id,
+            "plan_code": plan_code or "month",
+            "stars": stars,
+            "charge_id": charge,
+            "promo_id": promo_id,
+        },
+    )
+    if not data or data.get("error"):
+        await bot.send(
+            chat_id,
+            "Оплата прошла, но доступ не включился автоматически. "
+            "Напишите администратору — включим вручную.",
+        )
+        return
+
+    until = str(data.get("premium_until") or "")[:10]
+    await bot.send(
+        chat_id,
+        f"Спасибо! Оплата {stars} ⭐ получена.\n"
+        f"Подписка активна до {until}.\nСсылка на сайт — /link",
+        keyboard=MAIN_KEYBOARD,
+    )
+
+
 async def handle_callback(
     session: aiohttp.ClientSession, bot: BotClient, callback: dict
 ) -> None:
@@ -274,6 +382,14 @@ async def handle_callback(
     message_id = message.get("message_id")
 
     parts = data.split(":")
+    # Оплата: кнопка «<тариф> — N ⭐» под витриной `/subscribe`
+    if data.startswith("buy:") and len(parts) == 3 and chat_id:
+        if callback_id:
+            await bot.call("answerCallbackQuery", callback_query_id=callback_id)
+        promo_id = int(parts[2]) if parts[2].isdigit() else 0
+        await send_stars_invoice(session, bot, chat_id, parts[1], promo_id)
+        return
+
     if len(parts) != 3 or parts[0] != "post" or not chat_id:
         if callback_id:
             await bot.call("answerCallbackQuery", callback_query_id=callback_id)
@@ -310,11 +426,18 @@ async def handle_callback(
 
 
 async def handle_message(session: aiohttp.ClientSession, bot: BotClient, message: dict) -> None:
-    """Обработка одного сообщения: команды и кнопки клавиатуры."""
+    """Обработка одного сообщения: оплата, команды и кнопки клавиатуры."""
     text = (message.get("text") or "").strip()
     chat_id = (message.get("chat") or {}).get("id")
     sender = message.get("from") or {}
     telegram_id = sender.get("id")
+
+    # Оплата звёздами приходит отдельным полем (текста в таком сообщении нет)
+    payment = message.get("successful_payment")
+    if payment and chat_id and telegram_id:
+        await handle_successful_payment(session, bot, chat_id, telegram_id, payment)
+        return
+
     if not text or not chat_id or not telegram_id:
         return
 
@@ -394,9 +517,11 @@ async def handle_message(session: aiohttp.ClientSession, bot: BotClient, message
         return
 
     if command == "/subscribe":
-        # Тарифы берём из API: бот и сайт показывают одни и те же цены и условия акции
+        # Тарифы и кнопки оплаты берём из API: бот и сайт показывают одни и те же цены
         data = await api_request(session, "GET", "/api/v1/plans")
-        await bot.send(chat_id, plans_text(data), keyboard=MAIN_KEYBOARD)
+        await bot.send(
+            chat_id, plans_text(data), keyboard=plans_keyboard(data) or MAIN_KEYBOARD
+        )
         return
 
     if command == "/id":
@@ -438,7 +563,9 @@ async def main() -> None:
                 # Сдвигаем offset до обработки: сбойный апдейт не должен зацикливаться
                 offset = int(update.get("update_id", 0)) + 1
                 try:
-                    if update.get("callback_query"):
+                    if update.get("pre_checkout_query"):
+                        await handle_pre_checkout(bot, update["pre_checkout_query"])
+                    elif update.get("callback_query"):
                         await handle_callback(session, bot, update["callback_query"])
                     else:
                         await handle_message(session, bot, update.get("message") or {})

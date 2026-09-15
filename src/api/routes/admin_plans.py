@@ -33,11 +33,13 @@ class GrantIn(BaseModel):
 
 
 async def _plans_out(session: AsyncSession) -> AdminPlansOut:
-    """Собирает ответ админки: тарифы, состояние акции и сводку продаж."""
+    """Собирает ответ админки: тарифы, акции (с состоянием) и сводку продаж."""
     plans = await pricing.list_plans(session, active_only=False)
+    promos = await pricing.list_promos(session)
+    paid = await pricing.paid_count(session)
     return AdminPlansOut(
         plans=[AdminPlanOut.model_validate(plan) for plan in plans],
-        promo=PromoOut(**await pricing.promo_state(session)),
+        promos=[PromoOut(**pricing.promo_state(promo, paid)) for promo in promos],
         sales=await pricing.payments_summary(session),
     )
 
@@ -48,34 +50,105 @@ async def list_plans(_=Depends(verify_admin), session: AsyncSession = Depends(ge
     return await _plans_out(session)
 
 
-@router.patch("/promo", response_model=PromoOut)
-async def update_promo(
+@router.get("/promos", response_model=List[PromoOut])
+async def list_promos(_=Depends(verify_admin), session: AsyncSession = Depends(get_session)):
+    """Все акции с состоянием: включена ли, идёт ли, сколько оплат и дней осталось."""
+    promos = await pricing.list_promos(session)
+    paid = await pricing.paid_count(session)
+    return [PromoOut(**pricing.promo_state(promo, paid)) for promo in promos]
+
+
+@router.post("/promos", response_model=PromoOut)
+async def create_promo(
     payload: PromoIn,
     _=Depends(verify_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Меняет условия акции: включение, процент, срок, лимит оплат."""
-    promo = await pricing.get_promo(session)
-    if payload.enabled is not None:
-        promo.enabled = payload.enabled
+    """Создаёт акцию. Включение — отдельным флагом: завести можно заранее.
+
+    Название и описание — то, что увидит покупатель в боте и на витрине; менять их
+    можно в любой момент, поэтому акцию удобно готовить под конкретное событие.
+    """
+    promo = await pricing.create_promo(
+        session,
+        title=(payload.title or "Акция").strip()[:64],
+        description=(payload.description or "").strip()[:200],
+        percent=max(0, min(90, payload.percent if payload.percent is not None else 10)),
+        is_active=bool(payload.is_active),
+        starts_at=payload.starts_at,
+        ends_at=payload.ends_at,
+        max_paid=payload.max_paid,
+        applies_to=payload.applies_to or None,
+    )
+    await record_audit(
+        session,
+        action="plans.promo.create",
+        target=str(promo.id),
+        details=f"{promo.title}: −{promo.percent}%, включена: {promo.is_active}",
+    )
+    await session.commit()
+    paid = await pricing.paid_count(session)
+    return PromoOut(**pricing.promo_state(promo, paid))
+
+
+@router.patch("/promos/{promo_id}", response_model=PromoOut)
+async def update_promo(
+    promo_id: int,
+    payload: PromoIn,
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Меняет акцию: название, описание, процент, срок, лимит, тарифы, включение."""
+    promo = await session.get(pricing.Promo, promo_id)
+    if promo is None:
+        raise HTTPException(status_code=404, detail="Акция не найдена")
+
+    if payload.title is not None:
+        promo.title = payload.title.strip()[:64] or promo.title
+    if payload.description is not None:
+        promo.description = payload.description.strip()[:200]
     if payload.percent is not None:
         promo.percent = max(0, min(90, payload.percent))
+    if payload.is_active is not None:
+        promo.is_active = payload.is_active
+    if payload.starts_at is not None:
+        promo.starts_at = payload.starts_at
     if payload.ends_at is not None:
         promo.ends_at = payload.ends_at
     if payload.max_paid is not None:
         promo.max_paid = max(0, payload.max_paid)
-    if payload.note is not None:
-        promo.note = payload.note.strip()[:200] or None
+    if payload.applies_to is not None:
+        promo.applies_to = payload.applies_to or None
 
     await record_audit(
         session,
-        action="plans.promo",
-        target="promo",
-        details=f"включена: {promo.enabled}, −{promo.percent}%, лимит: {promo.max_paid}",
+        action="plans.promo.update",
+        target=str(promo.id),
+        details=f"{promo.title}: −{promo.percent}%, включена: {promo.is_active}",
     )
     await session.commit()
     await session.refresh(promo)
-    return PromoOut(**await pricing.promo_state(session))
+    paid = await pricing.paid_count(session)
+    return PromoOut(**pricing.promo_state(promo, paid))
+
+
+@router.delete("/promos/{promo_id}")
+async def delete_promo(
+    promo_id: int,
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Удаляет акцию (например, отменённое событие)."""
+    promo = await session.get(pricing.Promo, promo_id)
+    if promo is None:
+        raise HTTPException(status_code=404, detail="Акция не найдена")
+    title = promo.title
+    await pricing.delete_promo(session, promo)
+    await record_audit(
+        session, action="plans.promo.delete", target=str(promo_id), details=title
+    )
+    await session.commit()
+    return {"ok": True}
 
 
 @router.get("/payments", response_model=List[PaymentOut])
@@ -111,6 +184,9 @@ async def update_plan(
         plan.days = max(1, min(36500, payload.days))
     if payload.price_rub is not None:
         plan.price_rub = max(0, min(1_000_000, payload.price_rub))
+    if payload.price_stars is not None:
+        # Звёзды задаются вручную (вариант A): 0 или пусто — оплата звёздами выключена
+        plan.price_stars = max(0, min(100_000, payload.price_stars)) or None
     if payload.is_active is not None:
         plan.is_active = payload.is_active
     if payload.sort_order is not None:

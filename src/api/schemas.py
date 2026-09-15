@@ -526,7 +526,7 @@ class TelegramCandidateOut(BaseModel):
 
 
 class PlanPriceOut(BaseModel):
-    """Тариф на витрине: цена «как есть» и цена со скидкой (если акция активна)."""
+    """Тариф на витрине: цена в рублях, цена в звёздах и скидка, если акция идёт."""
 
     code: str
     title: str
@@ -534,30 +534,41 @@ class PlanPriceOut(BaseModel):
     days: int
     price_rub: int
     price_now: int
+    # Звёзды Telegram: цена задаётся вручную, None — оплата звёздами выключена
+    price_stars: Optional[int] = None
+    stars_now: Optional[int] = None
     discount_percent: int = 0
+    promo_id: Optional[int] = None
+    promo_title: Optional[str] = None
+    promo_description: Optional[str] = None
     badge: Optional[str] = None
     is_forever: bool = False
 
 
 class PromoOut(BaseModel):
-    """Стартовая акция: −50% первые 30 дней или до первых 50 оплат."""
+    """Акция: название, описание, процент и состояние (идёт ли, сколько осталось)."""
 
+    id: int
+    title: str
+    description: str = ""
+    percent: int
+    is_active: bool = False
     active: bool = False
-    percent: int = 0
     reason: str = ""
+    starts_at: Optional[datetime] = None
     ends_at: Optional[datetime] = None
     days_left: Optional[int] = None
-    paid: int = 0
     max_paid: Optional[int] = None
     paid_left: Optional[int] = None
-    note: Optional[str] = None
+    # Пустой список — акция на все тарифы
+    applies_to: List[str] = []
 
 
 class PlansOut(BaseModel):
     """Витрина тарифов: то, что показывают сайт и бот."""
 
     plans: List[PlanPriceOut]
-    promo: PromoOut
+    promos: List[PromoOut] = []
 
 
 class AdminPlanOut(BaseModel):
@@ -570,6 +581,7 @@ class AdminPlanOut(BaseModel):
     description: str
     days: int
     price_rub: int
+    price_stars: Optional[int] = None
     is_active: bool
     sort_order: int
     badge: Optional[str] = None
@@ -577,7 +589,7 @@ class AdminPlanOut(BaseModel):
 
 class AdminPlansOut(BaseModel):
     plans: List[AdminPlanOut]
-    promo: PromoOut
+    promos: List[PromoOut]
     # Продажи: paid — сколько оплат, amount_rub — сумма
     sales: Dict[str, int] = {}
 
@@ -589,19 +601,23 @@ class PlanIn(BaseModel):
     description: Optional[str] = None
     days: Optional[int] = None
     price_rub: Optional[int] = None
+    price_stars: Optional[int] = None
     is_active: Optional[bool] = None
     sort_order: Optional[int] = None
     badge: Optional[str] = None
 
 
 class PromoIn(BaseModel):
-    """Правка акции: включение, процент, срок и лимит оплат."""
+    """Акция из админки: название, описание, процент, срок, лимит и тарифы."""
 
-    enabled: Optional[bool] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
     percent: Optional[int] = None
+    is_active: Optional[bool] = None
+    starts_at: Optional[datetime] = None
     ends_at: Optional[datetime] = None
     max_paid: Optional[int] = None
-    note: Optional[str] = None
+    applies_to: Optional[List[str]] = None
 
 
 class PaymentOut(BaseModel):

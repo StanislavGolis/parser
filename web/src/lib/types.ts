@@ -753,27 +753,34 @@ export interface AdminPlan {
   description: string;
   days: number;
   price_rub: number;
+  /** Цена в звёздах Telegram (задаётся вручную); null — оплата звёздами выключена. */
+  price_stars: number | null;
   is_active: boolean;
   sort_order: number;
   badge: string | null;
 }
 
-/** Стартовая акция: −50% первые 30 дней или до первых 50 оплат. */
-export interface PricingPromo {
-  active: boolean;
+/** Акция: своё название, описание, процент и условия; включается вручную. */
+export interface PromoItem {
+  id: number;
+  title: string;
+  description: string;
   percent: number;
+  is_active: boolean;
+  active: boolean;
   reason: string;
+  starts_at: string | null;
   ends_at: string | null;
   days_left: number | null;
-  paid: number;
   max_paid: number | null;
   paid_left: number | null;
-  note: string | null;
+  /** Пустой список — акция на все тарифы. */
+  applies_to: string[];
 }
 
 export interface AdminPlans {
   plans: AdminPlan[];
-  promo: PricingPromo;
+  promos: PromoItem[];
   sales: Record<string, number>;
 }
 
@@ -802,12 +809,17 @@ export interface PlanPrice {
   days: number;
   price_rub: number;
   price_now: number;
+  price_stars: number | null;
+  stars_now: number | null;
   discount_percent: number;
+  promo_id: number | null;
+  promo_title: string | null;
+  promo_description: string | null;
   badge: string | null;
   is_forever: boolean;
 }
 
 export interface PlansView {
   plans: PlanPrice[];
-  promo: PricingPromo;
+  promos: PromoItem[];
 }

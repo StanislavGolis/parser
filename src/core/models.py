@@ -622,6 +622,9 @@ class Plan(Base):
     description = Column(String(200), nullable=False, default="")
     days = Column(Integer, nullable=False)           # сколько дней доступа даёт тариф
     price_rub = Column(Integer, nullable=False)
+    # Цена в звёздах Telegram (вариант A: задаётся вручную). NULL — оплата звёздами
+    # для этого тарифа недоступна.
+    price_stars = Column(Integer, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     sort_order = Column(Integer, nullable=False, default=0)
     badge = Column(String(32), nullable=True)        # «выгодно», «хит» и т. п.
@@ -630,26 +633,36 @@ class Plan(Base):
     )
 
 
-class PricingPromo(Base):
-    """Стартовая акция: скидка на все тарифы, пока не истёк срок и не набран лимит.
+class Promo(Base):
+    """Акция: скидка на тарифы, которую включают вручную под событие.
 
-    Условие старта (по требованию): «первые 30 дней ИЛИ до первых 50 платящих» —
-    акция прекращается, как только сработает **любое** из условий, поэтому здесь
-    и дата окончания, и лимит оплат. Строка одна, id=1.
+    Раньше акция была одна и «стартовая»; теперь их может быть сколько угодно
+    (запуск, праздник, «первым 50 оплат», акция только на год и т. п.). Условия
+    (название, описание, процент, срок, лимит) задаются в админке, а `is_active`
+    решает, показывать ли акцию покупателям — включить её можно к любому событию.
+
+    Скидка применяется и к рублёвой цене, и к цене в звёздах: процент один, поэтому
+    витрина, бот и счёт всегда согласованы.
     """
 
-    __tablename__ = "pricing_promo"
+    __tablename__ = "promos"
+    __table_args__ = (Index("ix_promos_active", "is_active", "ends_at"),)
 
     id = Column(Integer, primary_key=True)
-    enabled = Column(Boolean, nullable=False, default=True)
-    percent = Column(Integer, nullable=False, default=50)
-    starts_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    ends_at = Column(DateTime, nullable=True)
-    max_paid = Column(Integer, nullable=True)        # сколько оплат допускаем по акции
-    note = Column(String(200), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(
         DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
     )
+    title = Column(String(64), nullable=False)
+    description = Column(String(200), nullable=False, default="")
+    percent = Column(Integer, nullable=False, default=50)
+    # Включение вручную: акцию заводят заранее и включают к событию
+    is_active = Column(Boolean, nullable=False, default=False)
+    starts_at = Column(DateTime, nullable=True)
+    ends_at = Column(DateTime, nullable=True)
+    max_paid = Column(Integer, nullable=True)        # лимит оплат по акции
+    # На какие тарифы действует (["week", ...]); NULL — на все
+    applies_to = Column(JSONB, nullable=True)
 
 
 class Payment(Base):

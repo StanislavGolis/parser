@@ -26,6 +26,7 @@ from src.api.routes import (
     admin_telegram,
     admin_users,
     auth,
+    billing,
     boards,
     feed,
     feedback,
@@ -178,6 +179,7 @@ app.include_router(status.router)
 app.include_router(search.router)
 app.include_router(feedback.router)
 app.include_router(plans.router)
+app.include_router(billing.router)
 app.include_router(reports.router)
 app.include_router(admin.router)
 app.include_router(admin_auth.router)
@@ -218,6 +220,8 @@ CLOSED_MODE_OPEN_PREFIXES = (
     "/api/v1/admin/",
     # Витрина тарифов: цены не секрет, а бот читает её без сессии (X-Bot-Token)
     "/api/v1/plans",
+    # Подтверждение оплаты звёздами: бот передаёт X-Bot-Token, сессии у него нет
+    "/api/v1/billing/",
     "/docs",
     "/openapi.json",
 )
