@@ -71,9 +71,11 @@ def plans_text(data: Optional[dict]) -> str:
 
     for plan in data["plans"]:
         title = plan.get("title") or plan.get("code")
-        price = int(plan.get("price_now") or plan.get("price_rub") or 0)
-        old = int(plan.get("price_rub") or 0)
         stars = plan.get("stars_now") or plan.get("price_stars")
+        if not stars:
+            # Сетка продаётся только за звёзды: тариф без цены в звёздах не показываем
+            continue
+        base_stars = plan.get("price_stars")
         days = int(plan.get("days") or 0)
         if plan.get("is_forever"):
             term = "без срока"
@@ -81,9 +83,12 @@ def plans_text(data: Optional[dict]) -> str:
             term = f"{days // 30} мес."
         else:
             term = f"{days} дн."
-        promo = f" (вместо {old} ₽)" if old and price != old else ""
-        stars_part = f" · {int(stars)} ⭐" if stars else ""
-        lines.append(f"• {title} — {price} ₽{stars_part}{promo}, {term}")
+        tail = (
+            f" (вместо {int(base_stars)} ⭐)"
+            if base_stars and int(base_stars) != int(stars)
+            else ""
+        )
+        lines.append(f"• {title} — {int(stars)} ⭐{tail}, {term}")
 
     for promo in data.get("promos") or []:
         left: list[str] = []
@@ -92,8 +97,14 @@ def plans_text(data: Optional[dict]) -> str:
         if promo.get("paid_left") is not None:
             left.append(f"{promo['paid_left']} оплат")
         tail = f" Осталось: {', '.join(left)}." if left else ""
-        description = f"\n{promo['description']}" if promo.get("description") else ""
-        lines.append(f"\n{promo.get('title') or 'Акция'}: −{promo['percent']}% на тарифы.{description}{tail}")
+        description = ""
+        if promo.get("description"):
+            text = promo["description"].strip()
+            description = "\n" + (text if text.endswith((".", "!", "?")) else f"{text}.")
+        lines.append(
+            f"\n{promo.get('title') or 'Акция'}: −{promo['percent']}% на тарифы."
+            f"{description}{tail}"
+        )
 
     lines.append("\nОплата звёздами — кнопками ниже. Крипта появится позже.")
     return "\n".join(lines)

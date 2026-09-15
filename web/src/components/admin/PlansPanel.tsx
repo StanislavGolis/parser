@@ -7,7 +7,7 @@ import { useAdminToken } from "@/lib/adminAuth";
 import { formatNumber, parseUtc } from "@/lib/format";
 import type { AdminPlan, AdminPlans, PaymentItem, PromoItem } from "@/lib/types";
 
-const PLAN_ORDER = ["week", "month", "year", "forever"];
+const PLAN_ORDER = ["days3", "month", "year", "forever"];
 
 function errText(err: unknown): string {
   if (err instanceof ApiError) return err.message;
@@ -227,8 +227,8 @@ export default function PlansPanel() {
         </div>
         <p className="mt-1 text-xs text-text-secondary">
           Free видит открытые разделы (с рекламой). Premium открывает приватные разделы,
-          скачивание и убирает рекламу. Цена — в рублях: для крипты пересчитывается по курсу
-          на момент счёта.
+          скачивание и убирает рекламу. Витрина продаёт за звёзды Telegram: рублёвая цена
+          хранится справочно — для журнала и учёта, покупатель её не видит.
         </p>
 
         <div className="mt-3 flex flex-col gap-2">
@@ -245,16 +245,15 @@ export default function PlansPanel() {
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-text-secondary">
                   <span className="font-semibold text-text-primary">{plan.title}</span>
                   <span className="font-mono text-[11px] text-text-muted">{plan.code}</span>
-                  <label className="flex items-center gap-1.5">
-                    цена:
+                  <label className="flex items-center gap-1.5" title="Цена в звёздах Telegram — её видит покупатель">
+                    цена, ⭐:
                     <input
                       type="number"
                       min={0}
-                      value={price}
-                      onChange={(e) => patchPlan(plan.code, { price_rub: Number(e.target.value) })}
-                      className={`${field} w-24`}
+                      value={edit.price_stars ?? plan.price_stars ?? 0}
+                      onChange={(e) => patchPlan(plan.code, { price_stars: Number(e.target.value) })}
+                      className={`${field} w-20`}
                     />
-                    ₽
                   </label>
                   <label className="flex items-center gap-1.5">
                     дней:
@@ -266,16 +265,15 @@ export default function PlansPanel() {
                       className={`${field} w-20`}
                     />
                   </label>
-                  <label className="flex items-center gap-1.5" title="Цена в звёздах Telegram: задаётся вручную, 0 — оплата звёздами выключена">
-                    звёзд:
+                  <label className="flex items-center gap-1.5" title="Справочная цена в рублях: журнал и учёт, покупателю не показывается">
+                    ₽ (справочно):
                     <input
                       type="number"
                       min={0}
-                      value={edit.price_stars ?? plan.price_stars ?? 0}
-                      onChange={(e) => patchPlan(plan.code, { price_stars: Number(e.target.value) })}
-                      className={`${field} w-20`}
+                      value={price}
+                      onChange={(e) => patchPlan(plan.code, { price_rub: Number(e.target.value) })}
+                      className={`${field} w-24`}
                     />
-                    ⭐
                   </label>
                   <label className="flex items-center gap-1.5">
                     <input
