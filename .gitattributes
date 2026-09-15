@@ -1,0 +1,26 @@
+# Единый регламент переводов строк.
+# Причина появления: рабочая машина (Windows) коммитила файлы с LF (core.autocrlf=true),
+# а боевой сервер получал файлы через перенос архива (CRLF) и коммитил их как есть —
+# из-за этого 55 файлов выглядели «полностью разными» и любой merge конфликтовал.
+# Теперь в репозитории всегда LF, на диске — как решит git (Windows: CRLF, Linux: LF).
+* text=auto eol=lf
+
+# Скрипты: LF обязателен (иначе shebang ломается, мы это уже ловили)
+*.sh    text eol=lf
+*.bash  text eol=lf
+
+# Бинарные файлы: не конвертировать
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.mp4   binary
+*.tar    binary
+*.tar.gz binary
+*.bundle binary
+*.pgc    binary
