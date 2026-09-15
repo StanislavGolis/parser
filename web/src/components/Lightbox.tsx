@@ -23,7 +23,7 @@ import {
   SpinnerIcon,
 } from "@/components/icons";
 import { apiGet } from "@/lib/api";
-import { mediaUrl, PREMIUM_CTA_URL } from "@/lib/env";
+import { BUY_CTA_EXTERNAL, BUY_CTA_URL, mediaUrl } from "@/lib/env";
 import { formatBytes, formatCompact, formatDuration } from "@/lib/format";
 import { webSrc, premiumState } from "@/lib/media";
 import { saveResume } from "@/lib/resume";
@@ -647,11 +647,17 @@ export default function Lightbox({
               премиум-контент
             </p>
             <p className="max-w-sm text-xs text-text-secondary">
-              Файл доступен по премиум-подписке.
+              Приватный раздел: открывается по подписке. Открытые разделы смотрятся
+              бесплатно — подписка открывает приватные и разрешает скачивание.
             </p>
-            <Link href="/feedback?topic=premium" className="btn-primary px-4 py-2 text-xs">
-              Запросить доступ
-            </Link>
+            <a
+              href={BUY_CTA_URL}
+              target={BUY_CTA_EXTERNAL ? "_blank" : undefined}
+              rel="noreferrer"
+              className="btn-primary px-4 py-2 text-xs"
+            >
+              Купить подписку
+            </a>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-3 rounded border border-line bg-ink-secondary px-8 py-12 text-center">
@@ -774,14 +780,16 @@ export default function Lightbox({
             <ChevronRightIcon className="h-4 w-4" />
           </button>
           {locked ? (
-            <Link
-              href={PREMIUM_CTA_URL}
+            <a
+              href={BUY_CTA_URL}
+              target={BUY_CTA_EXTERNAL ? "_blank" : undefined}
+              rel="noreferrer"
               className="btn-primary px-3 py-1.5 text-xs"
-              title="Приватный раздел: подписка и тарифы"
+              title="Купить подписку в боте: тарифы и оплата звёздами"
             >
               <LockIcon className="h-4 w-4" />
-              Premium
-            </Link>
+              Купить
+            </a>
           ) : (
             <DownloadButton mediaId={media.id} size="sm" />
           )}

@@ -10,7 +10,7 @@ import When from "@/components/When";
 import { ArrowLeftIcon, DownloadIcon, EyeIcon, FilmIcon, LockIcon } from "@/components/icons";
 import { ApiError } from "@/lib/api";
 import { getBoards, getMediaDetail } from "@/lib/data";
-import { absoluteUrl, mediaUrl, PREMIUM_CTA_URL } from "@/lib/env";
+import { absoluteUrl, BUY_CTA_EXTERNAL, BUY_CTA_URL, mediaUrl } from "@/lib/env";
 import { formatBytes, formatNumber } from "@/lib/format";
 import { breadcrumbList, jsonLdHtml } from "@/lib/jsonld";
 import { isLocked, premiumState } from "@/lib/media";
@@ -137,14 +137,16 @@ export default async function MediaDetailPage({ params }: DetailProps) {
               </p>
               <p className="max-w-sm text-xs text-neutral-400">
                 Приватный раздел: доступ по подписке. Открытые разделы можно смотреть
-                бесплатно — подписка снимает ограничения и открывает скачивание.
+                бесплатно — подписка открывает приватные и разрешает скачивание.
               </p>
-              <Link
-                href={PREMIUM_CTA_URL}
+              <a
+                href={BUY_CTA_URL}
+                target={BUY_CTA_EXTERNAL ? "_blank" : undefined}
+                rel="noreferrer"
                 className="btn-primary px-4 py-2 text-xs"
               >
-                Тарифы и оплата
-              </Link>
+                Купить подписку
+              </a>
             </div>
           ) : previewUrl ? (
             media.media_type === "image" ? (
