@@ -355,7 +355,7 @@ function BoardRow({
                 setEditingDesc(false);
               }
             }}
-            placeholder="О чём раздел: что внутри, откуда файлы, чем он интересен"
+            placeholder="О чём раздел: что внутри, откуда файлы, чем он интересен. Пустая строка — новый абзац."
             className="mt-2 w-full rounded border border-line bg-ink-secondary px-2 py-1.5 text-sm text-text-primary outline-none focus:border-accent-primary"
           />
           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -377,6 +377,7 @@ function BoardRow({
               Отмена
             </button>
             <span className="text-[11px] text-text-muted">
+              Пустая строка — новый абзац: переносы сохраняются на странице раздела.
               Парсер не тронет ваш текст: он заполняет описание, только пока оно пустое.
             </span>
           </div>
