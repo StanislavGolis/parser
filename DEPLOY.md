@@ -1,10 +1,17 @@
 # Деплой (этап 7) — docker-compose.prod.yml
 
-Единый стек: `postgres` + `redis` + `migrate` + `parser-dvach` + `parser-slivach` +
-`api` + `web` + `nginx`. Парсеры — **контейнер на источник** (`PARSER_SOURCE`): у
+Единый стек (10 сервисов): `postgres` + `redis` + `migrate` + `parser-dvach` +
+`parser-slivach` + `parser-wayback` + `api` + `web` + `nginx` + `telegram-gateway` +
+`telegram-publisher`. Парсеры — **контейнер на источник** (`PARSER_SOURCE`): у
 каждого источника свой процесс со своими логами, рестартами, лимитами и
 расписанием, поэтому пауза/сбой одного не затрагивает остальные.
+`telegram-gateway` — бот (вход по magic link, карантин автопоста, розыгрыши),
+`telegram-publisher` — планировщик канала (отложенные посты, дайджест в карантин,
+итоги розыгрышей). Оба используют тот же образ `parser-backend:local`.
 Работает одинаково локально (тест «в один клик») и на VPS.
+
+> Актуальный список работ до открытия продаж — [`docs/LAUNCH.md`](docs/LAUNCH.md),
+> обзор модели — [`docs/Dredger 2.0 — план перехода.md`](docs/Dredger%202.0%20—%20план%20перехода.md).
 
 ## Локальный запуск
 
@@ -92,7 +99,34 @@ docker compose -f docker-compose.prod.yml down -v      # остановить + 
    ```
    Автопродление — cron/systemd-timer с той же командой `certonly --webroot`.
 
-Обновление после изменений кода:
+Обновление после изменений кода (актуальный порядок для нашего VPS):
+
+```bash
+# 0) на боевом сервере репозиторий НЕ обновляется через git pull:
+#    в /opt/dredge накопились незакоммиченные изменения (выкатки переносом файлов),
+#    поэтому история разошлась с origin. Пока расхождение не снято (см. «Обслуживание»),
+#    изменения выкатываются переносом файлов:
+#    локально:  tar -czf patch.tar.gz -- <список файлов>
+#               scp patch.tar.gz root@37.221.66.168:/tmp/
+#    на сервере: cd /opt/dredge && tar -xzf /tmp/patch.tar.gz
+
+# 1) остановить парсеры: иначе сборка образа воюет с ними за диск
+docker compose -f docker-compose.prod.yml stop parser-dvach parser-slivach
+
+# 2) пересобрать общий образ (api, парсеры, бот, планировщик, migrate — один образ)
+docker compose -f docker-compose.prod.yml build api web
+
+# 3) поднять стек (миграции применит сервис migrate) и вернуть парсеры
+docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml start parser-dvach parser-slivach
+
+# 4) проверить
+docker compose -f docker-compose.prod.yml ps
+curl -sk -o /dev/null -w '%{http_code}\n' -H 'Host: dredg.ru' https://127.0.0.1/healthz
+```
+
+Если репозиторий на сервере синхронизирован с origin (нет незакоммиченных файлов),
+можно вернуться к обычному `git pull`:
 
 ```bash
 git pull
@@ -254,8 +288,8 @@ chmod +x /etc/cron.daily/dredge-backup
 | Доступ | ключ владельца + deploy-key сервера `/root/.ssh/dredge_deploy` (alias `github-dredge` в `~/.ssh/config`) |
 | Стек | хост-nginx на `80/443` (TLS, редирект 80→443) → контейнер `nginx` на `8080` → api/web |
 | `.env` | `HTTP_PORT=8080`, `SESSION_COOKIE_SECURE=1`, `PUBLIC_BASE_URL=https://dredg.ru`, `API_CORS_ORIGINS=https://dredg.ru`, `SQL_ECHO=0` |
-| База | восстановлена из дампа: head `s4t5u6v7w8x9`, media 3557 (все в S3), users 1, boards 2, threads 223 |
-| Бэкапы | `/etc/cron.daily/dredge-backup` → `/opt/dredge/backups/db-<дата>.pgc`, хранение 14 дней (пробный прогон сделан) |
+| База | восстановлена из дампа: head `s4t5u6v7w8x9` (на 12.09.2026; **актуальная голова — `b9c0d1e2f3a4`**, 23 таблицы), media 3557 (все в S3), users 1, boards 2, threads 223 |
+| Бэкапы | `/etc/cron.daily/dredge-backup` → `/opt/dredge/backups/db-<дата>.pgc`, хранение 14 дней. Копии локальные (на том же диске); **восстановление из дампа ещё не проверялось** — см. `LAUNCH.md` §3.1 |
 | Парсер | **на паузе** (ключ `parser:enabled` не выставлен) — включается кнопкой «Запустить» в админке |
 | Админы | `ADMIN_EMAILS=shksns35@gmail.com,stanislav.golis@yandex.ru` — две админ-учётки: `shksns35@gmail.com` (id 8) и `stanislav.golis@yandex.ru` (id 3, он же публичный аккаунт сайта с премиумом; прежний адрес с опечаткой `staniskav@…` исправлен). Отправка писем идёт с **Gmail**: `SMTP_HOST=smtp.gmail.com:465 (ssl)`, `SMTP_USER/SMTP_FROM=shksns35@gmail.com`, пароль — «пароль приложения» Google (проверено 13.09.2026: тестовое письмо, админский сброс и ссылка смены пароля посетителю доходят; Gmail→Яндекс доставка подтверждена). Пароли приложений Google **сбрасываются при смене пароля аккаунта** — тогда почту надо перенастроить заново (`SMTP_PASSWORD` в `.env`) |
 | Проверено | `/healthz` 200, главная 200, `/admin` 200, `thumb_blur` 200 + `X-Cache: MISS→HIT`, `/raw` 401 анониму, `/marks` 401, запись в S3 (`put/delete`) ok |
@@ -281,12 +315,14 @@ git-истории (`git filter-repo`), отключение входа по п�
 | Что | Где | Детали |
 |---|---|---|
 | Бэкап БД | `/etc/cron.daily/dredge-backup` | `pg_dump -Fc` → `/opt/dredge/backups/db-<дата>.pgc`, хранение 14 дней |
+| IndexNow | `/etc/cron.hourly/dredge-indexnow` | раз в час уведомляет Bing/Яндекс о новых страницах (`src/tools/indexnow.py`); лог `/var/log/dredge-indexnow.log` |
 | Health-check | `/etc/cron.hourly/dredge-health` | проверяет `/healthz` и заполнение диска; лог `/var/log/dredge-health.log` (урезается до 500 строк). Если сайт не отвечает — поднимает стек (`docker compose up -d`); при диске >85% пишет ALERT |
 | Автообновления | `unattended-upgrades` (`/etc/apt/apt.conf.d/20auto-upgrades`) | патчи безопасности ставятся автоматически |
 | Логи docker | `docker-compose.prod.yml` + `/etc/docker/daemon.json` | `json-file`, `max-size=10m`, `max-file=3` — даже при отладке диск не забьётся |
 | Кэш медиа | том `mediacache`, `/data/cache` | лимит 40 ГБ, LRU; прогревается из админки («Прогреть кэш») и автоматически (парсер отдаёт туда скачанные файлы). Мониторится в карточке «Кэш медиа на диске»; при росте библиотеки лимит поднять в `MEDIA_CACHE_MAX_BYTES` |
-| Просмотр | `docker compose -f docker-compose.prod.yml logs -f api\|parser-dvach\|parser-slivach` | `tail -f /var/log/dredge-health.log` — журнал проверок |
-| Обновление кода | `cd /opt/dredge && git pull && docker compose -f docker-compose.prod.yml up -d --build` | не забыть про общий образ `parser-backend` (см. «Примечания»); после перехода на контейнер на источник добавлять `--remove-orphans` |
+| Просмотр | `docker compose -f docker-compose.prod.yml logs -f api\|parser-dvach\|parser-slivach\|telegram-gateway\|telegram-publisher` | `tail -f /var/log/dredge-health.log` — журнал проверок, `tail -f /var/log/dredge-indexnow.log` — уведомления поисковикам (в закрытом режиме не нужны) |
+| Канал и карантин | `/admin/telegram` → журнал отправок | автопост выключен по умолчанию; включив его, задайте `TELEGRAM_ADMIN_CHAT_ID` (иначе черновику некуда прийти). Планировщик — сервис `telegram-publisher`, публикует отложенные посты и разыгрывает истёкшие розыгрыши раз в минуту |
+| Обновление кода | см. «Обновление после изменений кода» выше | на 15.09.2026 в `/opt/dredge` 55 незакоммиченных файлов: `git pull` не сработает, пока расхождение с origin не снято (`git checkout -b prod-state && git add -A && git commit`) |
 
 ### 11. Доступ в админку и восстановление пароля
 
@@ -314,6 +350,62 @@ git-истории (`git filter-repo`), отключение входа по п�
   docker compose -f docker-compose.prod.yml exec -T api python -m src.cli.admin ensure
   ```
 - **Токен из `.env`**: `grep ADMIN_TOKEN /opt/dredge/.env` (нужен SSH).
+
+## Подтверждение домена в панелях вебмастера
+
+Коды подтверждения задаются через `.env` и печатаются в `<head>` всех страниц:
+
+```bash
+# /opt/dredge/.env
+GOOGLE_SITE_VERIFICATION=<код из Search Console>
+YANDEX_VERIFICATION=f1172e102d49c229      # Яндекс.Вебмастер
+```
+
+После правки `.env` достаточно **пересоздать контейнер**, сборка не нужна:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d web
+curl -s https://dredg.ru/login | grep yandex-verification   # тег должен быть в <head>
+```
+
+Важно: главная в закрытом режиме отвечает анониму `307 → /login`, поэтому тег
+проверяем на публичной странице (`/login`, `/tos`, `/dmca`) — он там есть. Если
+панель не принимает подтверждение из-за редиректа, надёжнее добавить DNS-запись:
+TXT `@` → `yandex-verification: f1172e102d49c229` (этот же способ пригодится для
+подтверждения домена в Яндекс 360).
+
+## Почта (SMTP)
+
+Письма нужны для ссылок восстановления доступа, уведомлений о жалобах и обратной
+связи. Настройки — в `.env` (`SMTP_HOST/PORT/USER/PASSWORD/FROM/TLS`, см.
+`.env.prod.example`), получатели писем админам — `ADMIN_EMAILS`.
+
+**Почта на своём домене (Яндекс 360 для бизнеса)** — рекомендуемый вариант: письма
+уходят от сервиса, а не от личного ящика, и не зависят от сброса пароля Google.
+
+1. Яндекс 360 → «Добавить домен» → подтверждение владения TXT-записью в DNS.
+2. Включить «Почту для домена»; в DNS прописать: MX (`mx.yandex.net`), SPF
+   (`v=spf1 include:_spf.yandex.net ~all`), DKIM (значение от Яндекса) и DMARC
+   (`v=DMARC1; p=none; rua=mailto:dmca@<домен>`). Без SPF/DKIM письма уходят в спам.
+3. Завести ящики: `support@<домен>` (общая связь) и `dmca@<домен>` (правообладатели).
+   Адреса указаны на страницах `/tos`, `/dmca`, `/privacy` и в боте — они собраны в
+   `web/src/lib/legal.ts`, при смене домена правится там.
+4. В ящике: «Настройки → Почтовые программы» → включить IMAP/SMTP → создать
+   **пароль приложения** (основной пароль для SMTP не подходит).
+5. В `.env`: `SMTP_HOST=smtp.yandex.ru`, `SMTP_PORT=465`, `SMTP_TLS=ssl`,
+   `SMTP_USER=support@<домен>`, `SMTP_FROM=support@<домен>`,
+   `SMTP_PASSWORD=<пароль приложения>`, `ADMIN_EMAILS=support@<домен>,dmca@<домен>`.
+6. Перезапустить api и проверить отправку:
+
+   ```bash
+   docker compose -f docker-compose.prod.yml up -d api telegram-gateway
+   docker compose -f docker-compose.prod.yml exec -T api python -m src.tools.check_mail --to support@<домен>
+   ```
+
+   Инструмент покажет текущие настройки (без пароля) и результат отправки —
+   так же удобно проверять почту после смены пароля приложения или провайдера.
+
+
 
 Защита: вход только для адресов из `ADMIN_EMAILS`; ответы «Забыли пароль?»
 нейтральны (нельзя выяснить, какие адреса админские); токены восстановления
@@ -688,12 +780,25 @@ git push --force --tags
 `/login`, `/profile`, `/marks`, `/favorites`, `/search`). Отдельно разрешён путь
 `/api/v1/media/` — по нему отдаются превью и постеры файлов, без этого исключения
 картинки не попадают в поиск (остальной `/api/` при этом закрыт, побеждает более
-точное правило). Карта сайта — собственный XML-роут
-`web/src/app/sitemap.xml/route.ts` (главная, `/new`, `/boards`, `/top`, все разделы
-`/board/<slug>` и 500 последних файлов `/media/<id>`): штатный `MetadataRoute.Sitemap`
-в Next 14 не поддерживает `images`, поэтому XML собирается вручную и у страниц
-файлов появляется `<image:image>` с превью (`web_url`, для видео — `thumb_url`).
-Адрес берётся из `SITE_URL` — от него же зависят `canonical`, Open Graph и микроразметка.
+точное правило). Карта сайта — **индекс карт**: `web/src/app/sitemap.xml/route.ts`
+перечисляет отдельные карты, а сами карты лежат в `web/src/app/sitemap/…`:
+
+| Карта | Что внутри |
+|---|---|
+| `/sitemap/pages.xml` | главная, `/new`, `/boards`, `/top`, все разделы `/board/<slug>` |
+| `/sitemap/threads/{N}.xml` | страницы тредов `/t/<id>` (посадочные: тема/описание записи) |
+| `/sitemap/media/{N}.xml` | страницы файлов `/media/<id>` + `<image:image>` с превью |
+| `/sitemap/videos/{N}.xml` | видео с `<video:video>` (`thumbnail_loc`, `content_loc`, `duration`) |
+
+Страницы карт — по 5000 адресов (`SITEMAP_PAGE_SIZE`), число карт индекс считает по
+`total` из `/api/v1/sitemap/{threads,media,videos}`. Штатный `MetadataRoute.Sitemap`
+в Next 14 не поддерживает `images`, поэтому XML собирается вручную
+(`web/src/lib/sitemap.ts`). Превью в `<image:image>` попадает только у открытых
+файлов: у премиум-файла `thumb_url` — размытый вариант, и в выдаче картинок он
+выглядит как «дефект». Несуществующая страница карты отдаёт `404`, но только если
+API ответил (`total > 0`) — при сбое API карта остаётся пустой, а не «удалённой».
+Адрес берётся из `SITE_URL` — от него же зависят `canonical`, Open Graph, микроразметка
+и уведомления поисковиков.
 
 **Canonical и микроразметка.** В корневом layout задан `metadataBase`, поэтому
 страницы указывают относительный `alternates.canonical`; фильтры и периоды
@@ -732,6 +837,83 @@ git push --force --tags
 HTML автоматически) и пересоберите `web`. После подтверждения отправьте
 `sitemap.xml` на обход.
 
+**IndexNow (Bing и Яндекс).** Быстрый канал уведомлений о новых страницах: ключ
+задаётся в `.env` (`INDEXNOW_KEY`, 32+ символа), web отдаёт его по
+`/indexnow-key.txt`, отправка — `python -m src.tools.indexnow --hours 2` (адреса
+новых файлов и их тредов, батчами до 10 000, endpoint `api.indexnow.org`).
+В проде это делает часовой cron `/etc/cron.hourly/dredge-indexnow`, лог —
+`/var/log/dredge-indexnow.log`. Проверка вручную:
+
+```
+docker compose -f docker-compose.prod.yml exec -T api python -m src.tools.indexnow --hours 3 --dry-run
+curl -s https://dredg.ru/indexnow-key.txt           # ключ из .env
+```
+
+Первый ответ бывает `403 SiteVerificationNotCompleted` — это проверка владения
+сайтом по файлу ключа; следующий прогон проходит штатно (`HTTP 200`/`202`).
+Google sitemap-ping не поддерживает с 2023 года — карты он забирает сам, ссылка на
+них есть в `robots.txt`.
+
+**Просмотр и скачивание (разделение доступа).** Деривативы `thumb`/`web`/`video`
+публичны для не-премиум контента, `thumb_blur` — публичное размытое превью премиума.
+Оригинал (`/raw`) отдаётся по правилу:
+
+| Ситуация | `/raw` без `?download=1` | `/raw?download=1` | `/download` |
+|---|---|---|---|
+| премиум-файл (или премиум-доска) | 401 / 403 | 401 / 403 | 401 / 403 |
+| есть публичный вариант (`web`/`video`) | 401 / 403 | 401 / 403 | 401 / 403 |
+| публичного варианта нет | **200** (инлайн) | 401 / 403 | 401 / 403 |
+
+Третья строка — вынужденная: если у видео не сгенерирован mp4-дериватив, смотреть его
+иначе нечем (превью — картинка), поэтому оригинал отдаётся инлайном без подписки.
+Скачивание при этом остаётся премиумным (`?download=1` и `/download`), а размер файла
+и `Cache-Control: private` ограничивают такое вещание. Как только у файла появляется
+`web`/`video`, `/raw` снова закрывается.
+
+**Смена флагов премиума и перезапуск парсеров.** Флаг премиума у новых файлов берётся
+из объектов `Board`/`ThreadState`, которые воркер парсера держит в сессии: если снять
+премиум в админке, уже запущенный парсер продолжит писать **новые** файлы со старым
+флагом (в проде так и случилось — 46 файлов). Поэтому после смены флагов:
+
+```
+cd /opt/dredge
+docker compose -f docker-compose.prod.yml restart parser-dvach parser-slivach parser-wayback
+# и синхронизировать уже добавленные файлы с текущими флагами доски/треда
+```
+
+Проверка рассинхрона (оба запроса должны вернуть 0):
+
+```
+docker compose -f docker-compose.prod.yml exec -T postgres sh -c "psql -U \$POSTGRES_USER -d \$POSTGRES_DB -c \"SELECT count(*) FROM media m JOIN boards b ON b.id = m.board_id WHERE b.is_premium AND NOT m.is_premium\""
+```
+
+**Видео без mp4.** `VIDEO_WEB_ENABLED` (по умолчанию `1`) включает транскодирование
+в `_v720.mp4`. У архивного сервиса (`parser-wayback`) он выставлен в `0`, чтобы не
+транскодировать длинные webm: у ~99% его видео дериватива нет, и они отдаются
+инлайном из S3 (медленный первый старт, дальше — дисковый кэш). Если нужен быстрый
+плеер и `<video:video>` в карте, включите флаг у этого сервиса.
+
+**Режим сайта `SITE_MODE` (модель Dredger 2.0).** `public` — прежнее поведение
+(контент открыт, SEO включён). `closed` — закрытая платформа:
+
+- анонимные запросы страниц уводит на `/login` middleware (`307`, кроме `/login`,
+  `/auth/*`, `/healthz`, `/robots.txt`, `/favicon`);
+- API отдаёт контент только по действующей сессии: `guard_closed_mode` в
+  `src/api/main.py` отвечает `401` на всё, кроме `/api/v1/auth/*`, `/api/v1/admin/*`
+  и `/healthz` (проверка сессии кэшируется на 30 с, чтобы не бить БД на каждый запрос);
+- регистрация по email закрыта (`403`), аккаунты появятся через Telegram-бота;
+- age gate и онбординг не рендерятся;
+- все ответы — `X-Robots-Tag: noindex, nofollow, noarchive`, карты сайта → `404`.
+
+Порядок снятия из индекса (важно не перепутать): сначала `noindex` **при открытом
+обходе**, через 2–4 недели — `Disallow: /` в robots. Если закрыть обход сразу,
+робот не увидит `noindex` и страницы останутся в выдаче месяцами. Текущий шаг
+управляется в `web/src/app/robots.ts` (закрытый режим пока не закрывает обход).
+
+Значение `SITE_MODE` попадает в web **и на этапе сборки** (build-arg в
+`docker-compose.prod.yml` + `ARG SITE_MODE` в `web/Dockerfile`): middleware Next
+запекает переменные в сборку, runtime-env для него недостаточно.
+
 **Что наружу не уходит.** `.env`, `.git`, `DEPLOY.md`, `docker-compose.prod.yml`,
 `package.json`, `requirements.txt`, `openapi.json`, `/docs`, `/redoc` — все `404`
 (nginx проксирует только `/` и `/api/`, docs API выключены). Медиа отдаёт свой API:
@@ -761,6 +943,13 @@ HTML автоматически) и пересоберите `web`. После �
 | `ADMIN_RESET_TTL_MINUTES` | `30` | срок жизни ссылки восстановления пароля, мин |
 | `PUBLIC_BASE_URL` | — | домен для ссылок в письмах (`https://example.com`); пусто — берётся адрес запроса |
 | `SITE_URL` | `https://dredg.ru` | публичный адрес сайта для SEO: canonical, `sitemap.xml`, `robots.txt`, Open Graph |
+| `INDEXNOW_KEY` | 32 hex-символа | ключ IndexNow: web отдаёт его по `/indexnow-key.txt`, API отправляет уведомления о новых страницах. **В закрытом режиме (`SITE_MODE=closed`) не нужен**: карты и страницы не отдаются, уведомлять поисковики не о чем (см. `LAUNCH.md` §3.3) |
+| `SITE_MODE` | `public` | `closed` — сайт закрыт: анонимы редиректятся на `/login`, все ответы получают `X-Robots-Tag: noindex`, парсеры индексации выключены. Боевое значение — `closed` |
+| `TELEGRAM_BOT_TOKEN` | — | токен бота от @BotFather: вход по magic link, карантин автопоста, розыгрыши |
+| `TELEGRAM_BOT_USERNAME` | — | ник бота без `@` (для ссылок `t.me/<ник>` в постах канала и на сайте) |
+| `TELEGRAM_CHANNEL` | — | канал-витрина (`@nick` или `-100…`): туда публикуются тизеры, дайджесты и итоги розыгрышей. Бот должен быть администратором канала с правом публикации |
+| `TELEGRAM_ADMIN_CHAT_ID` | — | кому уходит карантин автопоста (личка бота). Свой id владелец узнаёт командой `/id` у бота. Пусто — черновик создаётся, но в ЛС не доставляется (будет в журнале с пометкой) |
+| `MAGIC_LINK_TTL_MINUTES` | `10` | срок жизни ссылки входа из бота, мин |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_TLS` | — / `465` / `ssl` | SMTP для писем восстановления (`ssl`, `starttls` или `none`) |
 | `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` | — | креды отправки: логин, «пароль приложения», адрес отправителя |
 | `API_RATE_LIMIT` | `300` | лимит JSON-запросов в минуту на IP (ленты, детали, статистика; 0 — выключить) |

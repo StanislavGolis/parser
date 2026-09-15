@@ -11,9 +11,8 @@ import {
   ImageIcon,
   PlayIcon,
 } from "@/components/icons";
-import { mediaUrl } from "@/lib/env";
 import { formatBytes, formatCompact, formatDuration } from "@/lib/format";
-import { isLocked, premiumState, blurSrc, thumbSrc } from "@/lib/media";
+import { isLocked, premiumState, blurSrc, thumbSrc, webSrc } from "@/lib/media";
 import type { Board, MediaItem } from "@/lib/types";
 import { useImgLoaded } from "@/lib/useImgLoaded";
 
@@ -47,6 +46,9 @@ export default function MediaCard({ media, board, showTop = false, eager = false
   const img = useImgLoaded(`${media.id}:${media.thumb_url ?? media.url ?? ""}`);
   const aspect = aspectOf(media);
   const blur = blurSrc(media);
+  // Постер видео: `thumb` → `thumb_blur`. Оригинал сюда не попадает (это видеофайл),
+  // поэтому при отсутствии постера карточка покажет кадр плеером, а не «недоступно».
+  const poster = thumbSrc(media);
 
   // Сброс состояния при смене файла (перелистывание/подгрузка)
   useEffect(() => {
@@ -122,12 +124,15 @@ export default function MediaCard({ media, board, showTop = false, eager = false
             />
           ) : canShow && isVideo ? (
             <>
-              {/* Постер-дериватив, иначе браузерный кадр (preload=metadata) */}
-              {media.thumb_url || locked ? (
+              {/* Превью видео — постер-картинка: на мобильных браузер не
+                  отрисовывает кадр из `<video preload="metadata">`, и карточка
+                  выглядела пустой. Если постера нет (файл до бэкфилла вариантов),
+                  показываем кадр плеером — «живой» превью лучше заглушки. */}
+              {poster ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   ref={img.setRef}
-                  src={thumbSrc(media)}
+                  src={poster}
                   alt={locked ? "" : media.original_name}
                   loading={eager ? "eager" : "lazy"}
                   fetchPriority={eager ? "high" : "auto"}
@@ -141,7 +146,7 @@ export default function MediaCard({ media, board, showTop = false, eager = false
                 />
               ) : (
                 <video
-                  src={mediaUrl(media.url)}
+                  src={webSrc(media)}
                   muted
                   playsInline
                   preload="metadata"
@@ -226,9 +231,11 @@ export default function MediaCard({ media, board, showTop = false, eager = false
                 #{media.board_id}/{media.thread_id}
               </span>
             )}
-            <span className="text-text-muted"> · {media.original_name}</span>
+            <span className="hidden text-text-muted sm:inline"> · {media.original_name}</span>
           </span>
-          <span className="mt-0.5 flex items-center justify-between font-mono text-[11px] text-text-muted">
+          {/* Размер и просмотры — только на широких экранах: на телефоне карточка
+              остаётся максимально чистой (раздел / тред и превью) */}
+          <span className="mt-0.5 hidden items-center justify-between font-mono text-[11px] text-text-muted sm:flex">
             <span>
               {formatBytes(media.file_size)}
               {media.width && media.height ? ` · ${media.width}×${media.height}` : ""}

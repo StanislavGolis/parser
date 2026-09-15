@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import DownloadButton from "@/components/DownloadButton";
 import MarkButton from "@/components/MarkButton";
+import ReportButton from "@/components/ReportButton";
 import TrackView from "@/components/TrackView";
 import When from "@/components/When";
 import { ArrowLeftIcon, DownloadIcon, EyeIcon, FilmIcon, LockIcon } from "@/components/icons";
@@ -242,7 +243,7 @@ export default async function MediaDetailPage({ params }: DetailProps) {
               </span>
             ) : null}
             <When iso={media.created_at} />
-            <span className="text-xs text-neutral-600">#{media.id}</span>
+            <span className="hidden text-xs text-neutral-600 sm:inline">#{media.id}</span>
           </div>
 
           <div className="mt-5 flex flex-wrap items-center gap-3">
@@ -252,6 +253,7 @@ export default async function MediaDetailPage({ params }: DetailProps) {
               marksCount={media.marks_count ?? 0}
               marked={Boolean(media.marked)}
             />
+            <ReportButton mediaId={media.id} />
           </div>
         </div>
       </div>

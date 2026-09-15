@@ -31,6 +31,8 @@ class AdminBoardOut(BoardOut):
     parse_mode: str = "all"  # all | selected
     # Источник раздела: по нему админка раскладывает доски по вкладкам источников
     source_id: Optional[int] = None
+    # Ручные превью карточки раздела: id файлов в порядке плиток (пусто — авто)
+    cover_media_ids: List[int] = []
 
     # Статистика (агрегируется из БД)
     media_total: int = 0
@@ -185,6 +187,17 @@ class BoardUpdate(BaseModel):
     is_premium: Optional[bool] = None
     parse_mode: Optional[str] = None  # all | selected
     title: Optional[str] = None
+    # Ручные превью карточки раздела: до 4 id файлов этого же раздела, в нужном
+    # порядке. Пустой список — вернуть автоматический выбор (4 свежих файла).
+    cover_media_ids: Optional[List[int]] = None
+
+
+class BoardCoverCandidate(BaseModel):
+    """Файл-кандидат для ручного превью раздела (галерея в админке)."""
+
+    id: int
+    media_type: str = "image"
+    thumb_url: Optional[str] = None
 
 
 class ThreadUpdate(BaseModel):
@@ -312,6 +325,204 @@ class FeedbackUpdate(BaseModel):
     """Что админ может поменять у обращения."""
     status: Optional[str] = None   # new | in_progress | answered | closed
     admin_note: Optional[str] = None
+
+
+class MediaReportIn(BaseModel):
+    """Жалоба на файл с сайта (кнопка «Пожаловаться»)."""
+
+    reason: str = "other"           # csam | copyright | illegal | spam | other
+    comment: Optional[str] = None
+    page_url: Optional[str] = None
+
+
+class MediaReportOut(BaseModel):
+    """Жалоба для админки: файл, автор, причина и результат разбора."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    media_id: int
+    user_id: Optional[int] = None
+    reason: str
+    reason_label: Optional[str] = None
+    comment: Optional[str] = None
+    status: str = "open"
+    resolved_at: Optional[datetime] = None
+    resolution_note: Optional[str] = None
+
+    # Контекст файла: админу нужно видеть, на что именно пожаловались
+    media_name: Optional[str] = None
+    board_slug: Optional[str] = None
+    thread_id: Optional[int] = None
+    media_type: Optional[str] = None
+    thumb_url: Optional[str] = None
+    media_visible: Optional[bool] = None
+    # Кто пожаловался: email или @ник в Telegram
+    reporter: Optional[str] = None
+
+
+class MediaReportListOut(BaseModel):
+    items: List[MediaReportOut]
+    total: int
+    # Сколько жалоб в каждом статусе — цифры на чипах-фильтрах админки
+    counts: Dict[str, int] = {}
+
+
+class MediaReportUpdate(BaseModel):
+    """Решение модератора по жалобе."""
+
+    action: str                     # hide_media | hide_thread | remove_media | reject
+    note: Optional[str] = None
+
+
+class BlockedHashIn(BaseModel):
+    """Добавление хеша в блок-лист (CSAM и прочий запрещённый контент)."""
+
+    sha256: str
+    reason: str = "csam"            # csam | copyright | other
+    note: Optional[str] = None
+
+
+class BlockedHashOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    sha256: str
+    reason: str
+    note: Optional[str] = None
+    created_at: datetime
+    created_by: Optional[str] = None
+    # Сколько файлов архива уже скрыто этим хешем
+    media_count: int = 0
+
+
+class TelegramPostIn(BaseModel):
+    """Заготовка поста в канал: тип, текст, файлы и режим картинки."""
+
+    kind: str = "teaser"            # teaser | digest | announce
+    text: Optional[str] = None      # свободный текст (для анонсов)
+    media_ids: List[int] = []
+    image_mode: str = "mosaic"      # mosaic | single | none
+    blur: int = 7                   # размытие картинки: канал должен быть «мягким»
+    button_text: Optional[str] = None
+    button_url: Optional[str] = None
+    period: Optional[str] = None    # day | week — для дайджеста
+    scheduled_at: Optional[datetime] = None  # задано → пост уходит в очередь
+
+
+class TelegramAutopostIn(BaseModel):
+    """Настройки автопостинга: что приходит только нужное и не ночью."""
+
+    enabled: Optional[bool] = None
+    posts_per_day: Optional[int] = None
+    quiet_from: Optional[int] = None
+    quiet_to: Optional[int] = None
+    require_approval: Optional[bool] = None
+    boards: Optional[List[str]] = None
+    period: Optional[str] = None
+    blur: Optional[int] = None
+
+
+class TelegramAutopostOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    enabled: bool = False
+    posts_per_day: int = 2
+    quiet_from: int = 1
+    quiet_to: int = 8
+    require_approval: bool = True
+    boards: Optional[List[str]] = None
+    period: str = "day"
+    blur: int = 7
+    last_check_at: Optional[datetime] = None
+    last_post_at: Optional[datetime] = None
+    # Сколько постов уже ушло за сутки и можно ли запускать автопост сейчас
+    published_last_day: int = 0
+    allowed: bool = False
+    reason: Optional[str] = None
+
+
+class TelegramDigestOut(BaseModel):
+    """Готовая подборка для дайджеста: файлы и подпись (без отправки)."""
+
+    media_ids: List[int] = []
+    boards: List[str] = []
+    caption: str = ""
+    period: str = "day"
+
+
+class GiveawayIn(BaseModel):
+    """Новый розыгрыш: тип, приз и срок."""
+
+    kind: str = "daily"             # daily | weekly
+    prize_days: int = 3
+    title: Optional[str] = None
+    hours: Optional[int] = None     # свой срок в часах (для тестовых прогонов)
+
+
+class GiveawayOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    title: str
+    kind: str
+    prize_days: int
+    starts_at: datetime
+    ends_at: datetime
+    status: str
+    winners: Optional[List[dict]] = None
+    entries: int = 0                # сколько участников
+    link: Optional[str] = None      # ссылка на анонс в канале
+
+
+class TelegramPostOut(BaseModel):
+    """Запись журнала: что публиковали, когда и с каким результатом."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    published_at: Optional[datetime] = None
+    kind: str
+    caption: str
+    media_ids: Optional[List[int]] = None
+    image_mode: str = "mosaic"
+    status: str                    # draft | published | failed | deleted
+    channel: Optional[str] = None
+    message_id: Optional[int] = None
+    error: Optional[str] = None
+    created_by: Optional[str] = None
+    # Ссылка на сообщение в канале (если опубликовано)
+    link: Optional[str] = None
+    # Для отложенных: когда пост выйдет (планировщик `telegram-publisher`)
+    scheduled_at: Optional[datetime] = None
+
+
+class TelegramPostListOut(BaseModel):
+    items: List[TelegramPostOut]
+    total: int
+    counts: Dict[str, int] = {}
+
+
+class TelegramPreviewOut(BaseModel):
+    """Предпросмотр поста: текст и картинка (без публикации)."""
+
+    caption: str
+    image_data_url: Optional[str] = None
+    chat: Optional[str] = None
+    configured: bool = False
+    warning: Optional[str] = None
+
+
+class TelegramCandidateOut(BaseModel):
+    """Файл-кандидат для тизера (галерея выбора в админке)."""
+
+    id: int
+    media_type: str = "image"
+    thumb_url: Optional[str] = None
+    board_slug: Optional[str] = None
 
 
 class MediaOut(BaseModel):

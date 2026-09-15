@@ -17,10 +17,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
-from src.core.models import Board, Media, ThreadState
+from src.core.models import BlockedHash, Board, Media, ThreadState
 from src.repositories.media_repo import MediaRepository, UPLOADED_STATUSES
 from src.services.s3_storage import S3Storage
 from src.services.downloader import DownloaderService
@@ -386,6 +387,20 @@ class FilePipeline:
             return {}
 
 
+    async def _is_blocked(self, file_sha256: Optional[str]) -> bool:
+        """Есть ли хеш файла в блок-листе запрещённого контента.
+
+        Список ведётся в админке (вкладка жалоб) и пополняется автоскрытием по
+        жалобе с причиной `csam`, поэтому проверка закрывает повторные попытки
+        скачать тот же файл заново или притащить его из архива.
+        """
+        if not file_sha256:
+            return False
+        row = await self.session.execute(
+            select(BlockedHash.id).where(BlockedHash.sha256 == file_sha256).limit(1)
+        )
+        return row.scalar_one_or_none() is not None
+
     async def write_media(
         self,
         board: Board,
@@ -405,6 +420,10 @@ class FilePipeline:
         s3_key = payload.get("s3_key")
         variants = payload.get("variants")
         duration_seconds = payload.get("duration_seconds")
+        # Блок-лист запрещённого контента: такой файл сохраняем скрытым — он остаётся
+        # в архиве для истории модерации, но на сайте и в лентах не появляется
+        # (см. `/admin/reports` → блок-лист хешей).
+        blocked = await self._is_blocked(file_sha256)
         try:
             # Новую строку создаём только для новых файлов, а запись без объекта в
             # S3 (например, прошлый раз не докачали) обновляем — так повторные
@@ -433,6 +452,8 @@ class FilePipeline:
                         media.duration_seconds = duration_seconds
                     media.download_status = "uploaded" if s3_key else "downloaded"
                     media.is_active = True
+                    if blocked:
+                        media.is_visible = False
                     media.is_premium = bool(board.is_premium or thread_state.is_premium)
                     await self.session.flush()
                 else:
@@ -458,7 +479,7 @@ class FilePipeline:
                         # «с начала», а новые файлы встают в конец (см. board_media)
                         source_order=int(meta.get("post_num") or 0) or None,
                         download_status="uploaded" if s3_key else "downloaded",
-                        is_visible=True,
+                        is_visible=not blocked,
                         is_active=True,
                         is_premium=bool(board.is_premium or thread_state.is_premium),
                     )

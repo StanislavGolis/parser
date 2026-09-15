@@ -27,10 +27,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.api.common import VISIBLE_FILTER, asset_url, visible_thread_clause
 from src.api.deps import get_s3, verify_admin
 from src.api.schemas import (
     AdminBoardOut,
     AdminOverview,
+    BoardCoverCandidate,
     BoardCreate,
     BoardReorder,
     BoardUpdate,
@@ -105,6 +107,7 @@ def _admin_out(
         parse_mode=board.parse_mode,
         sort_order=board.sort_order,
         source_id=board.source_id,
+        cover_media_ids=list(board.cover_media_ids or []),
         media_total=int(m.get("media_total", 0)),
         media_downloaded=int(m.get("media_downloaded", 0)),
         media_in_s3=int(m.get("media_in_s3", 0)),
@@ -129,6 +132,43 @@ async def _load_board(session: AsyncSession, slug: str) -> Board:
     if not board:
         raise HTTPException(status_code=404, detail="Board not found")
     return board
+
+
+# Сколько плиток в мозаике карточки раздела (как COVER_THUMBS в каталоге)
+COVER_LIMIT = 4
+
+
+async def _resolve_cover_ids(
+    session: AsyncSession,
+    board: Board,
+    media_ids: List[int],
+) -> Optional[list]:
+    """Проверяет ручные превью раздела и возвращает id для хранения.
+
+    Файлы должны существовать и принадлежать этому же разделу; плиток — не
+    больше четырёх. Пустой список означает «вернуть автоматический выбор» (NULL).
+    """
+    ids: List[int] = []
+    for mid in media_ids:
+        if mid not in ids:
+            ids.append(mid)
+    if len(ids) > COVER_LIMIT:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Превью раздела: не больше {COVER_LIMIT} файлов",
+        )
+    if ids:
+        rows = await session.execute(
+            select(Media.id).where(Media.id.in_(ids), Media.board_id == board.id)
+        )
+        found = {row[0] for row in rows.all()}
+        missing = [mid for mid in ids if mid not in found]
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Превью раздела: файлы не из /{board.slug}: {missing}",
+            )
+    return ids or None
 
 
 async def _all_boards_with_stats(session: AsyncSession) -> List[AdminBoardOut]:
@@ -509,6 +549,12 @@ async def update_board(
         title = payload.title.strip()
         board.title = title[:100] if title else board.slug
 
+    # Превью карточки раздела: выбранные админом файлы (пустой список — авто)
+    if payload.cover_media_ids is not None:
+        board.cover_media_ids = await _resolve_cover_ids(
+            session, board, payload.cover_media_ids
+        )
+
     if payload.is_premium is not None and payload.is_premium != board.is_premium:
         board.is_premium = payload.is_premium
         await sync_board_media_premium(session, board)
@@ -517,6 +563,61 @@ async def update_board(
 
     stats, _ = await collect_board_stats(session)
     return _admin_out(board, stats.get(board.id))
+
+
+@router.get("/boards/{slug}/cover-candidates", response_model=List[BoardCoverCandidate])
+async def board_cover_candidates(
+    slug: str,
+    limit: int = Query(60, ge=4, le=200),
+    ids: Optional[str] = Query(
+        None, description="Дополнительно вернуть эти id (уже выбранные превью)"
+    ),
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Свежие файлы раздела — галерея выбора превью для карточки каталога.
+
+    Миниатюры отдаём настоящие (без премиум-размытия): админ выбирает по картинке.
+    Через `ids` можно до-запросить уже сохранённые превью, если файл старый и в
+    свежую выборку не попал (иначе плитка осталась бы без картинки).
+    """
+    board = await _load_board(session, slug)
+    extra_ids = []
+    for chunk in (ids or "").split(","):
+        chunk = chunk.strip()
+        if chunk.isdigit() and int(chunk) not in extra_ids:
+            extra_ids.append(int(chunk))
+
+    fresh = await session.execute(
+        select(Media.id, Media.media_type, Media.variants)
+        .where(Media.board_id == board.id, *VISIBLE_FILTER, visible_thread_clause())
+        .order_by(Media.created_at.desc(), Media.id.desc())
+        .limit(limit)
+    )
+    rows = list(fresh.all())
+    seen = {row[0] for row in rows}
+    if extra_ids:
+        picked = await session.execute(
+            select(Media.id, Media.media_type, Media.variants).where(
+                Media.id.in_([mid for mid in extra_ids if mid not in seen])
+            )
+        )
+        rows.extend(picked.all())
+
+    items: List[BoardCoverCandidate] = []
+    for media_id, media_type, variants in rows:
+        variants = variants or {}
+        thumb = variants.get("thumb")
+        blur = variants.get("thumb_blur")
+        kind = "thumb" if thumb else "thumb_blur"
+        items.append(
+            BoardCoverCandidate(
+                id=media_id,
+                media_type=media_type or "image",
+                thumb_url=asset_url(media_id, kind, thumb or blur) if (thumb or blur) else None,
+            )
+        )
+    return items
 
 
 @router.post("/boards/reorder")

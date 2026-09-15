@@ -28,13 +28,19 @@ const ITEMS = [
   { href: "/search", label: "Поиск", Icon: SearchIcon, match: (p: string) => p.startsWith("/search") },
 ];
 
-/** Нижняя навигация на мобильных (по ТЗ дизайна п.6). */
+/**
+ * Нижняя навигация на мобильных.
+ *
+ * Она — единственное меню на телефоне, поэтому держим её компактной и без
+ * `backdrop-blur`: размытие под фиксированной панелью тормозит скролл. Учитываем
+ * «безопасную зону» iPhone — иначе панель перекрывает системная полоса.
+ */
 export default function MobileNav() {
   const pathname = usePathname();
 
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-40 grid h-14 grid-cols-5 border-t border-line bg-ink-secondary/95 backdrop-blur md:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 grid h-[calc(3.5rem+env(safe-area-inset-bottom))] grid-cols-5 border-t border-line bg-ink-secondary pb-[env(safe-area-inset-bottom)] md:hidden"
       aria-label="Мобильная навигация"
     >
       {ITEMS.map(({ href, label, Icon, match }) => {

@@ -26,6 +26,9 @@ class Board(Base):
     is_premium = Column(Boolean, nullable=False, default=False)     # контент только для премиум-пользователей
     sort_order = Column(Integer, nullable=False, default=0)         # порядок парсинга (очередь)
     parse_mode = Column(String(16), nullable=False, default="selected")  # all | selected — как выбирать треды
+    # Ручной выбор превью для карточки каталога: id файлов этого раздела в нужном
+    # порядке. Пусто/NULL — мозаика 2×2 собирается автоматически из 4 свежих файлов.
+    cover_media_ids = Column(JSONB, nullable=True)
     # Источник, из которого берётся раздел (2ch.hk, slivach.com, …). Разные
     # источники парсятся разными адаптерами и независимыми прогонами.
     source_id = Column(
@@ -455,3 +458,167 @@ class ParseRun(Base):
     error = Column(Text, nullable=True)
 
     source = relationship("Source", back_populates="runs")
+
+
+class MediaReport(Base):
+    """Жалоба на файл: модерация и требования правообладателей.
+
+    Жалобу пишет вошедший зритель (кнопка «Пожаловаться» в лайтбоксе и на
+    странице файла). Открытая жалоба у пары (пользователь, файл) одна: повторная
+    отправка обновляет причину и комментарий. Разбор — в админке
+    (`/admin/reports`): файл скрывают, скрывают тред, удаляют файл вместе с
+    объектом в S3 или жалобу отклоняют. Каждое действие пишется в `admin_audit`.
+
+    Жалоба с причиной `csam` закрывает доступ сразу: файл и тред скрываются
+    автоматически, до ручного разбора (контент не должен ждать модератора).
+    """
+
+    __tablename__ = "media_reports"
+    __table_args__ = (
+        Index("ix_media_reports_status_created", "status", "created_at"),
+        Index("ix_media_reports_media", "media_id"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    media_id = Column(Integer, ForeignKey("media.id", ondelete="CASCADE"), nullable=False)
+    # Аккаунт может быть удалён — жалоба остаётся как история модерации
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    # csam | copyright | illegal | spam | other
+    reason = Column(String(24), nullable=False, default="other")
+    comment = Column(Text, nullable=True)
+    # open | hidden | thread_hidden | removed | rejected
+    status = Column(String(16), nullable=False, default="open")
+    resolved_at = Column(DateTime, nullable=True)
+    resolved_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    resolution_note = Column(Text, nullable=True)
+    ip_hash = Column(String(64), nullable=True)
+
+
+class TelegramPost(Base):
+    """Пост в Telegram-канале: заготовка, публикация и журнал отправки.
+
+    Модель Dredger 2.0: канал — витрина, весь архив за логином. Поэтому пост ведёт
+    в бота (`t.me/<bot>?start=…`), а не на сайт, и собирается из наших же превью
+    (мозаика 2×2) с размытием — канал не должен ловить блокировку за adult-контент.
+
+    `scheduled_at` пока не используется: публикация ручная (композер в админке),
+    поле оставлено под следующий шаг — планировщик публикаций.
+    """
+
+    __tablename__ = "telegram_posts"
+    __table_args__ = (
+        Index("ix_telegram_posts_created", "created_at"),
+        Index("ix_telegram_posts_status_scheduled", "status", "scheduled_at"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    published_at = Column(DateTime, nullable=True)
+    # teaser | digest | announce — от типа зависит шаблон подписи
+    kind = Column(String(16), nullable=False, default="teaser")
+    caption = Column(Text, nullable=False, default="")
+    # Выбранные файлы: id из `media` (порядок плиток мозаики сохраняем)
+    media_ids = Column(JSONB, nullable=True)
+    image_mode = Column(String(12), nullable=False, default="mosaic")  # mosaic | single | none
+    button_text = Column(String(64), nullable=True)
+    button_url = Column(String(255), nullable=True)
+    # draft | published | failed
+    status = Column(String(16), nullable=False, default="draft")
+    channel = Column(String(120), nullable=True)
+    message_id = Column(BigInteger, nullable=True)   # id сообщения канала (ссылка/удаление)
+    error = Column(Text, nullable=True)
+    created_by = Column(String(120), nullable=True)  # админ-актор, собравший пост
+    scheduled_at = Column(DateTime, nullable=True)   # резерв под расписание публикаций
+
+
+class TelegramAutopost(Base):
+    """Настройки автопостинга в канал (одна строка, id=1).
+
+    Модель Dredger 2.0: канал получает 1–3 поста в день без «шума». Поэтому у
+    автопостинга есть лимит, окна тишины и белый список разделов, а по умолчанию
+    включён режим карантина (`require_approval`): черновик приходит админу в ЛС бота
+    с кнопками «Опубликовать / Отклонить / Отложить» — в канал ничего не уходит само.
+    """
+
+    __tablename__ = "telegram_autopost"
+
+    id = Column(Integer, primary_key=True)
+    enabled = Column(Boolean, nullable=False, default=False)
+    # Сколько постов в сутки и в какие часы молчим (МСК)
+    posts_per_day = Column(Integer, nullable=False, default=2)
+    quiet_from = Column(Integer, nullable=False, default=1)   # час МСК
+    quiet_to = Column(Integer, nullable=False, default=8)
+    # Карантин: без подтверждения админа в ЛС постов в канал нет
+    require_approval = Column(Boolean, nullable=False, default=True)
+    # Белый список разделов (слаги) и период дайджеста: day | week
+    boards = Column(JSONB, nullable=True)
+    period = Column(String(8), nullable=False, default="day")
+    blur = Column(Integer, nullable=False, default=7)
+    last_check_at = Column(DateTime, nullable=True)   # когда воркер последний раз работал
+    last_post_at = Column(DateTime, nullable=True)    # когда автопост уходил в канал
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Giveaway(Base):
+    """Розыгрыш премиум-подписки: ежедневный или еженедельный.
+
+    Участие — через бота с проверкой подписки на канал (ссылка приходит в посте-анонсе
+    с deep-link `start=giveaway_<id>`). Победителю премиум выдаётся автоматически,
+    как и при ручной выдаче в админке: продлеваем `premium_until` на `prize_days`.
+    """
+
+    __tablename__ = "giveaways"
+    __table_args__ = (Index("ix_giveaways_status_ends", "status", "ends_at"),)
+
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    title = Column(String(120), nullable=False, default="")
+    # daily | weekly
+    kind = Column(String(12), nullable=False, default="daily")
+    prize_days = Column(Integer, nullable=False, default=3)
+    starts_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    ends_at = Column(DateTime, nullable=False)
+    # draft | announced | drawn | cancelled
+    status = Column(String(16), nullable=False, default="draft")
+    # Победители: [{user_id, telegram_id, username}]
+    winners = Column(JSONB, nullable=True)
+    # Сообщения канала: анонс и итоги (для ссылок в админке)
+    announce_message_id = Column(BigInteger, nullable=True)
+    result_message_id = Column(BigInteger, nullable=True)
+    created_by = Column(String(120), nullable=True)
+
+
+class GiveawayEntry(Base):
+    """Участник розыгрыша: один аккаунт — одно участие."""
+
+    __tablename__ = "giveaway_entries"
+    __table_args__ = (
+        UniqueConstraint("giveaway_id", "user_id", name="uq_giveaway_entries_user"),
+        Index("ix_giveaway_entries_giveaway", "giveaway_id"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    giveaway_id = Column(Integer, ForeignKey("giveaways.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    telegram_id = Column(BigInteger, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class BlockedHash(Base):
+    """Блок-лист хешей файлов (запрещённый контент, в первую очередь CSAM).
+
+    Файл, чей SHA-256 попал в список, не публикуется: существующие записи
+    скрываются сразу при добавлении хеша, а новые пайплайн сохраняет скрытыми
+    (`is_visible=False`) — см. `src/services/pipeline.py`. Список ведётся в
+    админке (вкладка жалоб) и пополняется вручную или автоскрытием по жалобе.
+    """
+
+    __tablename__ = "blocked_hashes"
+
+    id = Column(Integer, primary_key=True)
+    sha256 = Column(String(64), unique=True, nullable=False)
+    reason = Column(String(32), nullable=False, default="other")  # csam | copyright | other
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_by = Column(String(120), nullable=True)

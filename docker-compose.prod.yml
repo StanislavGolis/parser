@@ -61,6 +61,10 @@ x-backend: &backend
     TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
     TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
     TELEGRAM_CHANNEL: ${TELEGRAM_CHANNEL:-}
+    # Кому уходит карантин автопоста (личка бота). Владелец узнаёт свой id
+    # командой /id в боте. Без него карантин доставляется только админам,
+    # которые входили на сайт через Telegram.
+    TELEGRAM_ADMIN_CHAT_ID: ${TELEGRAM_ADMIN_CHAT_ID:-}
     MAGIC_LINK_TTL_MINUTES: ${MAGIC_LINK_TTL_MINUTES:-10}
     MEDIA_DELIVERY: ${MEDIA_DELIVERY:-proxy}
 
@@ -340,6 +344,36 @@ services:
       TELEGRAM_CHANNEL: ${TELEGRAM_CHANNEL:-}
       SITE_URL: ${SITE_URL:-https://dredg.ru}
       SITE_MODE: ${SITE_MODE:-public}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # ── Публикация в канал: расписание, автопост, итоги розыгрышей ──────
+  # Отдельный процесс (по образцу `telegram-gateway`): раз в минуту публикует
+  # отложенные посты (`status=scheduled`), собирает дайджест в карантин (отправляет
+  # его в ЛС админам бота) и подводит итоги розыгрышей. Без него `scheduled_at`
+  # и автопостинг просто ждут своего часа.
+  telegram-publisher:
+    <<: *backend
+    command: ["python", "-m", "src.tools.telegram_autopost"]
+    environment:
+      # Свой environment перекрывает карту из анкора — перечисляем явно
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-parser}:${POSTGRES_PASSWORD:-parser-pass}@postgres:5432/${POSTGRES_DB:-parser}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
+      REDIS_URL: redis://redis:6379/0
+      S3_URL: ${S3_URL:-https://s3.twcstorage.ru}
+      S3_REGION: ${S3_REGION:-ru-1}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      S3_ADDRESSING_STYLE: ${S3_ADDRESSING_STYLE:-path}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
+      TELEGRAM_CHANNEL: ${TELEGRAM_CHANNEL:-}
+      TELEGRAM_ADMIN_CHAT_ID: ${TELEGRAM_ADMIN_CHAT_ID:-}
+      SITE_URL: ${SITE_URL:-https://dredg.ru}
     restart: unless-stopped
     depends_on:
       api:

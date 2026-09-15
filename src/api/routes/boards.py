@@ -27,17 +27,70 @@ COVER_THUMBS = 4
 
 async def _cover_thumbs(
     session: AsyncSession,
-    board_ids: list[int],
+    boards: list[Board],
     locked_board_ids: set[int],
 ) -> dict[int, list[str]]:
-    """По 4 свежих превью на каждый раздел — одним запросом на весь каталог.
+    """Превью разделов для каталога — одним запросом на весь список.
 
-    Оконная функция ранжирует видимые файлы внутри доски, берём первые четыре.
+    Ручной выбор приоритетнее: если админ отметил файлы (`boards.cover_media_ids`),
+    они занимают первые плитки и в том же порядке. Если выбрано меньше четырёх,
+    свободные плитки добираются свежими файлами раздела (иначе в каталоге были бы
+    пустые квадраты). Полностью автоматический режим — четыре свежих файла.
     Для закрытых премиум-разделов отдаём размытые варианты (как и в других
     списках): превью не раскрывает содержимое без подписки.
     """
-    if not board_ids:
-        return {}
+    covers: dict[int, list[str]] = {}
+    if not boards:
+        return covers
+
+    used: dict[int, set[int]] = {}
+
+    def add(board_id: int, media_id: int, variants: Optional[dict]) -> None:
+        taken = used.setdefault(board_id, set())
+        # Не больше четырёх плиток и без повторов (выбранное вручную не дублируем)
+        if media_id in taken or len(taken) >= COVER_THUMBS:
+            return
+        variants = variants or {}
+        if board_id in locked_board_ids:
+            blur = variants.get("thumb_blur")
+            if not blur:
+                return
+            url = asset_url(media_id, "thumb_blur", blur)
+        else:
+            thumb = variants.get("thumb")
+            if not thumb:
+                return
+            url = asset_url(media_id, "thumb", thumb)
+        taken.add(media_id)
+        covers.setdefault(board_id, []).append(url)
+
+    # 1) Разделы с ручным выбором: порядок = порядок выбранных id
+    manual = {
+        b.id: [mid for mid in (b.cover_media_ids or [])][:COVER_THUMBS]
+        for b in boards
+        if b.cover_media_ids
+    }
+    if manual:
+        wanted = [mid for ids in manual.values() for mid in ids]
+        rows = await session.execute(
+            select(Media.id, Media.board_id, Media.variants).where(
+                *VISIBLE_FILTER, visible_thread_clause(), Media.id.in_(wanted)
+            )
+        )
+        found = {row.id: row for row in rows.all()}
+        for board_id, ids in manual.items():
+            for media_id in ids:
+                row = found.get(media_id)
+                # Файл мог быть скрыт или перенесён в другой раздел — пропускаем
+                if row is not None and row.board_id == board_id:
+                    add(board_id, row.id, row.variants)
+
+    # 2) Остальные плитки: 4 самых свежих файла (для частично выбранных — добор)
+    auto_ids = [
+        b.id for b in boards if len(used.get(b.id, ())) < COVER_THUMBS
+    ]
+    if not auto_ids:
+        return covers
 
     row_number = (
         func.row_number()
@@ -49,7 +102,7 @@ async def _cover_thumbs(
     )
     ranked = (
         select(Media.id, Media.board_id, Media.variants, row_number)
-        .where(*VISIBLE_FILTER, visible_thread_clause(), Media.board_id.in_(board_ids))
+        .where(*VISIBLE_FILTER, visible_thread_clause(), Media.board_id.in_(auto_ids))
         .subquery()
     )
     rows = await session.execute(
@@ -57,19 +110,8 @@ async def _cover_thumbs(
         .where(ranked.c.rn <= COVER_THUMBS)
         .order_by(ranked.c.board_id, ranked.c.rn)
     )
-
-    covers: dict[int, list[str]] = {}
     for board_id, media_id, variants in rows.all():
-        variants = variants or {}
-        blur = variants.get("thumb_blur")
-        if board_id in locked_board_ids and blur:
-            covers.setdefault(board_id, []).append(
-                asset_url(media_id, "thumb_blur", blur)
-            )
-            continue
-        thumb = variants.get("thumb")
-        if thumb:
-            covers.setdefault(board_id, []).append(asset_url(media_id, "thumb", thumb))
+        add(board_id, media_id, variants)
     return covers
 
 
@@ -113,7 +155,7 @@ async def list_boards(
     locked_ids = {
         board.id for board, _cnt in rows if is_locked(board.is_premium, user)
     }
-    covers = await _cover_thumbs(session, [board.id for board, _cnt in rows], locked_ids)
+    covers = await _cover_thumbs(session, [board for board, _cnt in rows], locked_ids)
     # «+N за сегодня» — прирост за текущие отчётные сутки (МСК): тем же периодом
     # считают главная, админка и письмо-отчёт, поэтому цифры не расходятся
     start, end = reporting.period_bounds()

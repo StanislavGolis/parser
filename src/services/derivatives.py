@@ -20,6 +20,7 @@ THUMB_QUALITY = 75
 WEB_QUALITY = 80
 VIDEO_WEB_HEIGHT = 720
 POSTER_MAX = 400
+POSTER_QUALITY = 82
 # Размытый превью премиум-контента: сильно уменьшаем и размываем → очень лёгкий WebP
 BLUR_MAX = 48
 BLUR_RADIUS = 8
@@ -94,20 +95,41 @@ def probe_duration(path: Path) -> Optional[float]:
 
 
 def build_poster(path: Path) -> Optional[bytes]:
-    """Кадр-превью видео (JPEG, до 400px по ширине)."""
-    try:
-        r = subprocess.run(
-            [
-                "ffmpeg", "-v", "error", "-ss", "1", "-i", str(path),
-                "-frames:v", "1", "-vf", f"scale='min({POSTER_MAX},iw)':-2",
-                "-f", "image2pipe", "-vcodec", "mjpeg", "-",
-            ],
-            capture_output=True,
-            timeout=180,
-        )
-        return r.stdout or None
-    except Exception:
-        return None
+    """Кадр-превью видео (JPEG, до 400px по ширине).
+
+    Кадр берём с секунды, а не с начала: первый кадр у многих роликов чёрный.
+    Если кадра на этой секунде нет (ролик короче секунды), пробуем с нуля.
+    Кадр вытаскиваем в PNG и уменьшаем через PIL: так результат не зависит от
+    фильтров ffmpeg — часть роликов с нестандартным цветовым диапазоном валила
+    конвертацию («Non full-range YUV is non-standard», «Invalid color space»),
+    и превью не появлялось вовсе (карточка в лентах показывала «недоступно»).
+    """
+    for seek in ("1", "0"):
+        try:
+            r = subprocess.run(
+                [
+                    "ffmpeg", "-v", "error", "-ss", seek, "-i", str(path),
+                    "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-",
+                ],
+                capture_output=True,
+                timeout=180,
+            )
+        except Exception:
+            continue
+        if not r.stdout:
+            continue
+        try:
+            img = Image.open(io.BytesIO(r.stdout))
+        except Exception:
+            continue
+        im = _normalize(img).copy()
+        im.thumbnail((POSTER_MAX, POSTER_MAX), Image.LANCZOS)
+        if im.mode != "RGB":
+            im = im.convert("RGB")
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=POSTER_QUALITY, optimize=True)
+        return buf.getvalue()
+    return None
 
 
 def build_video_web(src: Path, dst: Path) -> bool:

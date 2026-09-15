@@ -53,15 +53,24 @@ def visible_thread_clause():
     )
 
 
+# Версия формата URL деривативов. Бампнуть, когда меняется сам ответ по тому же
+# адресу (например, Content-Type: постеры видео отдавались как `video/mp4`, и
+# браузеры/кэш держали нерабочий ответ по неизменному URL).
+ASSET_URL_VERSION = "2"
+
+
 def asset_url(media_id: int, kind: str, key: Optional[str] = None) -> str:
     """URL дериватива (thumb/web) через наш API.
 
     `?v=<hash>` версионирует URL: кэш nginx/браузера не отдаст устаревший
-    вариант, если дериватив когда-нибудь перегенерируется.
+    вариант, если дериватив перегенерируется. Хеш берём из имени файла, а
+    номер `ASSET_URL_VERSION` — от формата ответа.
     """
     version = ""
     if key:
         version = key.rsplit("/", 1)[-1].split("_", 1)[0][:16]
+    if version:
+        version = f"{version}-{ASSET_URL_VERSION}"
     suffix = f"?v={version}" if version else ""
     return f"/api/v1/media/{media_id}/asset/{kind}{suffix}"
 

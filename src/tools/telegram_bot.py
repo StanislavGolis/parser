@@ -39,8 +39,14 @@ HELP_TEXT = (
     "/link — ссылка для входа на сайт (живёт 10 минут, одноразовая)\n"
     "/status — активна ли подписка и до какого числа\n"
     "/subscribe — тарифы\n"
+    "/id — ваш Telegram ID (нужен для настройки карантина)\n"
     "/help — эта справка\n\n"
-    "Сайт закрытый: без подписки доступны только несколько файлов."
+    "Сайт закрытый: без подписки доступны только несколько файлов.\n"
+    "Новинки и розыгрыши — в канале: кнопка «Участвовать» под постом-анонсом\n"
+    "записывает вас в розыгрыш премиума (нужна подписка на канал).\n\n"
+    "Если нашли запрещённый контент — нажмите «пожаловаться» в просмотре файла:\n"
+    "жалоба уходит модератору, а материалы с несовершеннолетними закрываются сразу.\n"
+    "Правообладателям: dmca@dredg.ru (удаление контента — в течение 48 часов)."
 )
 
 SUBSCRIBE_TEXT = (
@@ -110,7 +116,11 @@ class BotClient:
         await self.call("sendMessage", **payload)
 
     async def get_updates(self, offset: Optional[int]) -> List[Dict[str, Any]]:
-        payload: Dict[str, Any] = {"timeout": POLL_TIMEOUT, "allowed_updates": ["message"]}
+        payload: Dict[str, Any] = {
+            "timeout": POLL_TIMEOUT,
+            # `callback_query` нужен для карантина: админ нажимает кнопки под черновиком
+            "allowed_updates": ["message", "callback_query"],
+        }
         if offset is not None:
             payload["offset"] = offset
         result = await self.call("getUpdates", **payload)
@@ -143,6 +153,119 @@ async def api_request(
         return None
 
 
+async def handle_giveaway(
+    session: aiohttp.ClientSession,
+    bot: BotClient,
+    chat_id: int,
+    telegram_id: int,
+    giveaway_id: int,
+    username: Optional[str] = None,
+) -> None:
+    """Участие в розыгрыше: проверяем подписку на канал и записываем участника.
+
+    Условие «быть подписанным» проверяет сам Telegram (`getChatMember`) — накрутка
+    «привёл друга» не нужна: фейковый аккаунт без подписки не пройдёт.
+    """
+    channel = (settings.TELEGRAM_CHANNEL or "").strip()
+    if channel:
+        member = await bot.call("getChatMember", chat_id=channel, user_id=telegram_id)
+        status = (member or {}).get("status") if isinstance(member, dict) else None
+        if status not in ("creator", "administrator", "member", "restricted"):
+            await bot.send(
+                chat_id,
+                f"Чтобы участвовать, подпишитесь на канал {channel} и нажмите /start "
+                f"giveaway_{giveaway_id} ещё раз.",
+            )
+            return
+
+    data = await api_request(
+        session,
+        "POST",
+        f"/api/v1/admin/telegram/giveaways/join?telegram_id={telegram_id}",
+    )
+    if not data or data.get("error"):
+        await bot.send(chat_id, "Не получилось записать вас в розыгрыш. Попробуйте позже.")
+        return
+
+    status = data.get("status")
+    if status == "unknown":
+        await bot.send(
+            chat_id,
+            "Сначала заведите аккаунт: нажмите «🔓 Войти на сайт», откройте архив "
+            "и вернитесь к розыгрышу.",
+            keyboard=MAIN_KEYBOARD,
+        )
+        return
+    if status == "none":
+        await bot.send(chat_id, "Сейчас активных розыгрышей нет. Заглядывайте в канал!")
+        return
+    if status == "already":
+        await bot.send(
+            chat_id,
+            f"Вы уже участвуете в розыгрыше «{data.get('title')}». "
+            f"Итоги: {str(data.get('ends_at') or '')[:16]} UTC.",
+        )
+        return
+
+    await bot.send(
+        chat_id,
+        f"Готово! Вы участвуете в розыгрыше «{data.get('title')}» "
+        f"на {data.get('prize_days')} дн. премиума.\n"
+        f"Итоги: {str(data.get('ends_at') or '')[:16]} UTC.",
+    )
+
+
+async def handle_callback(
+    session: aiohttp.ClientSession, bot: BotClient, callback: dict
+) -> None:
+    """Кнопки карантина: админ подтверждает, отклоняет или откладывает автопост.
+
+    Данные кнопки приходят как `post:publish:<id>` — простая схема, чтобы её было
+    видно в логах и легко отлаживать. Сообщение в ЛС после решения правим: иначе
+    непонятно, обработана кнопка или нет.
+    """
+    callback_id = callback.get("id")
+    data = (callback.get("data") or "").strip()
+    message = callback.get("message") or {}
+    chat_id = (message.get("chat") or {}).get("id")
+    message_id = message.get("message_id")
+
+    parts = data.split(":")
+    if len(parts) != 3 or parts[0] != "post" or not chat_id:
+        if callback_id:
+            await bot.call("answerCallbackQuery", callback_query_id=callback_id)
+        return
+
+    action, post_id = parts[1], parts[2]
+    if action not in ("publish", "reject", "later"):
+        if callback_id:
+            await bot.call("answerCallbackQuery", callback_query_id=callback_id)
+        return
+
+    path = {
+        "publish": f"/api/v1/admin/telegram/posts/{post_id}/approve",
+        "reject": f"/api/v1/admin/telegram/posts/{post_id}/reject",
+        "later": f"/api/v1/admin/telegram/posts/{post_id}/later?hours=2",
+    }[action]
+    result = await api_request(session, "POST", path)
+
+    done = {
+        "publish": "Черновик опубликован в канале.",
+        "reject": "Черновик отклонён, в канал не пошёл.",
+        "later": "Отложено на 2 часа — вернусь к нему по расписанию.",
+    }[action]
+    if not result or result.get("error"):
+        done = "Не получилось: API недоступен, попробуйте кнопку ещё раз."
+
+    if callback_id:
+        await bot.call("answerCallbackQuery", callback_query_id=callback_id, text=done)
+    if message_id:
+        await bot.call(
+            "editMessageReplyMarkup", chat_id=chat_id, message_id=message_id, reply_markup={}
+        )
+    await bot.send(chat_id, done)
+
+
 async def handle_message(session: aiohttp.ClientSession, bot: BotClient, message: dict) -> None:
     """Обработка одного сообщения: команды и кнопки клавиатуры."""
     text = (message.get("text") or "").strip()
@@ -154,6 +277,8 @@ async def handle_message(session: aiohttp.ClientSession, bot: BotClient, message
 
     username = sender.get("username")
     command = text.split()[0].split("@")[0].lower()
+    # Deep-link из поста-анонса розыгрыша: /start giveaway_5
+    start_payload = text.split(" ", 1)[1].strip() if " " in text else ""
 
     # Кнопки клавиатуры приходят обычным текстом — сводим их к командам
     if text.startswith("🔓"):
@@ -164,6 +289,15 @@ async def handle_message(session: aiohttp.ClientSession, bot: BotClient, message
         command = "/subscribe"
     elif text.startswith("❓"):
         command = "/help"
+
+    if command == "/start" and start_payload.startswith("giveaway_"):
+        try:
+            giveaway_id = int(start_payload.split("_", 1)[1])
+        except ValueError:
+            giveaway_id = 0
+        if giveaway_id:
+            await handle_giveaway(session, bot, chat_id, telegram_id, giveaway_id, username)
+            return
 
     if command in ("/start", "/help"):
         await bot.send(
@@ -220,6 +354,11 @@ async def handle_message(session: aiohttp.ClientSession, bot: BotClient, message
         await bot.send(chat_id, SUBSCRIBE_TEXT, keyboard=MAIN_KEYBOARD)
         return
 
+    if command == "/id":
+        # Нужен для настройки карантина автопоста: TELEGRAM_ADMIN_CHAT_ID в .env
+        await bot.send(chat_id, f"Ваш Telegram ID: {telegram_id}")
+        return
+
     await bot.send(chat_id, "Не понял команду.\n\n" + HELP_TEXT, keyboard=MAIN_KEYBOARD)
 
 
@@ -254,7 +393,10 @@ async def main() -> None:
                 # Сдвигаем offset до обработки: сбойный апдейт не должен зацикливаться
                 offset = int(update.get("update_id", 0)) + 1
                 try:
-                    await handle_message(session, bot, update.get("message") or {})
+                    if update.get("callback_query"):
+                        await handle_callback(session, bot, update["callback_query"])
+                    else:
+                        await handle_message(session, bot, update.get("message") or {})
                 except Exception:  # noqa: BLE001 — бот не должен падать из-за одного сообщения
                     logger.exception("Ошибка обработки обновления")
             await asyncio.sleep(0.5)
