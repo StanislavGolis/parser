@@ -697,7 +697,11 @@ export interface StatsHealth {
 
 export interface AdminUser {
   id: number;
-  email: string;
+  email: string | null;
+  /** Готовое имя аккаунта: email, @ник или Telegram ID (у бот-аккаунтов email пуст). */
+  display_name: string;
+  telegram_id: number | null;
+  telegram_username: string | null;
   is_active: boolean;
   is_admin: boolean;
   created_at: string | null;

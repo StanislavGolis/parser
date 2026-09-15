@@ -20,7 +20,7 @@ const SORTS = [
   { value: "created", label: "по регистрации" },
   { value: "last_seen", label: "по последнему входу" },
   { value: "marks", label: "по меткам" },
-  { value: "email", label: "по email" },
+  { value: "email", label: "по аккаунту" },
 ];
 
 const PREMIUM_DAYS = [
@@ -185,7 +185,7 @@ export default function AdminUsersPanel() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="поиск по email"
+            placeholder="email, @ник или Telegram ID"
             className="rounded border border-line bg-ink-secondary px-2 py-1 text-xs text-text-primary outline-none placeholder:text-text-muted"
           />
           <button type="submit" className="btn-ghost px-2.5 py-1 text-xs">
@@ -222,10 +222,10 @@ export default function AdminUsersPanel() {
       ) : null}
 
       <div className="overflow-x-auto rounded border border-line">
-        <table className="w-full min-w-[860px] text-xs">
+        <table className="w-full min-w-[940px] text-xs">
           <thead className="bg-ink-tertiary/60 font-mono text-[10px] uppercase tracking-wider text-text-muted">
             <tr>
-              <th className="px-3 py-2 text-left">email</th>
+              <th className="px-3 py-2 text-left">аккаунт</th>
               <th className="px-3 py-2 text-left">регистрация</th>
               <th className="px-3 py-2 text-left">последний вход</th>
               <th className="px-3 py-2 text-left">премиум</th>
@@ -233,6 +233,7 @@ export default function AdminUsersPanel() {
               <th className="px-3 py-2 text-right">просм./скач.</th>
               <th className="px-3 py-2 text-right">сессии</th>
               <th className="px-3 py-2 text-left">статус</th>
+              <th className="px-3 py-2 text-right">карточка</th>
             </tr>
           </thead>
           <tbody>
@@ -249,9 +250,21 @@ export default function AdminUsersPanel() {
                     onClick={() => openCard(user)}
                     className="text-left text-text-primary hover:text-accent-primary"
                   >
-                    {user.email}
+                    {user.display_name}
                   </button>
+                  {user.telegram_id ? <span className="badge badge-muted ml-2">TG</span> : null}
                   {user.is_admin ? <span className="badge badge-warn ml-2">admin</span> : null}
+                  {/* Вторая строка: чем ещё опознать аккаунт (почта и/или Telegram ID) */}
+                  {user.email && user.display_name !== user.email ? (
+                    <span className="mt-0.5 block font-mono text-[10px] text-text-muted">
+                      {user.email}
+                    </span>
+                  ) : null}
+                  {user.telegram_id ? (
+                    <span className="mt-0.5 block font-mono text-[10px] text-text-muted">
+                      id {user.telegram_id}
+                    </span>
+                  ) : null}
                 </td>
                 <td className="px-3 py-2 text-text-muted">
                   {user.created_at ? formatUtc(user.created_at) : "—"}
@@ -282,11 +295,21 @@ export default function AdminUsersPanel() {
                     <span className="text-accent-danger">заблокирован</span>
                   )}
                 </td>
+                <td className="px-3 py-2 text-right">
+                  <button
+                    type="button"
+                    onClick={() => openCard(user)}
+                    className="btn-ghost px-2 py-0.5 text-[11px]"
+                    title="Открыть карточку: сессии, метки, скачивания, аудит"
+                  >
+                    статистика
+                  </button>
+                </td>
               </tr>
             ))}
             {list && list.items.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-3 py-6 text-center text-text-muted">
+                <td colSpan={9} className="px-3 py-6 text-center text-text-muted">
                   ничего не найдено
                 </td>
               </tr>
@@ -323,10 +346,14 @@ export default function AdminUsersPanel() {
         <div className="mt-4 rounded border border-line bg-ink-secondary/40 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h3 className="text-base font-semibold">{card.email}</h3>
+              <h3 className="text-base font-semibold">{card.display_name}</h3>
               <p className="mt-0.5 font-mono text-[11px] text-text-muted">
-                id {card.id} · регистрация {card.created_at ? formatUtc(card.created_at) : "—"} ·
-                последний вход {card.last_seen_at ? formatUtc(card.last_seen_at) : "не заходил"}
+                id {card.id}
+                {card.email ? ` · ${card.email}` : ""}
+                {card.telegram_id ? ` · Telegram ${card.telegram_id}` : ""}
+                {card.telegram_username ? ` · @${card.telegram_username}` : ""} · регистрация{" "}
+                {card.created_at ? formatUtc(card.created_at) : "—"} · последний вход{" "}
+                {card.last_seen_at ? formatUtc(card.last_seen_at) : "не заходил"}
                 {card.is_admin ? " · админ" : ""}
               </p>
               <p className="mt-1 text-xs text-text-secondary">

@@ -44,11 +44,31 @@ def _iso(value: Optional[datetime]) -> Optional[str]:
     return value.isoformat() if value else None
 
 
+def _display_name(user: User) -> str:
+    """Как показать аккаунт в админке: email, @ник или Telegram ID.
+
+    Аккаунты из бота создаются без email, поэтому раньше такая строка в списке
+    выглядела пустой — было не понять, чей это аккаунт и куда нажимать. Теперь имя
+    есть всегда, а источник видно по пометке в интерфейсе.
+    """
+    if user.email:
+        return user.email
+    if user.telegram_username:
+        return f"@{user.telegram_username.lstrip('@')}"
+    if user.telegram_id:
+        return f"Telegram {user.telegram_id}"
+    return f"Аккаунт #{user.id}"
+
+
 def _user_out(user: User, counts: dict) -> dict:
     """Аккаунт + агрегаты (для списка и карточки)."""
     return {
         "id": user.id,
         "email": user.email,
+        # Показываем готовое имя и признаки Telegram: у бот-аккаунтов email пуст
+        "display_name": _display_name(user),
+        "telegram_id": user.telegram_id,
+        "telegram_username": user.telegram_username,
         "is_active": bool(user.is_active),
         "is_admin": bool(user.is_admin),
         "created_at": _iso(user.created_at),
@@ -120,7 +140,17 @@ async def list_users(
 
     conditions = []
     if q and q.strip():
-        conditions.append(User.email.ilike(f"%{q.strip()}%"))
+        # Ищем и по email, и по Telegram: у аккаунтов из бота email пуст, зато есть
+        # @ник и числовой id — по ним их и находят
+        needle = q.strip()
+        nick = needle.lstrip("@")
+        matches = [
+            User.email.ilike(f"%{needle}%"),
+            User.telegram_username.ilike(f"%{nick}%"),
+        ]
+        if nick.isdigit():
+            matches.append(User.telegram_id == int(nick))
+        conditions.append(or_(*matches))
     if filter == "premium":
         conditions += [User.premium_until.isnot(None), User.premium_until > now]
     elif filter == "without-premium":
@@ -139,7 +169,8 @@ async def list_users(
         # coalesce: у аккаунтов без сессий «последний вход» пустой — берём регистрацию
         "last_seen": func.coalesce(live_sessions.c.last_seen, User.created_at).desc(),
         "marks": func.coalesce(marks.c.cnt, 0).desc(),
-        "email": User.email.asc(),
+        # У бот-аккаунтов email пуст: сортируем по нику, а пустые — в конец
+        "email": func.coalesce(User.email, User.telegram_username).asc().nulls_last(),
     }[sort]
 
     rows = (
