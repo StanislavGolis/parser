@@ -115,7 +115,9 @@ def apply_media_urls(
     item.locked = locked
 
     variants = source.variants or {}
-    if source.s3_key and not locked:
+    # Оригинал — премиум-функция: без подписки ссылку не отдаём вовсе, иначе её
+    # легко утащить из JSON. Просмотр Free идёт через `web_url`/`thumb_url`.
+    if source.s3_key and not locked and premium_active(user):
         item.url = build_media_url(source.id, s3, source.s3_key)
 
     blur_key = variants.get("thumb_blur")

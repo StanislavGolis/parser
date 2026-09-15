@@ -23,7 +23,7 @@ import {
   SpinnerIcon,
 } from "@/components/icons";
 import { apiGet } from "@/lib/api";
-import { mediaUrl } from "@/lib/env";
+import { mediaUrl, PREMIUM_CTA_URL } from "@/lib/env";
 import { formatBytes, formatCompact, formatDuration } from "@/lib/format";
 import { webSrc, premiumState } from "@/lib/media";
 import { saveResume } from "@/lib/resume";
@@ -774,10 +774,16 @@ export default function Lightbox({
             <ChevronRightIcon className="h-4 w-4" />
           </button>
           {locked ? (
-            <Link href="/feedback?topic=premium" className="btn-primary px-3 py-1.5 text-xs">
+            <a
+              href={PREMIUM_CTA_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="btn-primary px-3 py-1.5 text-xs"
+              title="Приватный раздел: тарифы и оплата — в боте"
+            >
               <LockIcon className="h-4 w-4" />
               Premium
-            </Link>
+            </a>
           ) : (
             <DownloadButton mediaId={media.id} size="sm" />
           )}

@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { DownloadIcon, SpinnerIcon } from "@/components/icons";
 import { ApiError, apiGet } from "@/lib/api";
-import { mediaUrl } from "@/lib/env";
+import { mediaUrl, PREMIUM_CTA_URL } from "@/lib/env";
 import { trackEvent } from "@/lib/track";
 import type { DownloadResult } from "@/lib/types";
 
@@ -41,10 +41,11 @@ export default function DownloadButton({
           window.location.assign("/login");
         }
       } else if (status === 403) {
-        // Скачивание и оригиналы доступны по премиум-подписке
+        // Оригиналы и скачивание входят в подписку: ведём к тарифам в боте,
+        // где будут и способы оплаты (на закрытом сайте витрина живёт там)
         setState("idle");
-        if (window.confirm("Скачивание доступно по премиум-подписке. Открыть профиль?")) {
-          window.location.assign("/profile");
+        if (window.confirm("Скачивание и оригиналы входят в подписку. Открыть тарифы?")) {
+          window.location.assign(PREMIUM_CTA_URL);
         }
       } else if (status === 409 || status === 503) {
         // Файл пока недоступен (нет объекта в S3) — сервер отвечает осознанно.

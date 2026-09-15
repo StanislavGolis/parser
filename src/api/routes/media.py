@@ -671,18 +671,14 @@ async def media_raw(
         raise HTTPException(status_code=404, detail="File not available")
 
     board = await _check_media_access(session, media)
-    variants = media.variants or {}
-    has_public_view = bool(variants.get("video") or variants.get("web"))
 
-    # Подписка нужна: премиум-файлу, при скачивании и когда публичный вариант есть
-    premium_only = (
-        bool(media.is_premium) or bool(board.is_premium) or download or has_public_view
-    )
-    if premium_only:
-        if user is None:
-            raise HTTPException(status_code=401, detail="Требуется вход")
-        if not premium_active(user):
-            raise HTTPException(status_code=403, detail="Нужна премиум-подписка")
+    # Модель «открытый архив»: Free смотрит открытые файлы через деривативы
+    # (`thumb`/`web`/`video`), а оригинал и скачивание входят в подписку.
+    # Поэтому `/raw` закрыт всегда — и для премиум-, и для открытых файлов.
+    if user is None:
+        raise HTTPException(status_code=401, detail="Требуется вход")
+    if not premium_active(user):
+        raise HTTPException(status_code=403, detail="Оригиналы и скачивание — по подписке")
 
     return await _stream_object(
         media=media,
@@ -691,11 +687,8 @@ async def media_raw(
         s3=s3,
         cache=cache,
         download=download,
-        cache_control=(
-            "private, no-store"
-            if (media.is_premium or board.is_premium or download)
-            else "public, max-age=3600"
-        ),
+        # Оригинал не кэшируем публично: он всегда за подпиской
+        cache_control="private, no-store",
     )
 
 

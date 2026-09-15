@@ -10,7 +10,7 @@ import When from "@/components/When";
 import { ArrowLeftIcon, DownloadIcon, EyeIcon, FilmIcon, LockIcon } from "@/components/icons";
 import { ApiError } from "@/lib/api";
 import { getBoards, getMediaDetail } from "@/lib/data";
-import { absoluteUrl, mediaUrl } from "@/lib/env";
+import { absoluteUrl, mediaUrl, PREMIUM_CTA_URL } from "@/lib/env";
 import { formatBytes, formatNumber } from "@/lib/format";
 import { breadcrumbList, jsonLdHtml } from "@/lib/jsonld";
 import { isLocked, premiumState } from "@/lib/media";
@@ -79,6 +79,9 @@ export default async function MediaDetailPage({ params }: DetailProps) {
   const board = boards.find((b) => b.id === media?.board_id);
   const premium = premiumState(media);
   const locked = isLocked(media);
+  // Модель «открытый архив»: у Free нет оригинала (`url`), поэтому показываем
+  // деривативы — `web` (полный WebP или видео 720p), затем постер и размытое превью.
+  const previewUrl = mediaUrl(media.url ?? media.web_url ?? media.thumb_url);
 
   // Микроразметка для поисковых роботов: фото/видео с превью и датой.
   // `contentUrl` указываем только для файлов без премиум-гейта: у закрытых
@@ -94,7 +97,9 @@ export default async function MediaDetailPage({ params }: DetailProps) {
       "@context": "https://schema.org",
       "@type": media.media_type === "video" ? "VideoObject" : "ImageObject",
       name: media.original_name,
-      ...(locked ? {} : { contentUrl: absoluteUrl(media.url) }),
+      // `contentUrl` — только когда ссылка на файл вообще есть: Free её не получает
+      // (оригинал входит в подписку), и роботу нечего было бы открыть.
+      ...(media.url ? { contentUrl: absoluteUrl(media.url) } : {}),
       thumbnailUrl: absoluteUrl(media.thumb_url),
       uploadDate: media.created_at,
       isAccessibleForFree: !locked,
@@ -131,24 +136,30 @@ export default async function MediaDetailPage({ params }: DetailProps) {
                 премиум-контент
               </p>
               <p className="max-w-sm text-xs text-neutral-400">
-                Файл доступен по премиум-подписке.
+                Приватный раздел: доступ по подписке. Открытые разделы можно смотреть
+                бесплатно — подписка снимает ограничения и открывает скачивание.
               </p>
-              <Link href="/profile" className="btn-primary px-4 py-2 text-xs">
-                Запросить доступ
-              </Link>
+              <a
+                href={PREMIUM_CTA_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="btn-primary px-4 py-2 text-xs"
+              >
+                Тарифы и оплата — в боте
+              </a>
             </div>
-          ) : media.url ? (
+          ) : previewUrl ? (
             media.media_type === "image" ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={mediaUrl(media.url)}
+                src={previewUrl}
                 alt={media.original_name}
                 referrerPolicy="no-referrer"
                 className="max-h-[80vh] w-auto max-w-full rounded-lg object-contain"
               />
             ) : (
               <video
-                src={mediaUrl(media.url)}
+                src={previewUrl}
                 controls
                 preload="metadata"
                 playsInline

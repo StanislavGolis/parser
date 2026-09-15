@@ -43,6 +43,20 @@ export const TELEGRAM_BOT_USERNAME = (process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERN
   .trim()
   .replace(/^@/, "");
 
+/** Ссылка на бота: тарифы и оплата живут в нём (`/subscribe`). */
+export const TELEGRAM_BOT_URL = TELEGRAM_BOT_USERNAME
+  ? `https://t.me/${TELEGRAM_BOT_USERNAME}`
+  : "";
+
+/**
+ * Куда вести посетителя, которому нужна подписка.
+ *
+ * Основной путь — бот: там витрина тарифов (`/subscribe`), там же появится оплата.
+ * Если ник бота не задан (сборка без Telegram), остаётся заявка в профиле —
+ * так кнопка не превращается в битую ссылку.
+ */
+export const PREMIUM_CTA_URL = TELEGRAM_BOT_URL || "/feedback?topic=premium";
+
 /** Пути, доступные без входа в закрытом режиме (проверяем по префиксу).
  *  Правовые страницы открыты: правообладатель и проверяющий должны прочитать
  *  правила и контакты без регистрации. */

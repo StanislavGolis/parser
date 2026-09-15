@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { BookmarkIcon, LockIcon, StarIcon } from "@/components/icons";
 import { ApiError, apiSend } from "@/lib/api";
+import { PREMIUM_CTA_URL } from "@/lib/env";
 import { notifyAuthChanged } from "@/lib/authEvents";
 import { formatNumber, parseUtc } from "@/lib/format";
 import type { UserOut } from "@/lib/types";
@@ -112,16 +113,23 @@ export default function ProfilePage() {
         <p className="mt-2 font-mono text-[11px] text-text-muted">
           {user.is_premium
             ? `Действует до: ${formatDate(user.premium_until)}`
-            : "Премиум выдаётся вручную — отправьте заявку."}
+            : "Тарифы и оплата — в Telegram-боте."}
         </p>
 
         {user.is_premium ? null : (
-          <Link href="/feedback?topic=premium" className="btn-primary mt-4 block w-full text-center">
-            Запросить премиум-доступ
-          </Link>
+          <a
+            href={PREMIUM_CTA_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="btn-primary mt-4 block w-full text-center"
+          >
+            Тарифы и оплата — в боте
+          </a>
         )}
         <p className="mt-2 text-[11px] leading-relaxed text-text-muted">
-          Заявка уходит администратору, статус появится здесь.
+          Подписка открывает приватные разделы, скачивание и убирает ограничения
+          открытых разделов. В боте — тарифы и акции; если оплата ещё не подключена,
+          доступ выдадим вручную по заявке.
         </p>
       </div>
 
