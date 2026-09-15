@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.api.common import display_name
 from src.api.deps import client_ip, ip_hash, verify_admin
 from src.api.schemas import MagicLinkOut
 from src.core.config import settings
@@ -44,29 +45,13 @@ def _iso(value: Optional[datetime]) -> Optional[str]:
     return value.isoformat() if value else None
 
 
-def _display_name(user: User) -> str:
-    """Как показать аккаунт в админке: email, @ник или Telegram ID.
-
-    Аккаунты из бота создаются без email, поэтому раньше такая строка в списке
-    выглядела пустой — было не понять, чей это аккаунт и куда нажимать. Теперь имя
-    есть всегда, а источник видно по пометке в интерфейсе.
-    """
-    if user.email:
-        return user.email
-    if user.telegram_username:
-        return f"@{user.telegram_username.lstrip('@')}"
-    if user.telegram_id:
-        return f"Telegram {user.telegram_id}"
-    return f"Аккаунт #{user.id}"
-
-
 def _user_out(user: User, counts: dict) -> dict:
     """Аккаунт + агрегаты (для списка и карточки)."""
     return {
         "id": user.id,
         "email": user.email,
         # Показываем готовое имя и признаки Telegram: у бот-аккаунтов email пуст
-        "display_name": _display_name(user),
+        "display_name": display_name(user),
         "telegram_id": user.telegram_id,
         "telegram_username": user.telegram_username,
         "is_active": bool(user.is_active),

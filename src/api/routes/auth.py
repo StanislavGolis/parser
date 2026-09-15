@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.api.common import display_name
 from src.api.deps import check_rate_limit, client_ip, ip_hash, require_user
 from src.api.schemas import (
     AuthCredentials,
@@ -47,6 +48,9 @@ def user_out(user: User) -> UserOut:
     return UserOut(
         id=user.id,
         email=user.email,
+        display_name=display_name(user),
+        telegram_id=user.telegram_id,
+        telegram_username=user.telegram_username,
         premium_until=user.premium_until,
         is_premium=premium_active(user),
         created_at=user.created_at,

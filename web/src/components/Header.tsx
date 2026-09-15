@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import AuthMenu from "@/components/AuthMenu";
+import { SearchIcon } from "@/components/icons";
 
 const NAV = [
   {
@@ -16,10 +17,14 @@ const NAV = [
     label: "Разделы",
     match: (p: string) => p === "/boards" || p.startsWith("/board"),
   },
-  { href: "/top", label: "Популярное", match: (p: string) => p === "/top" },
-  { href: "/marks", label: "Закладки", match: (p: string) => p.startsWith("/marks") },
-  { href: "/search", label: "Поиск", match: (p: string) => p.startsWith("/search") },
-  { href: "/subscribe", label: "Подписка", match: (p: string) => p.startsWith("/subscribe") },
+  { href: "/top", label: "Топ", match: (p: string) => p === "/top" },
+  // Личный раздел: на средних экранах уходит в меню аккаунта, чтобы шапка не жмётся
+  {
+    href: "/marks",
+    label: "Закладки",
+    match: (p: string) => p.startsWith("/marks"),
+    wide: true,
+  },
 ];
 
 /**
@@ -60,7 +65,9 @@ export default function Header() {
                   key={item.href}
                   href={item.href}
                   aria-current={active ? "page" : undefined}
-                  className={`inline-flex items-center border-b-2 px-3 text-sm transition-colors duration-150 ${
+                  className={`${
+                    item.wide ? "hidden lg:inline-flex" : "inline-flex"
+                  } items-center border-b-2 px-3 text-sm transition-colors duration-150 ${
                     active
                       ? "border-accent-primary font-semibold text-text-primary"
                       : "border-transparent text-text-secondary hover:text-text-primary"
@@ -71,6 +78,19 @@ export default function Header() {
               );
             })}
           </nav>
+          {/* Поиск — иконкой: отдельный пункт меню перегружал шапку */}
+          <Link
+            href="/search"
+            aria-label="Поиск по архиву"
+            title="Поиск по архиву"
+            className={`inline-flex h-9 w-9 items-center justify-center rounded transition-colors ${
+              pathname.startsWith("/search")
+                ? "text-accent-primary"
+                : "text-text-secondary hover:text-text-primary"
+            }`}
+          >
+            <SearchIcon className="h-5 w-5" />
+          </Link>
           <AuthMenu />
         </div>
       </div>

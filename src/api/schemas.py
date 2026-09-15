@@ -274,7 +274,12 @@ class AuthCredentials(BaseModel):
 
 class UserOut(BaseModel):
     id: int
-    email: str
+    # У аккаунтов из Telegram почты нет — поэтому поле необязательное, а имя
+    # для интерфейса собирается в `display_name` (email → @ник → Telegram ID)
+    email: Optional[str] = None
+    display_name: str = ""
+    telegram_id: Optional[int] = None
+    telegram_username: Optional[str] = None
     premium_until: Optional[datetime] = None
     is_premium: bool = False  # премиум активен прямо сейчас
     marks_count: int = 0      # сколько меток поставил пользователь («мои метки»)

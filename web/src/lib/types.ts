@@ -329,12 +329,17 @@ export interface ParserStatus {
 /** Пользователь (доступ к оригиналам и премиум-контенту). */
 export interface UserOut {
   id: number;
-  email: string;
+  /** Почта; у аккаунтов, вошедших через Telegram, её нет. */
+  email: string | null;
+  /** Готовое имя: email → @ник → Telegram ID (для шапки и профиля). */
+  display_name: string;
+  telegram_id: number | null;
+  telegram_username: string | null;
   /** Срок действия премиума (ISO), null — премиум никогда не активировался. */
   premium_until: string | null;
   /** Премиум активен прямо сейчас. */
   is_premium: boolean;
-  /** Сколько меток поставил пользователь («мои метки»). */
+  /** Сколько меток поставил пользователь («мои закладки»). */
   marks_count?: number;
   /** Дата регистрации (ISO) — «с нами с …» в профиле. */
   created_at?: string | null;

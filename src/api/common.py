@@ -39,6 +39,23 @@ def content_locked(media: Media, board: Optional[Board], user: Optional[User]) -
     return is_locked(premium, user)
 
 
+def display_name(user: Optional[User]) -> str:
+    """Как показать аккаунт человеку: email, @ник или Telegram ID.
+
+    Аккаунты из бота создаются без email (и могут не иметь ника), поэтому у нас
+    одно правило для профиля, шапки и админки: сначала почта, потом ник, потом id.
+    """
+    if user is None:
+        return "не вошёл"
+    if user.email:
+        return user.email
+    if user.telegram_username:
+        return f"@{user.telegram_username.lstrip('@')}"
+    if user.telegram_id:
+        return f"Telegram {user.telegram_id}"
+    return f"Аккаунт #{user.id}"
+
+
 def visible_thread_clause():
     """SQL-условие: медиа принадлежит видимому активному треду.
 
