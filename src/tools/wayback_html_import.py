@@ -72,7 +72,10 @@ POST_ID_RE = re.compile(r'id="post_(\d+)"')
 SUBJECT_RE = re.compile(r'<span class="subject">([^<]{2,200})</span>')
 DATE_RE = re.compile(r'data-utc="(\d+)"')
 FILE_RE = re.compile(
-    r'<a[^>]+href="(/[^"]*?/src/[^"]+)"[^>]*>([^<]+)</a>\s*\(<em>([^<]*)</em>\)'
+    # Между ссылкой и скобками с размерами в разметке вакабы стоит `&nbsp;`,
+    # поэтому «пробельное» окружение включает и его.
+    r'<a[^>]+href="(/[^"]*?/src/[^"]+)"[^>]*>([^<]+)</a>(?:&nbsp;|\s)*'
+    r"\(<em>([^<]*)</em>\)"
 )
 SIZE_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(Кб|КБ|кб|Мб|МБ|Kb|Mb)", re.IGNORECASE)
 DIM_RE = re.compile(r"(\d{2,5})\s*[x×]\s*(\d{2,5})")
