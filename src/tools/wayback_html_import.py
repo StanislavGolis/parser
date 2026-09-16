@@ -419,7 +419,7 @@ async def import_file(
                 s3_key=s3_key,
                 variants=variants,
                 duration_seconds=duration,
-                download_status="done",
+                download_status="uploaded",
                 is_visible=visible,
                 is_active=True,
                 is_premium=premium,
