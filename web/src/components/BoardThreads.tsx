@@ -455,18 +455,29 @@ function ThreadCard({
       const raw = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
       if (!raw) return;
       const max = strip.scrollWidth - strip.clientWidth;
-      if (max <= 0) return;
+      if (max <= 1) return; // листать нечего — прокрутка уходит странице
+      // Курсор над каруселью: страницу не прокручиваем, листаем ленту. Раньше
+      // при запасе меньше «шага» событие уходило странице — из-за этого казалось,
+      // что карусель не листается.
+      event.preventDefault();
+
       const direction = raw > 0 ? 1 : -1;
       const step = stepOf();
-      const target = strip.scrollLeft + direction * step;
-      if (target < 0 || target > max) return; // край ленты — страница прокручивается сама
-      event.preventDefault();
+
+      const apply = (dir: number) => {
+        const from = strip.scrollLeft;
+        const target = Math.min(Math.max(from + dir * step, 0), max);
+        // Дошли до края — заворачиваем карусель на другой конец: листание
+        // продолжается, а не «упирается» и не уводит прокрутку в страницу.
+        const wrapped = Math.abs(target - from) < 1 ? (dir > 0 ? 0 : max) : target;
+        strip.scrollTo({ left: wrapped, behavior: "smooth" });
+      };
 
       const now = Date.now();
       const wait = PREVIEW_SCROLL_MS - (now - state.last);
       if (wait <= 0) {
         state.last = now;
-        strip.scrollBy({ left: direction * step, behavior: "smooth" });
+        apply(direction);
         return;
       }
       // Крутят быстрее, чем кадры успевают показаться: держим один шаг в запасе
@@ -475,7 +486,7 @@ function ThreadCard({
         state.timer = window.setTimeout(() => {
           state.timer = null;
           state.last = Date.now();
-          strip.scrollBy({ left: state.queued * step, behavior: "smooth" });
+          apply(state.queued);
         }, wait);
       }
     };
@@ -631,7 +642,7 @@ function ThreadCard({
                 type="button"
                 onClick={() => onOpenAt(m.id)}
                 aria-label={`Открыть: ${m.original_name}`}
-                className={`relative h-32 w-32 shrink-0 overflow-hidden rounded border bg-ink-tertiary transition-colors sm:h-40 sm:w-40 ${
+                className={`relative h-32 w-32 shrink-0 overflow-hidden rounded border bg-ink-tertiary transition-colors sm:h-44 sm:w-44 ${
                   resume?.id === m.id
                     ? "border-accent-primary/70"
                     : m.locked
