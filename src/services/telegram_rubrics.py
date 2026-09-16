@@ -430,23 +430,23 @@ async def pick_board_of_day(
     if not candidates:
         return None
 
-    last_used = {
-        slug: moment
-        for slug, moment in (
-            await session.execute(
-                select(
-                    TelegramPost.rubric_meta["board"].astext,
-                    func.max(TelegramPost.created_at),
-                )
-                .where(
-                    TelegramPost.rubric == "board_day",
-                    TelegramPost.status.in_(("draft", "scheduled", "published")),
-                )
-                .group_by(TelegramPost.rubric_meta["board"].astext)
-            )
-        ).all()
-        if slug
-    }
+    last_used: Dict[str, datetime] = {}
+    history = await session.execute(
+        select(TelegramPost.rubric_meta, TelegramPost.created_at)
+        .where(
+            TelegramPost.rubric == "board_day",
+            TelegramPost.status.in_(("draft", "scheduled", "published")),
+            TelegramPost.rubric_meta.isnot(None),
+        )
+        .order_by(TelegramPost.created_at.desc())
+        .limit(200)
+    )
+    # Постов рубрики немного, поэтому «когда раздел показывали в последний раз»
+    # считаем в Python: группировка по JSONB-полю ломается на bind-параметрах.
+    for meta, created_at in history.all():
+        slug = str((meta or {}).get("board") or "").strip()
+        if slug and slug not in last_used:
+            last_used[slug] = created_at
 
     chosen = sorted(
         candidates,
@@ -590,7 +590,12 @@ def top_week_caption(*, rows: List[BoardStat], days: int = 7) -> str:
     span = "на этой неделе" if days >= 7 else f"за последние {days} дн."
     lines = ["<b>ТОП // НЕДЕЛЯ</b>", "", f"Что смотрели и сохраняли {span}:"]
     for row in rows:
-        growth = f", +{telegram_publisher.human_count(row.fresh)}" if row.fresh else ""
+        # Если раздел целиком появился за период, «+N» рядом с объёмом только путает
+        growth = (
+            f", +{telegram_publisher.human_count(row.fresh)}"
+            if 0 < row.fresh < row.total
+            else ""
+        )
         lines.append(
             f"— /{row.slug}: <b>{telegram_publisher.files_phrase(row.total)}</b>{growth}"
         )

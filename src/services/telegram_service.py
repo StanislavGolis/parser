@@ -51,6 +51,8 @@ IMAGE_MODES = ("mosaic", "single", "album", "none")
 PERIODS = ("day", "week")
 # Максимум фото в альбоме Telegram; столько же держим в наших рубриках
 ALBUM_MAX = 10
+# Сколько медиа грузим для альбома: кадры мозаики плюс приложения (все id поста)
+ALBUM_MEDIA_LIMIT = MAX_TILES + ALBUM_MAX
 # Карантин: сколько держим черновик до публикации, если админ не ответил в ЛС
 AUTOPOST_CHECK_MINUTES = 5
 QUIET_HOURS_DEFAULT = (1, 8)  # ночью не публикуем (МСК)
@@ -302,7 +304,7 @@ async def post_images(
     качестве), для остальных — как раньше: мозаика 2×2 или один кадр из выбранных
     файлов.
     """
-    items = await load_media(session, list(post.media_ids or []))
+    items = await load_media(session, list(post.media_ids or []), ALBUM_MEDIA_LIMIT)
     mode = post.image_mode or "mosaic"
 
     if mode == "none":
@@ -360,7 +362,11 @@ async def _deliver(
     meta = post.rubric_meta or {}
     try:
         if mode == "album":
-            picked = items if items is not None else await load_media(session, list(post.media_ids or []))
+            picked = (
+                items
+                if items is not None
+                else await load_media(session, list(post.media_ids or []), ALBUM_MEDIA_LIMIT)
+            )
             if not (meta.get("tiles") or meta.get("photos")):
                 meta = {"photos": [item.id for item in picked]}
             images = await album_images(s3, picked, meta, default_blur=blur)
