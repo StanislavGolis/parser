@@ -795,6 +795,33 @@ export interface AdminPlans {
   sales: Record<string, number>;
 }
 
+/** Кошельки: звёзды бота в Telegram и крипта в Crypto Pay + журнал оплат. */
+export interface WalletStars {
+  configured: boolean;
+  amount: number;
+  error: string | null;
+}
+
+export interface WalletCrypto {
+  configured: boolean;
+  asset: string;
+  balances: Array<{ currency_code: string; available: string; onhold: string }>;
+  error: string | null;
+}
+
+export interface WalletJournal {
+  paid_count: number;
+  paid_rub: number;
+  pending_count: number;
+  by_provider: Record<string, number>;
+}
+
+export interface WalletsView {
+  stars: WalletStars;
+  crypto: WalletCrypto;
+  journal: WalletJournal;
+}
+
 /** Строка журнала оплат. */
 export interface PaymentItem {
   id: number;

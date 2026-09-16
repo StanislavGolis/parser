@@ -71,6 +71,28 @@ async def available() -> bool:
     return bool(data and data.get("result"))
 
 
+async def balance() -> list[Dict[str, str]]:
+    """Баланс приложения по монетам (`getBalance`): `currency_code`, `available`, `onhold`.
+
+    Деньги покупателя приходят на баланс приложения в Crypto Pay — у нас только журнал
+    `payments`. Показываем оба рядом: расхождение значит, что оплата пришла, а выдача
+    не сработала (или наоборот).
+    """
+    data = await call("getBalance")
+    if not data:
+        return []
+    items = data.get("result") or []
+    return [
+        {
+            "currency_code": str(item.get("currency_code") or ""),
+            "available": str(item.get("available") or "0"),
+            "onhold": str(item.get("onhold") or "0"),
+        }
+        for item in items
+        if isinstance(item, dict)
+    ]
+
+
 async def create_invoice(
     *,
     amount_cents: int,

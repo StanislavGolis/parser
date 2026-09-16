@@ -11,14 +11,26 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import verify_admin
-from src.api.schemas import AdminPlanOut, AdminPlansOut, PaymentOut, PlanIn, PromoIn, PromoOut
+from src.api.schemas import (
+    AdminPlanOut,
+    AdminPlansOut,
+    PaymentOut,
+    PlanIn,
+    PromoIn,
+    PromoOut,
+    WalletCryptoOut,
+    WalletJournalOut,
+    WalletStarsOut,
+    WalletsOut,
+)
+from src.core.config import settings
 from src.core.db import get_session
 from src.core.models import Payment, User
-from src.services import pricing
+from src.services import cryptobot, pricing, telegram_api
 from src.services.analytics import record_audit
 
 router = APIRouter(prefix="/api/v1/admin/plans", tags=["admin-plans"])
@@ -48,6 +60,55 @@ async def _plans_out(session: AsyncSession) -> AdminPlansOut:
 async def list_plans(_=Depends(verify_admin), session: AsyncSession = Depends(get_session)):
     """Тарифы, акция и продажи — для вкладки «Тарифы»."""
     return await _plans_out(session)
+
+
+@router.get("/wallets", response_model=WalletsOut)
+async def wallets(_=Depends(verify_admin), session: AsyncSession = Depends(get_session)):
+    """Балансы кошельков: звёзды бота (Telegram) и крипта (Crypto Pay) + журнал.
+
+    Деньги лежат не у нас: звёзды — на балансе бота, крипта — в приложении Crypto Pay,
+    а в базе только записи `payments`. Поэтому журнал показываем рядом с балансами:
+    расхождение означает, что оплата пришла, а выдача не сработала (или наоборот).
+    """
+    stars = WalletStarsOut(configured=bool((settings.TELEGRAM_BOT_TOKEN or "").strip()))
+    if stars.configured:
+        try:
+            stars.amount = await telegram_api.star_balance()
+        except Exception as exc:  # noqa: BLE001
+            stars.error = str(exc)
+
+    crypto = WalletCryptoOut(
+        configured=cryptobot.configured(),
+        asset=(settings.CRYPTOBOT_ASSET or "USDT").strip().upper(),
+    )
+    if crypto.configured:
+        try:
+            crypto.balances = await cryptobot.balance()
+        except Exception as exc:  # noqa: BLE001
+            crypto.error = str(exc)
+
+    rows = (
+        await session.execute(
+            select(
+                Payment.provider,
+                Payment.status,
+                func.count(),
+                func.coalesce(func.sum(Payment.amount_rub), 0),
+            ).group_by(Payment.provider, Payment.status)
+        )
+    ).all()
+
+    journal = WalletJournalOut()
+    for provider, status, count, rub in rows:
+        if status == "paid":
+            journal.paid_count += int(count)
+            journal.paid_rub += int(rub or 0)
+            key = str(provider or "manual")
+            journal.by_provider[key] = journal.by_provider.get(key, 0) + int(count)
+        elif status == "pending":
+            journal.pending_count += int(count)
+
+    return WalletsOut(stars=stars, crypto=crypto, journal=journal)
 
 
 @router.get("/promos", response_model=List[PromoOut])

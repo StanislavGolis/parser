@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError, apiPatch, apiPost, apiSend } from "@/lib/api";
 import { useAdminToken } from "@/lib/adminAuth";
 import { formatNumber, parseUtc } from "@/lib/format";
-import type { AdminPlan, AdminPlans, PaymentItem, PromoItem } from "@/lib/types";
+import type { AdminPlan, AdminPlans, PaymentItem, PromoItem, WalletsView } from "@/lib/types";
 
 const PLAN_ORDER = ["days3", "month", "year", "forever"];
 
@@ -39,6 +39,7 @@ export default function PlansPanel() {
   const { token, logout } = useAdminToken();
   const [data, setData] = useState<AdminPlans | null>(null);
   const [payments, setPayments] = useState<PaymentItem[] | null>(null);
+  const [wallets, setWallets] = useState<WalletsView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<Record<string, Partial<AdminPlan>>>({});
@@ -70,6 +71,8 @@ export default function PlansPanel() {
         setPayments(
           await apiSend<PaymentItem[]>("/api/v1/admin/plans/payments?limit=30", { token: t }),
         );
+        // Кошельки тянем отдельно: балансы — внешние сервисы (Telegram, Crypto Pay)
+        setWallets(await apiSend<WalletsView>("/api/v1/admin/plans/wallets", { token: t }));
         setError(null);
       } catch (err) {
         guard(err);
@@ -211,9 +214,79 @@ export default function PlansPanel() {
     (a, b) => PLAN_ORDER.indexOf(a.code) - PLAN_ORDER.indexOf(b.code),
   );
 
+  // Крипта: основная монета счёта (обычно USDT) и остальное, если на балансе что-то есть
+  const cryptoBalances = wallets?.crypto.balances ?? [];
+  const cryptoAsset = wallets?.crypto.asset ?? "USDT";
+  const mainBalance = cryptoBalances.find((item) => item.currency_code === cryptoAsset);
+  const cryptoMain = mainBalance ? `${mainBalance.available} ${mainBalance.currency_code}` : null;
+  const cryptoOther = cryptoBalances.filter(
+    (item) => item.currency_code !== cryptoAsset && Number(item.available) > 0,
+  );
+
   return (
     <div className="mt-4 flex flex-col gap-6">
       {error ? <p className="text-xs text-accent-danger">{error}</p> : null}
+
+      {/* Кошельки: деньги лежат не у нас — звёзды на балансе бота, крипта в Crypto Pay,
+          а в базе только журнал. Показываем рядом, чтобы расхождение было видно. */}
+      <div className="mt-4 rounded border border-line bg-ink-secondary p-4">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+          <h3 className="text-sm font-semibold">Кошельки</h3>
+
+          <span
+            className="font-mono text-xs text-text-primary"
+            title="Звёзды лежат на балансе бота в Telegram; вывод — через Fragment (холд 21 день)"
+          >
+            ⭐ бот: {wallets ? formatNumber(wallets.stars.amount) : "…"}
+            {wallets?.stars.error ? (
+              <span className="ml-1.5 text-accent-danger" title={wallets.stars.error}>
+                ошибка
+              </span>
+            ) : null}
+          </span>
+
+          <span
+            className="font-mono text-xs text-text-primary"
+            title="Крипта приходит на баланс приложения в Crypto Pay"
+          >
+            🪙 {wallets?.crypto.asset ?? "USDT"}: {cryptoMain ?? "…"}
+            {wallets?.crypto.error ? (
+              <span className="ml-1.5 text-accent-danger" title={wallets.crypto.error}>
+                ошибка
+              </span>
+            ) : null}
+          </span>
+
+          <span className="font-mono text-[11px] text-text-muted">
+            журнал: {wallets ? formatNumber(wallets.journal.paid_count) : "…"} оплат
+            {wallets ? ` (${rub(wallets.journal.paid_rub)} справочно)` : ""}
+            {wallets?.journal.pending_count
+              ? ` · ждут оплаты: ${wallets.journal.pending_count}`
+              : ""}
+          </span>
+
+          <button
+            type="button"
+            onClick={() => token && void load(token)}
+            className="btn-ghost ml-auto px-2.5 py-1.5 text-xs"
+            title="Перечитать балансы у Telegram и Crypto Pay"
+          >
+            обновить
+          </button>
+        </div>
+        {cryptoOther.length ? (
+          <p className="mt-1 font-mono text-[11px] text-text-muted">
+            ещё на балансе:{" "}
+            {cryptoOther
+              .map((item) => `${item.available} ${item.currency_code}`)
+              .join(" · ")}
+          </p>
+        ) : null}
+        <p className="mt-1 text-[11px] text-text-muted">
+          Журнал — наши записи о продажах. Если баланс больше журнала, оплата пришла, а
+          выдача не сработала: смотрите логи `telegram-gateway` и `api`.
+        </p>
+      </div>
 
       {/* Тарифы */}
       <div className="rounded border border-line bg-ink-secondary p-4">

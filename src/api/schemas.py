@@ -607,6 +607,41 @@ class AdminPlansOut(BaseModel):
     sales: Dict[str, int] = {}
 
 
+class WalletStarsOut(BaseModel):
+    """Баланс звёзд бота в Telegram (`getMyStarBalance`)."""
+
+    configured: bool = False
+    amount: int = 0
+    error: Optional[str] = None
+
+
+class WalletCryptoOut(BaseModel):
+    """Баланс приложения в Crypto Pay (`getBalance`) по монетам."""
+
+    configured: bool = False
+    asset: str = "USDT"
+    balances: List[Dict[str, str]] = []
+    error: Optional[str] = None
+
+
+class WalletJournalOut(BaseModel):
+    """Журнал оплат — для сверки с балансами кошельков."""
+
+    paid_count: int = 0
+    paid_rub: int = 0
+    pending_count: int = 0
+    # Сколько оплаченных записей по каждому провайдеру (stars / crypto / manual)
+    by_provider: Dict[str, int] = {}
+
+
+class WalletsOut(BaseModel):
+    """Кошельки в админке: звёзды бота, крипта Crypto Pay и журнал оплат."""
+
+    stars: WalletStarsOut
+    crypto: WalletCryptoOut
+    journal: WalletJournalOut
+
+
 class PlanIn(BaseModel):
     """Правка тарифа из админки: меняем только то, что передали."""
 

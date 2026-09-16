@@ -120,6 +120,17 @@ async def send_message(
     return await _call("sendMessage", data=data)
 
 
+async def star_balance() -> int:
+    """Баланс звёзд бота в Telegram (`getMyStarBalance`).
+
+    Звёзды, купленные пользователями, лежат на балансе **бота** в Telegram — у нас
+    только записи в `payments`. Поэтому баланс и журнал показываются в админке рядом:
+    расхождение сразу видно (вывод звёзд идёт через Fragment, там холд 21 день).
+    """
+    result = await _call("getMyStarBalance")
+    return int((result or {}).get("amount") or 0)
+
+
 async def chat_member_count(chat_id: Optional[str] = None) -> int:
     """Сколько подписчиков в канале — метрика для триггеров розыгрышей."""
     result = await _call("getChatMemberCount", data={"chat_id": chat_id or channel_chat_id()})
