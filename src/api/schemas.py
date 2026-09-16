@@ -658,13 +658,19 @@ class AdminPlansOut(BaseModel):
 
 
 class CryptoWebhookOut(BaseModel):
-    """Состояние вебхука Crypto Pay: включён ли и куда шлёт уведомления об оплате."""
+    """Вебхук Crypto Pay: адрес для настроек приложения и факт последней доставки.
+
+    Через API вебхук не включить — у Crypto Pay нет методов `setWebhook`/
+    `getWebhookInfo`: адрес задаётся в @CryptoBot → Crypto Pay → My Apps → приложение
+    → Webhooks. Поэтому «работает ли вебхук» видно по факту: когда пришло последнее
+    уведомление об оплате.
+    """
 
     configured: bool = False              # задан ли токен приложения
-    enabled: bool = False                 # стоит ли вебхук в Crypto Pay
-    url: str = ""                         # адрес, который ставим (из SITE_URL)
-    current_url: Optional[str] = None     # что настроено в Crypto Pay сейчас
-    last_error: Optional[str] = None
+    url: str = ""                         # адрес, который нужно вписать в приложении
+    receiving: bool = False               # приходило ли хотя бы одно уведомление
+    last_received_at: Optional[str] = None
+    last_invoice_id: Optional[int] = None
     error: Optional[str] = None
 
 

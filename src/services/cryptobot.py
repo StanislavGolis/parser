@@ -14,13 +14,18 @@
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 import logging
 import secrets
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 import aiohttp
 
 from src.core.config import settings
+from src.core.redis_client import redis_client
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +75,12 @@ async def available() -> bool:
     """Живой ли токен: `getMe` возвращает приложение (id, имя, бот-процессор)."""
     data = await call("getMe")
     return bool(data and data.get("result"))
+
+
+async def app_info() -> Optional[dict]:
+    """Сведения о приложении (`getMe`): имя и `app_id` — для админки и CLI."""
+    data = await call("getMe")
+    return (data or {}).get("result")
 
 
 async def balance() -> list[Dict[str, str]]:
@@ -137,45 +148,75 @@ async def get_invoice(invoice_id: int) -> Optional[dict]:
 
 
 # ── Вебхук: мгновенная выдача вместо опроса ──────────────────────────
-
-
-def webhook_token_ok(value: Optional[str]) -> bool:
-    """Проверяет подпись вебхука: Crypto Pay шлёт токен приложения в заголовке.
-
-    Заголовок — `crypto-pay-api-token`. Сравниваем постоянным по времени
-    способом: угадать токен перебором по времени ответа не получится.
-    """
-    token = (settings.CRYPTOBOT_TOKEN or "").strip()
-    sent = (value or "").strip()
-    return bool(token) and secrets.compare_digest(sent, token)
+#
+# Как включается: в @CryptoBot → Crypto Pay → My Apps → приложение → Webhooks…
+# → «Enable Webhooks» и вписать адрес (см. `webhook_url()`). Методов API для
+# управления вебхуком у Crypto Pay нет — поэтому адрес задаётся в интерфейсе
+# бота, и `405 METHOD_NOT_FOUND` на `setWebhook` это лишь подтверждает.
+#
+# Подпись: Crypto Pay шлёт заголовок `crypto-pay-api-signature` — HMAC-SHA256
+# от сырого тела запроса, ключ = SHA256(токен приложения). Проверяем её, поэтому
+# поддельное уведомление выдать премиум не может.
 
 
 def webhook_url() -> str:
-    """Адрес нашего вебхука (из `SITE_URL`): Crypto Pay стучится сюда при оплате."""
+    """Адрес нашего вебхука (из `SITE_URL`) — его вписывают в настройках приложения."""
     base = (settings.SITE_URL or "").strip().rstrip("/")
     return f"{base}/api/v1/billing/crypto/webhook" if base else ""
 
 
-async def set_webhook(url: str, update_types: Optional[list[str]] = None) -> Optional[dict]:
-    """Ставит вебхук: Crypto Pay будет присылать уведомления об оплате счёта.
+def verify_webhook_signature(body: bytes, signature: Optional[str]) -> bool:
+    """Проверяет подпись уведомления Crypto Pay.
 
-    `update_types` по умолчанию только `invoice_paid` — нам не нужны события
-    создания/истечения счёта, а поток уведомлений получается минимальным.
+    `body` — сырое тело запроса (до разбора JSON): подпись считается именно по нему.
+    Сравнение постоянным по времени способом, чтобы подпись нельзя было подобрать
+    по времени ответа.
     """
-    body: Dict[str, Any] = {"url": url}
-    if update_types:
-        body["update_types"] = update_types
-    data = await call("setWebhook", body)
-    return (data or {}).get("result")
+    token = (settings.CRYPTOBOT_TOKEN or "").strip()
+    sent = (signature or "").strip().lower()
+    if not token or not sent:
+        return False
+    secret = hashlib.sha256(token.encode()).digest()
+    expected = hmac.new(secret, body, hashlib.sha256).hexdigest()
+    return secrets.compare_digest(expected, sent)
 
 
-async def delete_webhook() -> bool:
-    """Выключает вебхук (остаётся опрос статуса по кнопке «Я оплатил»)."""
-    return bool(await call("deleteWebhook"))
+# Ключ Redis: факт последней доставки вебхука. У Crypto Pay нет `getWebhookInfo`
+# (вебхук включается в интерфейсе бота), поэтому «работает ли» видно только по факту
+# прихода уведомления — его и показываем в админке.
+WEBHOOK_LAST_KEY = "crypto:webhook:last"
 
 
-async def webhook_info() -> Optional[dict]:
-    """Что настроено сейчас: `url`, `ip_address`, `update_types`, `last_error_*`."""
-    data = await call("getWebhookInfo")
-    return (data or {}).get("result")
+async def remember_webhook(invoice_id: int, paid: bool) -> None:
+    """Запоминает последнее уведомление: по нему видно, что вебхук доходит."""
+    try:
+        await redis_client.set(
+            WEBHOOK_LAST_KEY,
+            json.dumps(
+                {
+                    "at": datetime.utcnow().isoformat(timespec="seconds"),
+                    "invoice_id": int(invoice_id),
+                    "paid": bool(paid),
+                }
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 — статистика не должна ломать выдачу
+        logger.warning("Не удалось записать факт вебхука: %s", exc)
+
+
+async def last_webhook() -> Optional[dict]:
+    """Последнее полученное уведомление (`None` — вебхук ещё не доходил)."""
+    try:
+        raw = await redis_client.get(WEBHOOK_LAST_KEY)
+    except Exception as exc:  # noqa: BLE001 — админка не должна падать из-за Redis
+        logger.warning("Не удалось прочитать факт вебхука: %s", exc)
+        return None
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except Exception:  # noqa: BLE001
+        return None
+    return data if isinstance(data, dict) else None
+
 

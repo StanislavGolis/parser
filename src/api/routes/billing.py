@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import json
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -244,19 +245,23 @@ async def crypto_webhook(
     покупателя. Опрос остаётся запасным путём: если уведомление не дошло (домен
     недоступен, сбой), бот всё равно выяснит статус по кнопке.
 
-    Защита — заголовок `crypto-pay-api-token`: им Crypto Pay подписывает уведомление.
-    Сверх этого статус счёта перепроверяется в `getInvoices`: выдаём только когда
-    Crypto Pay действительно подтверждает `paid`, поэтому подделка уведомления
-    ничего не даёт. Идемпотентность даёт `mark_paid` (ключ — `external_id`).
+    Защита — подпись уведомления: заголовок `crypto-pay-api-signature`, HMAC-SHA256
+    от сырого тела запроса с ключом SHA256(токен приложения). Сверх подписи статус
+    счёта перепроверяется в `getInvoices`: выдаём только когда Crypto Pay
+    действительно подтверждает `paid`, поэтому даже валидная по подписи, но чужая
+    «оплата» ничего не даёт. Идемпотентность обеспечивает `mark_paid`.
 
     Отвечаем 200 и на «не наше» уведомление: повторять его бессмысленно, а ретраи
     Crypto Pay нам не нужны.
     """
-    if not cryptobot.webhook_token_ok(request.headers.get("crypto-pay-api-token")):
+    raw = await request.body()
+    if not cryptobot.verify_webhook_signature(
+        raw, request.headers.get("crypto-pay-api-signature")
+    ):
         raise HTTPException(status_code=403, detail="Неверная подпись вебхука")
 
     try:
-        update = await request.json()
+        update = json.loads(raw.decode("utf-8"))
     except Exception:  # noqa: BLE001 — мусор от сканеров не должен ронять ручку
         raise HTTPException(status_code=400, detail="Ожидается JSON") from None
     if not isinstance(update, dict):
@@ -276,8 +281,10 @@ async def crypto_webhook(
         )
     ).scalar_one_or_none()
     if payment is None:
+        await cryptobot.remember_webhook(int(invoice_id), False)
         return {"ok": True, "ignored": "счёт не найден в журнале"}
     if payment.status == "paid":
+        await cryptobot.remember_webhook(int(invoice_id), True)
         return {"ok": True, "paid": True, "status": "paid", "already": True}
 
     # Подтверждение — только статус счёта у Crypto Pay (а не тело уведомления)
@@ -285,6 +292,7 @@ async def crypto_webhook(
     if invoice is None:
         raise HTTPException(status_code=502, detail="Crypto Pay недоступен")
     if invoice.get("status") != "paid":
+        await cryptobot.remember_webhook(int(invoice_id), False)
         return {"ok": True, "paid": False, "status": invoice.get("status")}
 
     payment = await pricing.mark_paid(session, payment)
@@ -300,6 +308,7 @@ async def crypto_webhook(
     )
     await session.commit()
     await session.refresh(payment)
+    await cryptobot.remember_webhook(int(invoice_id), True)
     return {"ok": True, "paid": True, "status": "paid", "premium_until": payment.premium_until}
 
 

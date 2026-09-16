@@ -246,16 +246,20 @@ docker compose -f docker-compose.prod.yml up -d --build
       (`POST /api/v1/billing/crypto/check`) — это запасной путь, работающий даже если
       домен недоступен извне. Переменные: `CRYPTOBOT_TOKEN`, `CRYPTOBOT_ASSET`
       (по умолчанию USDT), `CRYPTOBOT_TESTNET`, `CRYPTOBOT_INVOICE_TTL_MINUTES`.
-- [x] **Вебхук Crypto Pay (16.09.2026)**: `POST /api/v1/billing/crypto/webhook` —
-      Crypto Pay сообщает об оплате сам (`update_type=invoice_paid`), премиум выдаётся
-      за секунды, покупателю не нужно нажимать «Я оплатил». Подпись — заголовок
-      `crypto-pay-api-token` (сравнение постоянным по времени способом), сверх неё
-      статус счёта перепроверяется в `getInvoices`: выдаём только при подтверждённом
-      `paid`, поэтому подделка уведомления ничего не даёт. Ручка открыта анонимам
-      (`/api/v1/billing/` в списке исключений закрытого режима) — сессии у Crypto Pay нет.
-      Управление: админка «Продажи» → «Кошельки» (статус + «включить/выключить») или
-      CLI `python -m src.tools.cryptobot_webhook set|info|delete`; адрес берётся из
-      `SITE_URL`. Ручки админки: `GET|POST|DELETE /api/v1/admin/plans/crypto/webhook`.
+- [x] **Вебхук Crypto Pay (17.09.2026)**: `POST /api/v1/billing/crypto/webhook` —
+      Crypto Pay сам сообщает об оплате (`update_type=invoice_paid`), премиум выдаётся
+      за секунды, покупателю не нужно нажимать «Я оплатил». Подпись уведомления —
+      HMAC-SHA256 в заголовке `crypto-pay-api-signature` (ключ — SHA256 токена
+      приложения), сверх неё статус счёта перепроверяется в `getInvoices`: выдаём
+      только при подтверждённом `paid`. Ручка открыта анонимам (`/api/v1/billing/` в
+      списке исключений закрытого режима) — сессии у Crypto Pay нет.
+      **Включение — в интерфейсе бота**: @CryptoBot → Crypto Pay → My Apps → приложение
+      → Webhooks… → «Enable Webhooks» + адрес (методов API для управления вебхуком у
+      Crypto Pay нет — только `createInvoice`/`getInvoices`/`getBalance` и т. п.).
+      Адрес показывает админка «Продажи» → «Кошельки» (ручка
+      `GET /api/v1/admin/plans/crypto/webhook`) и CLI
+      `python -m src.tools.cryptobot_webhook info`; там же видно, когда приходило
+      последнее уведомление (Redis `crypto:webhook:last`).
 - [ ] **Оплата и доступ Free** — что осталось до продаж: возвраты платежей, реклама
       для Free (отложена), тексты оферты. План — [`LAUNCH.md`](LAUNCH.md) §1.
 

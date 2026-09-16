@@ -856,15 +856,15 @@ export interface WalletStars {
   error: string | null;
 }
 
-/** Состояние вебхука Crypto Pay: включён ли и куда шлёт уведомления об оплате. */
+/** Состояние вебхука Crypto Pay: адрес для настроек приложения и последняя доставка. */
 export interface CryptoWebhook {
   configured: boolean;
-  enabled: boolean;
-  /** Адрес, который ставим при включении (из SITE_URL). */
+  /** Адрес, который вписывают в @CryptoBot → Crypto Pay → My Apps → Webhooks. */
   url: string;
-  /** Что настроено в Crypto Pay прямо сейчас. */
-  current_url: string | null;
-  last_error: string | null;
+  /** Приходило ли уведомление: значит вебхук включён и доходит до нас. */
+  receiving: boolean;
+  last_received_at: string | null;
+  last_invoice_id: number | null;
   error: string | null;
 }
 
