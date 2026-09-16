@@ -45,9 +45,13 @@ async def check_rate_limit(ip: str, limit: Optional[int] = None, scope: str = "a
     """Rate limiting на Redis: не более `limit` запросов/мин на IP.
 
     По умолчанию лимит берётся из `API_RATE_LIMIT` (корзина `api`). Медиа-файлы
-    идут в отдельную корзину `media` со своим лимитом (`MEDIA_RATE_LIMIT`): одна
-    страница галереи запрашивает десятки превью, и общий лимит «съедался»
-    обычным просмотром ленты (в списках вместо картинок появлялись 429).
+    идут в отдельные корзины: превью (`preview`) — щедрая, потому что лента
+    запрашивает десятки картинок на экран, а «тяжёлые» варианты и оригиналы
+    (`media`) — строже. Посещения и события интерфейса пишутся в `events`, чтобы
+    аналитика не выбирала лимит на списки файлов.
+
+    При превышении отдаём 429 с `Retry-After`: клиент может подождать и повторить
+    (для картинок это делает фронтенд — сам повторяет загрузку с паузой).
     """
     effective = settings.API_RATE_LIMIT if limit is None else int(limit)
     if effective <= 0:
@@ -57,12 +61,15 @@ async def check_rate_limit(ip: str, limit: Optional[int] = None, scope: str = "a
     pipe = redis_client.pipeline()
     pipe.incr(rl_key)
     pipe.expire(rl_key, 60)
-    count, _ = await pipe.execute()
+    pipe.ttl(rl_key)
+    count, _, ttl = await pipe.execute()
 
     if int(count) > effective:
+        retry_after = max(1, min(60, int(ttl or 60)))
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many requests. Slow down.",
+            detail="Слишком много запросов: подождите и повторите.",
+            headers={"Retry-After": str(retry_after)},
         )
 
 

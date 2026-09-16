@@ -51,7 +51,11 @@ async def track_hit(
     if not settings.ANALYTICS_ENABLED:
         return HitOut()
 
-    await check_rate_limit(client_ip(request))
+    # Своя корзина: аналитика пишет событие на каждую страницу и действие, и общий
+    # лимит JSON-запросов выбирался — лента переставала догружать страницы.
+    await check_rate_limit(
+        client_ip(request), limit=settings.EVENTS_RATE_LIMIT, scope="events"
+    )
 
     event = payload.event if payload.event and EVENT_RE.match(payload.event) else None
     session_id = (

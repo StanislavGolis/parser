@@ -711,7 +711,17 @@ async def media_asset(
     if kind not in ASSET_KINDS:
         raise HTTPException(status_code=404, detail="Unknown asset kind")
 
-    await check_rate_limit(client_ip(request), limit=settings.MEDIA_RATE_LIMIT, scope="media")
+    # Превью — в отдельной «щедрой» корзине: листание ленты запрашивает десятки
+    # картинок, и общий лимит выбирался (в галерее вместо превью были пустые места).
+    # «Тяжёлые» варианты (web/video) остаются под строгим лимитом.
+    if kind in ("thumb", "thumb_blur"):
+        await check_rate_limit(
+            client_ip(request), limit=settings.MEDIA_PREVIEW_RATE_LIMIT, scope="preview"
+        )
+    else:
+        await check_rate_limit(
+            client_ip(request), limit=settings.MEDIA_RATE_LIMIT, scope="media"
+        )
 
     media = await _get_visible_media(session, media_id)
     board = await _check_media_access(session, media)

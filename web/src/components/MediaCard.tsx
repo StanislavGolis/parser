@@ -15,6 +15,7 @@ import { formatBytes, formatCompact, formatDuration } from "@/lib/format";
 import { isLocked, premiumState, blurSrc, thumbSrc, webSrc } from "@/lib/media";
 import type { Board, MediaItem } from "@/lib/types";
 import { useImgLoaded } from "@/lib/useImgLoaded";
+import { useRetrySrc } from "@/lib/useRetrySrc";
 
 interface MediaCardProps {
   media: MediaItem;
@@ -49,6 +50,11 @@ export default function MediaCard({ media, board, showTop = false, eager = false
   // Постер видео: `thumb` → `thumb_blur`. Оригинал сюда не попадает (это видеофайл),
   // поэтому при отсутствии постера карточка покажет кадр плеером, а не «недоступно».
   const poster = thumbSrc(media);
+  // Превью и кадр плеера с авто-повтором: сервер ограничивает частоту запросов,
+  // и при быстром листании превью могло не отдаться (429) — карточка показывала
+  // «недоступно» навсегда. Теперь загрузка повторяется сама (см. `useRetrySrc`).
+  const preview = useRetrySrc(failed ? undefined : poster, () => setFailed(true));
+  const clip = useRetrySrc(failed || poster ? undefined : webSrc(media), () => setFailed(true));
 
   // Сброс состояния при смене файла (перелистывание/подгрузка)
   useEffect(() => {
@@ -110,14 +116,15 @@ export default function MediaCard({ media, board, showTop = false, eager = false
             // eslint-disable-next-line @next/next/no-img-element
             <img
               ref={img.setRef}
-              src={thumbSrc(media)}
+              key={preview.key}
+              src={preview.src}
               alt={locked ? "" : media.original_name}
               loading={eager ? "eager" : "lazy"}
               fetchPriority={eager ? "high" : "auto"}
               decoding="async"
               referrerPolicy="no-referrer"
               onLoad={img.onLoad}
-              onError={() => setFailed(true)}
+              onError={preview.retry}
               className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
                 img.loaded || locked ? "opacity-100" : "opacity-0"
               }`}
@@ -132,28 +139,29 @@ export default function MediaCard({ media, board, showTop = false, eager = false
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   ref={img.setRef}
-                  src={poster}
+                  key={preview.key}
+                  src={preview.src}
                   alt={locked ? "" : media.original_name}
                   loading={eager ? "eager" : "lazy"}
                   fetchPriority={eager ? "high" : "auto"}
                   decoding="async"
                   referrerPolicy="no-referrer"
                   onLoad={img.onLoad}
-                  onError={() => setFailed(true)}
+                  onError={preview.retry}
                   className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
                     img.loaded || locked ? "opacity-100" : "opacity-0"
                   }`}
                 />
               ) : (
                 <video
-                  src={webSrc(media)}
+                  src={clip.src}
                   muted
                   playsInline
                   preload="metadata"
                   aria-label={media.original_name}
                   controlsList="nodownload"
                   onContextMenu={(e) => e.preventDefault()}
-                  onError={() => setFailed(true)}
+                  onError={clip.retry}
                   className="absolute inset-0 h-full w-full object-cover"
                 />
               )}

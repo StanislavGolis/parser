@@ -28,6 +28,7 @@ import { formatBytes, formatCompact, formatDuration } from "@/lib/format";
 import { webSrc, premiumState } from "@/lib/media";
 import { saveResume } from "@/lib/resume";
 import { useMarkToggle } from "@/lib/useMark";
+import { useRetrySrc } from "@/lib/useRetrySrc";
 import type { BoardsById, MediaItem, ViewResult } from "@/lib/types";
 
 // Листание колесом (W1): накапливаем дельту до порога и держим «кулдаун»,
@@ -166,6 +167,11 @@ export default function Lightbox({
   useEffect(() => {
     setFailed(false);
   }, [media?.id, media?.url]);
+
+  // Просмотр с авто-повтором: сервер ограничивает частоту запросов, и «файл не
+  // отдался» из-за лимита (429) лечится ожиданием — загрузка повторяется сама,
+  // а кнопка «Попробовать снова» запускает её заново вручную.
+  const view = useRetrySrc(failed ? undefined : webSrc(media), () => setFailed(true));
 
   // Прогрев соседних кадров: пока зритель смотрит файл, в браузерном кэше уже
   // лежат ±PRELOAD_RADIUS превью — быстрый свайп не показывает «пустые» слайды.
@@ -613,7 +619,7 @@ export default function Lightbox({
         {canShow ? (
           isVideo ? (
             <video
-              src={webSrc(media)}
+              src={view.src}
               // Постер: пока плеер не начал играть, виден кадр (на мобильных
               // браузер сам кадр не рисует, и окно выглядело чёрным)
               poster={mediaUrl(media.thumb_url ?? media.blur_url) ?? undefined}
@@ -625,7 +631,7 @@ export default function Lightbox({
               controlsList="nodownload noremoteplayback"
               disablePictureInPicture
               onContextMenu={(e) => e.preventDefault()}
-              onError={() => setFailed(true)}
+              onError={view.retry}
               className="max-h-[min(88vh,100%)] w-auto max-w-full rounded sm:max-h-[min(74vh,100%)]"
             >
               Ваш браузер не поддерживает HTML5-видео.
@@ -633,10 +639,11 @@ export default function Lightbox({
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={webSrc(media)}
+              key={view.key}
+              src={view.src}
               alt={media.original_name}
               referrerPolicy="no-referrer"
-              onError={() => setFailed(true)}
+              onError={view.retry}
               className="max-h-[min(88vh,100%)] w-auto max-w-full rounded object-contain sm:max-h-[min(74vh,100%)]"
             />
           )
@@ -665,8 +672,19 @@ export default function Lightbox({
               файл недоступен
             </p>
             <p className="max-w-sm text-xs text-text-secondary">
-              Файл не отдался из хранилища — попробуйте позже.
+              Файл не отдался из хранилища: сработал лимит запросов или сбой хранилища.
+              Повторите через полминуты.
             </p>
+            <button
+              type="button"
+              onClick={() => {
+                setFailed(false);
+                view.reset();
+              }}
+              className="btn-ghost px-3 py-1.5 text-xs"
+            >
+              Попробовать снова
+            </button>
           </div>
         )}
         </div>

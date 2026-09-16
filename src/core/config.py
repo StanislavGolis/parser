@@ -150,8 +150,12 @@ class Settings(BaseSettings):
 
     # API сайта
     ADMIN_TOKEN: str = ""                     # токен для админ-эндпоинтов
-    API_RATE_LIMIT: int = 300                 # JSON-запросов в минуту на IP (ленты, детали, статистика)
-    MEDIA_RATE_LIMIT: int = 1500              # запросов медиа-файлов в минуту на IP (превью/оригиналы)
+    API_RATE_LIMIT: int = 900                 # JSON-запросов в минуту на IP (ленты, детали, статистика)
+    MEDIA_RATE_LIMIT: int = 3000              # «тяжёлые» медиа-запросы в минуту на IP (web/video/оригиналы)
+    # Превью (thumb/thumb_blur) в отдельной корзине: лента запрашивает десятки картинок
+    # на экран, и при быстром листании общий лимит выбирался — карточки пропадали (429).
+    MEDIA_PREVIEW_RATE_LIMIT: int = 12000     # превью в минуту на IP (0 — выключить лимит превью)
+    EVENTS_RATE_LIMIT: int = 900              # посещения/события интерфейса в минуту на IP (своя аналитика)
     API_CORS_ORIGINS: str = "http://localhost:3000,http://localhost:8080"
     POPULARITY_RECALC_MINUTES: int = 5        # период пересчёта popularity_score, в минутах
 
