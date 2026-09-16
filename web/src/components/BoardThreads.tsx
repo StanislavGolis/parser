@@ -23,13 +23,13 @@ import type { BoardThread, MediaItem, MediaList, ThreadList } from "@/lib/types"
 
 const PER_PAGE = 15;
 /**
- * Пауза между сменами кадра превью при прокрутке колесом (мс).
+ * Пауза между шагами карусели превью при прокрутке колесом (мс).
  *
- * Намеренно небыстрая: кадр должен успеть подгрузиться, иначе на плашке мигали
- * бы пустые места. Соседний кадр подгружается заранее, поэтому смена выглядит
- * мгновенной, а «перекрут» колеса не проматывает полтреда.
+ * Намеренно небыстрая: миниатюры грузятся лениво по мере появления в ленте,
+ * поэтому шаг даём с паузой — кадр успевает подгрузиться, и в карусели не
+ * мигают пустые места.
  */
-const PREVIEW_WHEEL_MS = 450;
+const PREVIEW_SCROLL_MS = 300;
 /** Порция файлов треда в лайтбоксе: 300 — максимум, который отдаёт API. */
 const THREAD_PAGE_SIZE = 300;
 
@@ -414,89 +414,81 @@ function ThreadCard({
   const freshCount =
     resume && resume.exact !== false ? Math.max(0, visibleCount - resume.total) : 0;
 
-  // ── Большое превью на всю плашку: кадры листаются колесом мыши ──────
-  // В плашке показываем один кадр во всю ширину (раньше это была лента мелких
-  // миниатюр), а остальные кадры (API отдаёт начало треда, до 8 штук) подгружаются
-  // по мере листания. Смена кадра небыстрая (PREVIEW_WHEEL_MS), следующий кадр
-  // предзагружается — поэтому картинка не «мигает» пустотой.
-  const [previewIndex, setPreviewIndex] = useState(0);
-  const previewBoxRef = useRef<HTMLDivElement | null>(null);
-  const previewIndexRef = useRef(0);
-  const wheelRef = useRef<{ last: number; timer: number | null; queued: number }>({
+  // ── Карусель превью: лента миниатюр листается колесом мыши ──────────
+  // В плашке — начало треда (API отдаёт до 8 кадров), лента занимает всю ширину.
+  // Колесо над лентой прокручивает её горизонтально шагами по одному кадру; шаг
+  // небыстрый (PREVIEW_SCROLL_MS), чтобы миниатюры успевали подгрузиться. На
+  // краю ленты прокрутка возвращается странице: она не «залипает».
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  const stripWheelRef = useRef<{ last: number; timer: number | null; queued: number }>({
     last: 0,
     timer: null,
     queued: 0,
   });
-  const previewTotal = preview.length;
-  const current = preview[Math.min(previewIndex, Math.max(0, previewTotal - 1))] ?? null;
+  const [stripScrollable, setStripScrollable] = useState(false);
 
+  // Есть ли что листать: подсказку про колесо показываем только если лента
+  // реально шире плашки, иначе она бы врала на широком экране.
   useEffect(() => {
-    previewIndexRef.current = previewIndex;
-  }, [previewIndex]);
-
-  // Сменился тред (перелистывание раздела, фильтры) — начинаем с первого кадра
-  useEffect(() => {
-    setPreviewIndex(0);
-  }, [thread.thread_id]);
-
-  // Предзагрузка следующего кадра: листание колесом не показывает пустоту
-  useEffect(() => {
-    const next = preview[previewIndex + 1];
-    const url = next ? thumbSrc(next) : undefined;
-    if (!url) return;
-    const image = new window.Image();
-    image.decoding = "async";
-    image.src = url;
-  }, [preview, previewIndex]);
-
-  // Колесо над превью листает кадры; на краю списка прокрутка уходит странице
-  useEffect(() => {
-    const box = previewBoxRef.current;
-    if (!box || previewTotal < 2) return;
-
-    const apply = (step: number) => {
-      setPreviewIndex((value) => {
-        const next = Math.min(Math.max(value + step, 0), previewTotal - 1);
-        return next === value ? value : next;
-      });
+    const strip = stripRef.current;
+    if (!strip) return;
+    const update = () => setStripScrollable(strip.scrollWidth - strip.clientWidth > 4);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(strip);
+    window.addEventListener("resize", update);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", update);
     };
+  }, [preview.length]);
+
+  useEffect(() => {
+    const strip = stripRef.current;
+    if (!strip || preview.length < 2) return;
+
+    const state = stripWheelRef.current;
+    // Шаг — ширина одной миниатюры плюс промежуток ленты (gap-2 = 8px)
+    const stepOf = () => ((strip.firstElementChild as HTMLElement | null)?.offsetWidth ?? 128) + 8;
 
     const onWheel = (event: WheelEvent) => {
-      if (!event.deltaY) return;
-      const step = event.deltaY > 0 ? 1 : -1;
-      const target = previewIndexRef.current + step;
-      if (target < 0 || target > previewTotal - 1) return; // дальше кадров нет
+      const raw = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      if (!raw) return;
+      const max = strip.scrollWidth - strip.clientWidth;
+      if (max <= 0) return;
+      const direction = raw > 0 ? 1 : -1;
+      const step = stepOf();
+      const target = strip.scrollLeft + direction * step;
+      if (target < 0 || target > max) return; // край ленты — страница прокручивается сама
       event.preventDefault();
 
-      const state = wheelRef.current;
       const now = Date.now();
-      const wait = PREVIEW_WHEEL_MS - (now - state.last);
+      const wait = PREVIEW_SCROLL_MS - (now - state.last);
       if (wait <= 0) {
         state.last = now;
-        apply(step);
+        strip.scrollBy({ left: direction * step, behavior: "smooth" });
         return;
       }
-      // Крутят быстрее, чем кадры успевают показаться: запоминаем один шаг
-      state.queued = step;
+      // Крутят быстрее, чем кадры успевают показаться: держим один шаг в запасе
+      state.queued = direction;
       if (state.timer === null) {
         state.timer = window.setTimeout(() => {
           state.timer = null;
           state.last = Date.now();
-          apply(state.queued);
+          strip.scrollBy({ left: state.queued * step, behavior: "smooth" });
         }, wait);
       }
     };
 
-    box.addEventListener("wheel", onWheel, { passive: false });
+    strip.addEventListener("wheel", onWheel, { passive: false });
     return () => {
-      box.removeEventListener("wheel", onWheel);
-      const state = wheelRef.current;
+      strip.removeEventListener("wheel", onWheel);
       if (state.timer !== null) {
         window.clearTimeout(state.timer);
         state.timer = null;
       }
     };
-  }, [previewTotal]);
+  }, [preview.length]);
 
   return (
     <article className="overflow-hidden rounded border border-line bg-ink-secondary">
@@ -624,95 +616,93 @@ function ThreadCard({
           ) : null}
       </div>
 
-      {/* Превью на всю плашку: кадры листаются колесом мыши (неспешно, чтобы
-          успевали подгружаться), клик открывает тред на текущем кадре. */}
-      {current ? (
-        <div
-          ref={previewBoxRef}
-          className="relative h-48 w-full select-none overflow-hidden bg-ink-tertiary sm:h-60 lg:h-72"
-        >
-          <button
-            type="button"
-            onClick={() => onOpenAt(current.id)}
-            aria-label={`Открыть: ${current.original_name}`}
-            className="absolute inset-0 h-full w-full cursor-pointer"
+      {/* Карусель превью: лента миниатюр на всю ширину плашки. Колесо мыши над
+          лентой листает её горизонтально (небыстро — миниатюры грузятся лениво),
+          клик по кадру открывает тред на этом файле. */}
+      {preview.length > 0 ? (
+        <div className="group/strip relative">
+          <div
+            ref={stripRef}
+            className="flex w-full gap-2 overflow-x-auto px-4 py-3 [scrollbar-width:none] sm:px-4 [&::-webkit-scrollbar]:hidden"
           >
-            {current.thumb_url || current.url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                key={current.id}
-                src={thumbSrc(current)}
-                alt={current.locked ? "" : current.original_name}
-                loading="lazy"
-                decoding="async"
-                referrerPolicy="no-referrer"
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <span className="flex h-full w-full items-center justify-center">
-                {current.media_type === "video" ? (
-                  <FilmIcon className="h-6 w-6 text-text-muted" />
-                ) : (
-                  <ImageIcon className="h-6 w-6 text-text-muted" />
-                )}
-              </span>
-            )}
-          </button>
-
-          {/* Пометка премиума одна и без иконки: доступ виден по цвету бейджа */}
-          {premiumState(current) ? (
-            <span
-              className={`pointer-events-none absolute left-2 top-2 rounded-[3px] bg-black/70 px-1 py-0.5 font-mono text-[9px] uppercase leading-none ${
-                current.locked ? "text-accent-warning" : "text-accent-secondary"
-              }`}
-              title={
-                current.locked
-                  ? "Премиум-контент: нужна подписка"
-                  : "Премиум-контент: доступен по вашей подписке"
-              }
-            >
-              premium
-            </span>
-          ) : null}
-
-          {/* Маркер видео: значок ▶ и длительность (как на карточках галереи) */}
-          {current.media_type === "video" ? (
-            <span
-              className="pointer-events-none absolute right-2 top-2 inline-flex items-center gap-0.5 rounded-[3px] bg-black/70 px-1 py-0.5 font-mono text-[9px] leading-none text-text-primary"
-              aria-hidden
-            >
-              <PlayIcon className="h-2.5 w-2.5" />
-              {formatDuration(current.duration_seconds) || ""}
-            </span>
-          ) : null}
-
-          {/* «Здесь вы остановились» — если текущий кадр и есть точка возврата */}
-          {resume?.id === current.id ? (
-            <span
-              className="pointer-events-none absolute left-2 bottom-9 inline-flex items-center gap-0.5 rounded-[3px] bg-black/70 px-1 py-0.5 font-mono text-[9px] leading-none text-accent-primary"
-              title="Здесь вы остановились в прошлый раз"
-            >
-              <HistoryIcon className="h-2.5 w-2.5" />
-            </span>
-          ) : null}
-
-          {/* Индикатор кадров и подсказка про колесо: понять управление без чтения кода */}
-          {previewTotal > 1 ? (
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 bg-gradient-to-t from-black/75 via-black/25 to-transparent px-3 pb-2 pt-8">
-              <div className="flex items-center gap-1">
-                {preview.map((item, index) => (
-                  <span
-                    key={item.id}
-                    className={`h-1.5 rounded-full transition-all ${
-                      index === previewIndex ? "w-5 bg-text-primary" : "w-1.5 bg-text-secondary/50"
-                    }`}
+            {preview.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => onOpenAt(m.id)}
+                aria-label={`Открыть: ${m.original_name}`}
+                className={`relative h-32 w-32 shrink-0 overflow-hidden rounded border bg-ink-tertiary transition-colors sm:h-40 sm:w-40 ${
+                  resume?.id === m.id
+                    ? "border-accent-primary/70"
+                    : m.locked
+                      ? "border-accent-warning"
+                      : premiumState(m) === "granted"
+                        ? "border-accent-secondary"
+                        : "border-line hover:border-accent-primary"
+                }`}
+              >
+                {m.thumb_url || m.url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={thumbSrc(m)}
+                    alt={m.locked ? "" : m.original_name}
+                    loading="lazy"
+                    decoding="async"
+                    referrerPolicy="no-referrer"
+                    className="h-full w-full object-cover"
                   />
-                ))}
-              </div>
-              <span className="font-mono text-[10px] leading-none text-text-secondary">
-                {previewIndex + 1} / {previewTotal} · колесо — листать
-              </span>
-            </div>
+                ) : (
+                  <span className="flex h-full w-full items-center justify-center bg-ink-tertiary">
+                    {m.media_type === "video" ? (
+                      <FilmIcon className="h-5 w-5 text-text-muted" />
+                    ) : (
+                      <ImageIcon className="h-5 w-5 text-text-muted" />
+                    )}
+                  </span>
+                )}
+                {/* Пометка премиума одна и без иконки: доступ виден по рамке */}
+                {premiumState(m) ? (
+                  <span
+                    className={`pointer-events-none absolute left-1 top-1 rounded-[3px] bg-black/70 px-1 py-0.5 font-mono text-[9px] uppercase leading-none ${
+                      m.locked ? "text-accent-warning" : "text-accent-secondary"
+                    }`}
+                    title={
+                      m.locked
+                        ? "Премиум-контент: нужна подписка"
+                        : "Премиум-контент: доступен по вашей подписке"
+                    }
+                  >
+                    premium
+                  </span>
+                ) : null}
+                {/* Маркер видео: значок ▶ и длительность (как на карточках галереи) */}
+                {m.media_type === "video" ? (
+                  <span
+                    className="pointer-events-none absolute bottom-1 right-1 inline-flex items-center gap-0.5 rounded-[3px] bg-black/70 px-1 py-0.5 font-mono text-[9px] leading-none text-text-primary"
+                    aria-hidden
+                  >
+                    <PlayIcon className="h-2.5 w-2.5" />
+                    {formatDuration(m.duration_seconds) || ""}
+                  </span>
+                ) : null}
+                {/* Метка «здесь вы остановились» — на том же превью, что и в точке возврата */}
+                {resume?.id === m.id ? (
+                  <span
+                    className="pointer-events-none absolute bottom-1 left-1 inline-flex items-center gap-0.5 rounded-[3px] bg-black/70 px-1 py-0.5 font-mono text-[9px] leading-none text-accent-primary"
+                    title="Здесь вы остановились в прошлый раз"
+                  >
+                    <HistoryIcon className="h-2.5 w-2.5" />
+                  </span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+
+          {/* Подсказка про колесо: только когда ленте действительно есть куда листать */}
+          {stripScrollable ? (
+            <span className="pointer-events-none absolute right-4 top-4 rounded-[3px] bg-black/65 px-1.5 py-0.5 font-mono text-[9px] leading-none text-text-secondary opacity-0 transition-opacity duration-200 group-hover/strip:opacity-100">
+              колесо — листать
+            </span>
           ) : null}
         </div>
       ) : (
