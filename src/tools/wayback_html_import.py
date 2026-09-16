@@ -284,6 +284,7 @@ async def import_file(
     thread_num: int,
     ref: FileRef,
     thread_url: str,
+    host: str,
     *,
     visible: bool,
     premium: bool,
@@ -314,7 +315,10 @@ async def import_file(
             stats.skipped += 1
             return
 
-    blob = file_snapshot(ref.url, year=year, delay=delay)
+    # В разметке ссылки относительные (`/h/src/имя`), а CDX и снапшоты нужно
+    # спрашивать по полному пути с хостом — без него архив отвечает «нет данных».
+    snapshot_path = ref.url if ref.url.startswith("http") else f"{host}{ref.url}"
+    blob = file_snapshot(snapshot_path, year=year, delay=delay)
     if not blob:
         stats.missing += 1
         print(f"   [miss] нет снапшота: {ref.name}")
@@ -491,6 +495,7 @@ async def run(args: argparse.Namespace) -> Stats:
                         ref.num,
                         file_ref,
                         ref.url,
+                        args.host,
                         visible=not args.hidden,
                         premium=args.premium,
                         video_web=not args.no_video_transcode,
