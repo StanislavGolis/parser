@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import Lightbox from "@/components/Lightbox";
 import {
@@ -22,7 +22,14 @@ import type { ResumeMap, ResumePoint } from "@/lib/resume";
 import type { BoardThread, MediaItem, MediaList, ThreadList } from "@/lib/types";
 
 const PER_PAGE = 15;
-const MAX_PREVIEW = 8;
+/**
+ * Пауза между сменами кадра превью при прокрутке колесом (мс).
+ *
+ * Намеренно небыстрая: кадр должен успеть подгрузиться, иначе на плашке мигали
+ * бы пустые места. Соседний кадр подгружается заранее, поэтому смена выглядит
+ * мгновенной, а «перекрут» колеса не проматывает полтреда.
+ */
+const PREVIEW_WHEEL_MS = 450;
 /** Порция файлов треда в лайтбоксе: 300 — максимум, который отдаёт API. */
 const THREAD_PAGE_SIZE = 300;
 
@@ -407,6 +414,90 @@ function ThreadCard({
   const freshCount =
     resume && resume.exact !== false ? Math.max(0, visibleCount - resume.total) : 0;
 
+  // ── Большое превью на всю плашку: кадры листаются колесом мыши ──────
+  // В плашке показываем один кадр во всю ширину (раньше это была лента мелких
+  // миниатюр), а остальные кадры (API отдаёт начало треда, до 8 штук) подгружаются
+  // по мере листания. Смена кадра небыстрая (PREVIEW_WHEEL_MS), следующий кадр
+  // предзагружается — поэтому картинка не «мигает» пустотой.
+  const [previewIndex, setPreviewIndex] = useState(0);
+  const previewBoxRef = useRef<HTMLDivElement | null>(null);
+  const previewIndexRef = useRef(0);
+  const wheelRef = useRef<{ last: number; timer: number | null; queued: number }>({
+    last: 0,
+    timer: null,
+    queued: 0,
+  });
+  const previewTotal = preview.length;
+  const current = preview[Math.min(previewIndex, Math.max(0, previewTotal - 1))] ?? null;
+
+  useEffect(() => {
+    previewIndexRef.current = previewIndex;
+  }, [previewIndex]);
+
+  // Сменился тред (перелистывание раздела, фильтры) — начинаем с первого кадра
+  useEffect(() => {
+    setPreviewIndex(0);
+  }, [thread.thread_id]);
+
+  // Предзагрузка следующего кадра: листание колесом не показывает пустоту
+  useEffect(() => {
+    const next = preview[previewIndex + 1];
+    const url = next ? thumbSrc(next) : undefined;
+    if (!url) return;
+    const image = new window.Image();
+    image.decoding = "async";
+    image.src = url;
+  }, [preview, previewIndex]);
+
+  // Колесо над превью листает кадры; на краю списка прокрутка уходит странице
+  useEffect(() => {
+    const box = previewBoxRef.current;
+    if (!box || previewTotal < 2) return;
+
+    const apply = (step: number) => {
+      setPreviewIndex((value) => {
+        const next = Math.min(Math.max(value + step, 0), previewTotal - 1);
+        return next === value ? value : next;
+      });
+    };
+
+    const onWheel = (event: WheelEvent) => {
+      if (!event.deltaY) return;
+      const step = event.deltaY > 0 ? 1 : -1;
+      const target = previewIndexRef.current + step;
+      if (target < 0 || target > previewTotal - 1) return; // дальше кадров нет
+      event.preventDefault();
+
+      const state = wheelRef.current;
+      const now = Date.now();
+      const wait = PREVIEW_WHEEL_MS - (now - state.last);
+      if (wait <= 0) {
+        state.last = now;
+        apply(step);
+        return;
+      }
+      // Крутят быстрее, чем кадры успевают показаться: запоминаем один шаг
+      state.queued = step;
+      if (state.timer === null) {
+        state.timer = window.setTimeout(() => {
+          state.timer = null;
+          state.last = Date.now();
+          apply(state.queued);
+        }, wait);
+      }
+    };
+
+    box.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      box.removeEventListener("wheel", onWheel);
+      const state = wheelRef.current;
+      if (state.timer !== null) {
+        window.clearTimeout(state.timer);
+        state.timer = null;
+      }
+    };
+  }, [previewTotal]);
+
   return (
     <article className="overflow-hidden rounded border border-line bg-ink-secondary">
       {/* Шапка треда */}
@@ -533,80 +624,96 @@ function ThreadCard({
           ) : null}
       </div>
 
-      {/* Превью файлов */}
-      {preview.length > 0 ? (
-        <div className="flex gap-2 overflow-x-auto px-4 py-3 sm:px-4">
-          {preview.map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => onOpenAt(m.id)}
-              aria-label={`Открыть: ${m.original_name}`}
-              className={`group relative h-20 w-20 shrink-0 overflow-hidden rounded border bg-ink-tertiary transition-colors ${
-                resume?.id === m.id
-                  ? "border-accent-primary/70"
-                  : m.locked
-                    ? "border-accent-warning"
-                    : premiumState(m) === "granted"
-                      ? "border-accent-secondary"
-                      : "border-line hover:border-accent-primary"
+      {/* Превью на всю плашку: кадры листаются колесом мыши (неспешно, чтобы
+          успевали подгружаться), клик открывает тред на текущем кадре. */}
+      {current ? (
+        <div
+          ref={previewBoxRef}
+          className="relative h-48 w-full select-none overflow-hidden bg-ink-tertiary sm:h-60 lg:h-72"
+        >
+          <button
+            type="button"
+            onClick={() => onOpenAt(current.id)}
+            aria-label={`Открыть: ${current.original_name}`}
+            className="absolute inset-0 h-full w-full cursor-pointer"
+          >
+            {current.thumb_url || current.url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={current.id}
+                src={thumbSrc(current)}
+                alt={current.locked ? "" : current.original_name}
+                loading="lazy"
+                decoding="async"
+                referrerPolicy="no-referrer"
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <span className="flex h-full w-full items-center justify-center">
+                {current.media_type === "video" ? (
+                  <FilmIcon className="h-6 w-6 text-text-muted" />
+                ) : (
+                  <ImageIcon className="h-6 w-6 text-text-muted" />
+                )}
+              </span>
+            )}
+          </button>
+
+          {/* Пометка премиума одна и без иконки: доступ виден по цвету бейджа */}
+          {premiumState(current) ? (
+            <span
+              className={`pointer-events-none absolute left-2 top-2 rounded-[3px] bg-black/70 px-1 py-0.5 font-mono text-[9px] uppercase leading-none ${
+                current.locked ? "text-accent-warning" : "text-accent-secondary"
               }`}
+              title={
+                current.locked
+                  ? "Премиум-контент: нужна подписка"
+                  : "Премиум-контент: доступен по вашей подписке"
+              }
             >
-              {m.thumb_url || m.url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={thumbSrc(m)}
-                  alt={m.locked ? "" : m.original_name}
-                  loading="lazy"
-                  decoding="async"
-                  referrerPolicy="no-referrer"
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <span className="flex h-full w-full items-center justify-center bg-ink-tertiary">
-                  {m.media_type === "video" ? (
-                    <FilmIcon className="h-5 w-5 text-text-muted" />
-                  ) : (
-                    <ImageIcon className="h-5 w-5 text-text-muted" />
-                  )}
-                </span>
-              )}
-              {/* Пометка премиума одна и без иконки: доступ виден по рамке превью */}
-              {premiumState(m) ? (
-                <span
-                  className={`pointer-events-none absolute left-0.5 top-0.5 rounded-[3px] bg-black/70 px-1 py-0.5 font-mono text-[9px] uppercase leading-none ${
-                    m.locked ? "text-accent-warning" : "text-accent-secondary"
-                  }`}
-                  title={
-                    m.locked
-                      ? "Премиум-контент: нужна подписка"
-                      : "Премиум-контент: доступен по вашей подписке"
-                  }
-                >
-                  premium
-                </span>
-              ) : null}
-              {/* Маркер видео: значок ▶ и длительность (как на карточках галереи) */}
-              {m.media_type === "video" ? (
-                <span
-                  className="pointer-events-none absolute bottom-0.5 right-0.5 inline-flex items-center gap-0.5 rounded-[3px] bg-black/70 px-1 py-0.5 font-mono text-[9px] leading-none text-text-primary"
-                  aria-hidden
-                >
-                  <PlayIcon className="h-2.5 w-2.5" />
-                  {formatDuration(m.duration_seconds) || ""}
-                </span>
-              ) : null}
-              {/* Метка «здесь вы остановились» — на том же превью, что и в точке возврата */}
-              {resume?.id === m.id ? (
-                <span
-                  className="pointer-events-none absolute bottom-0.5 left-0.5 inline-flex items-center gap-0.5 rounded-[3px] bg-black/70 px-1 py-0.5 font-mono text-[9px] leading-none text-accent-primary"
-                  title="Здесь вы остановились в прошлый раз"
-                >
-                  <HistoryIcon className="h-2.5 w-2.5" />
-                </span>
-              ) : null}
-            </button>
-          ))}
+              premium
+            </span>
+          ) : null}
+
+          {/* Маркер видео: значок ▶ и длительность (как на карточках галереи) */}
+          {current.media_type === "video" ? (
+            <span
+              className="pointer-events-none absolute right-2 top-2 inline-flex items-center gap-0.5 rounded-[3px] bg-black/70 px-1 py-0.5 font-mono text-[9px] leading-none text-text-primary"
+              aria-hidden
+            >
+              <PlayIcon className="h-2.5 w-2.5" />
+              {formatDuration(current.duration_seconds) || ""}
+            </span>
+          ) : null}
+
+          {/* «Здесь вы остановились» — если текущий кадр и есть точка возврата */}
+          {resume?.id === current.id ? (
+            <span
+              className="pointer-events-none absolute left-2 bottom-9 inline-flex items-center gap-0.5 rounded-[3px] bg-black/70 px-1 py-0.5 font-mono text-[9px] leading-none text-accent-primary"
+              title="Здесь вы остановились в прошлый раз"
+            >
+              <HistoryIcon className="h-2.5 w-2.5" />
+            </span>
+          ) : null}
+
+          {/* Индикатор кадров и подсказка про колесо: понять управление без чтения кода */}
+          {previewTotal > 1 ? (
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 bg-gradient-to-t from-black/75 via-black/25 to-transparent px-3 pb-2 pt-8">
+              <div className="flex items-center gap-1">
+                {preview.map((item, index) => (
+                  <span
+                    key={item.id}
+                    className={`h-1.5 rounded-full transition-all ${
+                      index === previewIndex ? "w-5 bg-text-primary" : "w-1.5 bg-text-secondary/50"
+                    }`}
+                  />
+                ))}
+              </div>
+              <span className="font-mono text-[10px] leading-none text-text-secondary">
+                {previewIndex + 1} / {previewTotal} · колесо — листать
+              </span>
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="px-4 py-4 font-mono text-[11px] text-text-muted sm:px-4">
