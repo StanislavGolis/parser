@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import TelegramExtras from "@/components/admin/TelegramExtras";
 import TelegramPanel from "@/components/admin/TelegramPanel";
+import TelegramRubrics from "@/components/admin/TelegramRubrics";
 
 /**
  * Вкладки внутри раздела «Канал».
@@ -14,12 +15,13 @@ import TelegramPanel from "@/components/admin/TelegramPanel";
  * данные (панели монтируются по одной).
  */
 
-type Tab = "composer" | "log" | "autopost" | "giveaways";
+type Tab = "composer" | "log" | "autopost" | "rubrics" | "giveaways";
 
 const TABS: Array<{ value: Tab; label: string; hint: string }> = [
   { value: "composer", label: "Пост", hint: "Собрать и опубликовать пост в канал" },
   { value: "log", label: "Журнал", hint: "Что и когда публиковалось" },
   { value: "autopost", label: "Автопостинг", hint: "Расписание, карантин, окна тишины" },
+  { value: "rubrics", label: "Рубрики", hint: "Свежее, раздел дня, топ недели" },
   { value: "giveaways", label: "Розыгрыши", hint: "Конкурсы премиум-подписки" },
 ];
 
@@ -67,6 +69,7 @@ export default function TelegramTabs() {
       {tab === "composer" ? <TelegramPanel section="composer" /> : null}
       {tab === "log" ? <TelegramPanel section="log" /> : null}
       {tab === "autopost" ? <TelegramExtras section="autopost" /> : null}
+      {tab === "rubrics" ? <TelegramRubrics /> : null}
       {tab === "giveaways" ? <TelegramExtras section="giveaways" /> : null}
     </div>
   );

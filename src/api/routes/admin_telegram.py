@@ -13,6 +13,9 @@
   сервис `telegram-publisher`; отложенный пост можно отменить;
 * **карантин** — автопост приходит админу в ЛС бота с кнопками «Опубликовать /
   Отклонить / Отложить», в канал ничего не уходит само;
+* **рубрики автопоста** — «Свежее», «Раздел дня» и «Топ недели»: включаются и
+  настраиваются по отдельности (`src/services/telegram_rubrics.py`), у каждой своя
+  пауза между постами, предпросмотр текста и кадров — прямо в админке;
 * **розыгрыши** — анонс с кнопкой «Участвовать», выбор победителей и авто-выдача
   премиума, пост-итоги.
 
@@ -48,19 +51,22 @@ from src.api.schemas import (
     TelegramPostListOut,
     TelegramPostOut,
     TelegramPreviewOut,
+    TelegramRubricIn,
+    TelegramRubricOut,
+    TelegramRubricPreviewOut,
 )
 from src.core.config import settings
 from src.core.db import get_session
 from src.core.models import Board, Giveaway, GiveawayEntry, Media, TelegramPost, User
-from src.services import telegram_api, telegram_publisher, telegram_service
+from src.services import telegram_api, telegram_publisher, telegram_rubrics, telegram_service
 from src.services.analytics import record_audit
 from src.services.s3_storage import S3Storage
 
 router = APIRouter(prefix="/api/v1/admin/telegram", tags=["admin-telegram"])
 
 STATUSES = ("draft", "scheduled", "published", "failed", "deleted", "cancelled", "rejected")
-KINDS = ("teaser", "digest", "announce")
-IMAGE_MODES = ("mosaic", "single", "none")
+KINDS = ("teaser", "digest", "announce", "rubric")
+IMAGE_MODES = ("mosaic", "single", "album", "none")
 MAX_TILES = 4
 
 
@@ -77,6 +83,26 @@ def _post_out(post: TelegramPost) -> TelegramPostOut:
     out = TelegramPostOut.model_validate(post)
     out.link = telegram_service.link_for(post)
     return out
+
+
+def _rubric_out(rubric, now: Optional[datetime] = None) -> TelegramRubricOut:
+    """Рубрика для админки: настройки, «покажем ли сейчас» и когда ждать снова."""
+    out = TelegramRubricOut.model_validate(rubric)
+    out.effective = telegram_rubrics.options_for(rubric)
+    out.next_run_at = telegram_rubrics.next_run_at(rubric)
+    out.can_run = telegram_rubrics.is_due(rubric, now)
+    if not rubric.enabled:
+        out.reason = "выключена"
+    elif not out.can_run:
+        out.reason = "пауза между постами"
+    return out
+
+
+async def _rubric_or_404(session: AsyncSession, code: str):
+    rubric = await telegram_rubrics.get_rubric(session, code)
+    if rubric is None:
+        raise HTTPException(status_code=404, detail="Рубрика не найдена")
+    return rubric
 
 
 # Обратная совместимость внутри модуля: раньше функция называлась `_out`
@@ -639,6 +665,90 @@ async def run_autopost(
     )
     row.last_post_at = datetime.utcnow()
     await session.commit()
+    return _post_out(post)
+
+
+# ── Рубрики автопоста ────────────────────────────────────────────────
+
+
+@router.get("/rubrics", response_model=List[TelegramRubricOut])
+async def list_rubrics(_=Depends(verify_admin), session: AsyncSession = Depends(get_session)):
+    """Рубрики автопоста («Свежее», «Раздел дня», «Топ недели») с их настройками."""
+    now = datetime.utcnow()
+    return [_rubric_out(row, now) for row in await telegram_rubrics.list_rubrics(session)]
+
+
+@router.patch("/rubrics/{code}", response_model=TelegramRubricOut)
+async def update_rubric(
+    code: str,
+    payload: TelegramRubricIn,
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Включает/выключает рубрику, меняет паузу между постами и параметры поста."""
+    rubric = await _rubric_or_404(session, code)
+
+    if payload.enabled is not None:
+        rubric.enabled = payload.enabled
+    if payload.title is not None:
+        rubric.title = payload.title.strip()[:64]
+    if payload.sort_order is not None:
+        rubric.sort_order = max(0, min(999, payload.sort_order))
+    if payload.min_gap_hours is not None:
+        rubric.min_gap_hours = max(1, min(24 * 30, payload.min_gap_hours))
+    if payload.options is not None:
+        merged = dict(rubric.options or {})
+        for key, value in payload.options.items():
+            # Пустое значение = «вернуть значение по умолчанию» — ключ убираем
+            if value is None or value == "":
+                merged.pop(str(key), None)
+            else:
+                merged[str(key)] = value
+        rubric.options = merged or None
+
+    await record_audit(
+        session,
+        action="telegram.rubric.settings",
+        target=rubric.code,
+        details=f"включена: {rubric.enabled}, пауза: {rubric.min_gap_hours} ч",
+    )
+    await session.commit()
+    await session.refresh(rubric)
+    return _rubric_out(rubric)
+
+
+@router.post("/rubrics/{code}/preview", response_model=TelegramRubricPreviewOut)
+async def preview_rubric(
+    code: str,
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+    s3: S3Storage = Depends(get_s3),
+):
+    """Показывает, что рубрика соберёт прямо сейчас: текст и кадры, без публикации."""
+    rubric = await _rubric_or_404(session, code)
+    row = await telegram_service.get_autopost(session)
+    data = await telegram_rubrics.preview(session, s3, rubric, boards=row.boards)
+    return TelegramRubricPreviewOut(code=rubric.code, **data)
+
+
+@router.post("/rubrics/{code}/run", response_model=TelegramPostOut)
+async def run_rubric(
+    code: str,
+    publish: bool = Query(False, description="Отправить в канал сразу, минуя карантин"),
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+    s3: S3Storage = Depends(get_s3),
+):
+    """Собирает рубрику сейчас: в карантин (по умолчанию) или сразу в канал."""
+    rubric = await _rubric_or_404(session, code)
+    row = await telegram_service.get_autopost(session)
+    post = await telegram_rubrics.make_post(
+        session, s3, rubric, row, actor="admin-token", publish=publish
+    )
+    if post is None:
+        raise HTTPException(
+            status_code=409, detail="В архиве нет подходящих файлов — собирать нечего"
+        )
     return _post_out(post)
 
 

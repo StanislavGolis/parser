@@ -47,6 +47,58 @@ def _font(size: int) -> ImageFont.ImageFont:
         return ImageFont.load_default()
 
 
+def human_count(value: int) -> str:
+    """Число с разделителем разрядов: `9572` → `9 572` (как в примерах рубрик)."""
+    return f"{int(value):,}".replace(",", " ")
+
+
+def plural(value: int, one: str, few: str, many: str) -> str:
+    """Русское склонение по числу: `1 файл` / `2 файла` / `5 файлов`."""
+    number = abs(int(value)) % 100
+    if 11 <= number <= 14:
+        return many
+    number %= 10
+    if number == 1:
+        return one
+    if 2 <= number <= 4:
+        return few
+    return many
+
+
+def files_phrase(value: int) -> str:
+    """«1 149 файлов» — число и правильная форма слова."""
+    return f"{human_count(value)} {plural(value, 'файл', 'файла', 'файлов')}"
+
+
+def boards_phrase(value: int, preposition: str = "") -> str:
+    """«6 разделах» / «2 разделах» — для строки «в 6 разделах»."""
+    return f"{human_count(value)} {plural(value, 'раздел', 'раздела', 'разделов')}{preposition}"
+
+
+def to_jpeg(data: bytes, *, max_side: int = 2560, quality: int = 88) -> Optional[bytes]:
+    """Приводит картинку к JPEG, пригодному для Telegram.
+
+    Наши деривативы (`web`, `thumb_blur`) — WebP, а `sendPhoto`/`sendMediaGroup`
+    надёжно принимают JPEG/PNG. Заодно ужимаем длинную сторону до 2560 px: больше
+    Telegram всё равно пережимает, а лимит на файл — 10 МБ.
+    """
+    try:
+        img = Image.open(io.BytesIO(data))
+    except Exception:  # noqa: BLE001 — битый дериватив не должен ронять пост
+        return None
+
+    if max(img.size) > max_side:
+        scale = max_side / max(img.size)
+        img = img.resize((max(1, round(img.width * scale)), max(1, round(img.height * scale))), Image.LANCZOS)
+
+    buffer = io.BytesIO()
+    try:
+        img.convert("RGB").save(buffer, "JPEG", quality=quality, optimize=True)
+    except Exception:  # noqa: BLE001
+        return None
+    return buffer.getvalue()
+
+
 def _fit_tile(data: bytes, width: int, height: int) -> Optional[Image.Image]:
     """Плитка мозаики: кадр обрезается по центру под нужный размер."""
     try:

@@ -1,18 +1,20 @@
 # src/tools/telegram_autopost.py
-"""Планировщик Telegram-канала: отложенные посты, автопост в карантин, итоги розыгрышей.
+"""Планировщик Telegram-канала: отложенные посты, рубрики автопоста, итоги розыгрышей.
 
 Отдельный процесс (сервис `telegram-publisher` в docker-compose) — по образцу
 `telegram_bot.py`. Раз в минуту делает три вещи:
 
 1. **расписание** — публикует посты со статусом `scheduled`, у которых наступило время;
-2. **автопост** — собирает дайджест и отправляет его в карантин (в ЛС админам бота),
-   если автопостинг включён, сейчас не «окно тишины», суточный лимит не исчерпан
-   и с прошлого автопоста прошёл достаточный интервал;
+2. **автопост** — выбирает рубрику, которой пора выйти («Свежее», «Раздел дня»,
+   «Топ недели»), собирает пост и отправляет его в карантин (в ЛС админам бота), если
+   автопостинг включён, сейчас не «окно тишины», суточный лимит не исчерпан и с
+   прошлого автопоста прошёл достаточный интервал;
 3. **розыгрыши** — подводит итоги у тех, чей срок истёк: выбирает победителей,
    выдаёт премиум и публикует пост-итоги.
 
-Публикацию в канал делает сервис (`src/services/telegram_service.py`) — воркер
-отвечает только за время и порядок.
+Сборкой постов занимаются рубрики (`src/services/telegram_rubrics.py`), публикацией
+в канал — сервис (`src/services/telegram_service.py`); воркер отвечает только за
+время, порядок и выбор рубрики.
 
 Запуск: `python -m src.tools.telegram_autopost`
 """
@@ -27,7 +29,7 @@ from sqlalchemy import select
 from src.core.config import settings
 from src.core.db import async_session_factory
 from src.core.models import TelegramPost
-from src.services import telegram_api, telegram_service
+from src.services import telegram_api, telegram_rubrics, telegram_service
 from src.services.s3_storage import S3Storage
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -69,22 +71,31 @@ async def run_once(s3: S3Storage) -> None:
             published = await telegram_service.publish_scheduled(session, s3, post)
             logger.info("Отложенный пост #%s: %s", published.id, published.status)
 
-        # 2. Автопост в карантин
+        # 2. Автопост: выбираем рубрику, которой пора выйти, и собираем черновик
         row = await telegram_service.get_autopost(session)
         allowed, reason = await telegram_service.autopost_allowed(session, row)
         if allowed:
             gap = timedelta(hours=max(MIN_GAP_HOURS, 24 // max(1, row.posts_per_day)))
             last_at = await last_publish_at(session)
             too_soon = bool(last_at and datetime.utcnow() - last_at < gap)
+            rubric = await telegram_rubrics.pick_rubric(session)
             if await has_open_draft(session):
                 logger.info("Автопост пропущен: ждём решения по прошлому черновику")
             elif too_soon:
                 logger.info("Автопост пропущен: раньше, чем через %s", gap)
+            elif rubric is None:
+                logger.info("Автопост пропущен: нет включённых рубрик, которым пора выходить")
             else:
-                draft = await telegram_service.make_draft(
-                    session, s3, period=row.period, board=(row.boards or [None])[0]
-                )
-                logger.info("Автопост: черновик #%s отправлен админам", draft.id)
+                post = await telegram_rubrics.make_post(session, s3, rubric, row)
+                if post is None:
+                    logger.info("Рубрика %s: показывать нечего, пропускаем", rubric.code)
+                else:
+                    logger.info(
+                        "Автопост: рубрика %s → пост #%s (%s)",
+                        rubric.code,
+                        post.id,
+                        post.status,
+                    )
         else:
             logger.info("Автопост недоступен: %s", reason)
 

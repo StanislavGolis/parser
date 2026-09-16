@@ -42,9 +42,15 @@ from src.services.analytics import record_audit
 from src.services.s3_storage import S3Storage
 
 MAX_TILES = 4
-KINDS = ("teaser", "digest", "announce")
-IMAGE_MODES = ("mosaic", "single", "none")
+# rubric — пост, собранный рубрикой автопостинга (см. `telegram_rubrics.py`):
+# подпись и набор файлов готовит рубрика, сервис только доставляет.
+KINDS = ("teaser", "digest", "announce", "rubric")
+# mosaic — одно фото-мозаика 2×2, single — одно фото файла, album — альбом
+# (первым кадром мозаика, дальше фото в хорошем качестве), none — только текст
+IMAGE_MODES = ("mosaic", "single", "album", "none")
 PERIODS = ("day", "week")
+# Максимум фото в альбоме Telegram; столько же держим в наших рубриках
+ALBUM_MAX = 10
 # Карантин: сколько держим черновик до публикации, если админ не ответил в ЛС
 AUTOPOST_CHECK_MINUTES = 5
 QUIET_HOURS_DEFAULT = (1, 8)  # ночью не публикуем (МСК)
@@ -206,14 +212,138 @@ async def render_image(
     tiles = await tile_bytes(s3, items, 1 if mode == "single" else MAX_TILES)
     if not tiles:
         return None
-    return await asyncio.to_thread(telegram_publisher.build_teaser_image, tiles, blur=blur)
+    image = await asyncio.to_thread(telegram_publisher.build_teaser_image, tiles, blur=blur)
+    if not image:
+        return None
+    # Telegram надёжно принимает JPEG: WebP-деривативы приводим к нему сразу
+    return await asyncio.to_thread(telegram_publisher.to_jpeg, image) or image
+
+
+async def asset_bytes(s3: S3Storage, item: Media, quality: str = "web") -> Optional[bytes]:
+    """Байты дериватива в «хорошем качестве»: `web`, иначе `thumb`.
+
+    В альбом рубрик идут кадры в хорошем качестве — это то, что человек увидит в
+    канале. Если `web`-варианта нет (старый файл или бэкфилл не проходил), берём
+    превью: пустая плитка хуже, чем кадр меньшего размера. Всё приводим к JPEG.
+    """
+    variants = item.variants or {}
+    key = variants.get(quality) or variants.get("thumb") or variants.get("thumb_blur")
+    if not key:
+        return None
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / f"asset_{item.id}"
+        try:
+            if not await s3.download_to_file(key, path):
+                return None
+            payload = path.read_bytes()
+        except Exception:  # noqa: BLE001 — один битый дериватив не ломает пост
+            return None
+        finally:
+            path.unlink(missing_ok=True)
+    return await asyncio.to_thread(telegram_publisher.to_jpeg, payload)
+
+
+async def album_images(
+    s3: S3Storage,
+    items: List[Media],
+    meta: Optional[dict],
+    *,
+    default_blur: int = telegram_publisher.DEFAULT_BLUR,
+) -> List[bytes]:
+    """Кадры для альбома рубрики: мозаика (если просили) + фото по одному из разделов.
+
+    Разбивка лежит в `post.rubric_meta`: `tiles` — из чего собрать мозаику,
+    `photos` — что приложить отдельными кадрами, `blur` — размытие мозаики,
+    `quality` — какой дериватив брать для приложений.
+    """
+    by_id = {item.id: item for item in items}
+    meta = meta or {}
+
+    def ids(key: str) -> List[int]:
+        picked: List[int] = []
+        for value in meta.get(key) or []:
+            try:
+                media_id = int(value)
+            except (TypeError, ValueError):
+                continue
+            if media_id in by_id and media_id not in picked:
+                picked.append(media_id)
+        return picked
+
+    blur = max(0, min(24, int(meta.get("blur", default_blur) or 0)))
+    quality = meta.get("quality") if meta.get("quality") in ("web", "thumb") else "web"
+
+    images: List[bytes] = []
+    tiles = await tile_bytes(s3, [by_id[media_id] for media_id in ids("tiles")], MAX_TILES)
+    if tiles:
+        mosaic = await asyncio.to_thread(telegram_publisher.build_teaser_image, tiles, blur=blur)
+        mosaic = await asyncio.to_thread(telegram_publisher.to_jpeg, mosaic) if mosaic else None
+        if mosaic:
+            images.append(mosaic)
+
+    for media_id in ids("photos")[: max(0, ALBUM_MAX - len(images))]:
+        payload = await asset_bytes(s3, by_id[media_id], quality)
+        if payload:
+            images.append(payload)
+    return images
+
+
+async def post_images(
+    session: AsyncSession,
+    s3: S3Storage,
+    post: TelegramPost,
+    *,
+    blur: int = telegram_publisher.DEFAULT_BLUR,
+) -> List[bytes]:
+    """Кадры поста: альбом рубрики, мозаика, одиночный файл или ничего.
+
+    Для режима `album` разбивка берётся из `rubric_meta` (мозаика + фото в хорошем
+    качестве), для остальных — как раньше: мозаика 2×2 или один кадр из выбранных
+    файлов.
+    """
+    items = await load_media(session, list(post.media_ids or []))
+    mode = post.image_mode or "mosaic"
+
+    if mode == "none":
+        return []
+    if mode == "album":
+        meta = post.rubric_meta or {}
+        if not (meta.get("tiles") or meta.get("photos")):
+            # Альбом без разбивки (ручной пост): все выбранные файлы — кадрами
+            meta = {"photos": [item.id for item in items]}
+        return await album_images(s3, items, meta, default_blur=blur)
+
+    if not items:
+        items = await latest_media(session)
+    image = await render_image(s3, items, mode, blur)
+    return [image] if image else []
+
+
+async def deliver_to_channel(
+    post: TelegramPost, images: List[bytes], label: str, url: str
+) -> dict:
+    """Отправляет пост в канал: альбом (2+ кадра), одно фото или только текст.
+
+    Кнопки есть только у одиночного фото и текста: у альбома Telegram их не
+    поддерживает, поэтому в подписи рубрик всегда есть ссылка на бота.
+    """
+    if len(images) >= 2:
+        return await telegram_api.send_media_group(photos=images, caption=post.caption)
+    if images:
+        return await telegram_api.send_photo(
+            photo=images[0], caption=post.caption, button_text=label, button_url=url
+        )
+    return await telegram_api.send_message(
+        text=post.caption, button_text=label, button_url=url
+    )
 
 
 async def _deliver(
     session: AsyncSession,
     s3: S3Storage,
     post: TelegramPost,
-    items: List[Media],
+    items: Optional[List[Media]] = None,
     *,
     label: str,
     url: str,
@@ -226,21 +356,29 @@ async def _deliver(
         await record_audit(session, action="telegram.post", target="—", details="не настроено")
         return
 
+    mode = post.image_mode or "mosaic"
+    meta = post.rubric_meta or {}
     try:
-        image = await render_image(s3, items, post.image_mode or "mosaic", blur)
-        if image:
-            result = await telegram_api.send_photo(
-                photo=image, caption=post.caption, button_text=label, button_url=url
-            )
+        if mode == "album":
+            picked = items if items is not None else await load_media(session, list(post.media_ids or []))
+            if not (meta.get("tiles") or meta.get("photos")):
+                meta = {"photos": [item.id for item in picked]}
+            images = await album_images(s3, picked, meta, default_blur=blur)
+        elif mode == "none":
+            images = []
         else:
-            result = await telegram_api.send_message(
-                text=post.caption, button_text=label, button_url=url
-            )
+            picked = items if items is not None else await load_media(session, list(post.media_ids or []))
+            if not picked:
+                picked = await latest_media(session)
+            image = await render_image(s3, picked, mode, blur)
+            images = [image] if image else []
+
+        result = await deliver_to_channel(post, images, label, url)
         post.status = "published"
         post.published_at = datetime.utcnow()
         post.message_id = result.get("message_id")
         post.error = None
-        details = f"{post.kind}: опубликовано (файлов: {len(items)})"
+        details = f"{post.kind}: опубликовано (кадров: {len(images)})"
     except Exception as exc:  # noqa: BLE001 — текст ошибки нужен в журнале и админке
         post.status = "failed"
         post.error = str(exc)[:500]
@@ -249,6 +387,7 @@ async def _deliver(
     await record_audit(
         session, action="telegram.post", target=str(post.message_id or "—"), details=details
     )
+
 
 
 def build_post(
@@ -472,6 +611,46 @@ async def autopost_allowed(session: AsyncSession, row: TelegramAutopost) -> tupl
     return True, ""
 
 
+async def send_draft_to_admins(
+    session: AsyncSession,
+    s3: S3Storage,
+    post: TelegramPost,
+    *,
+    blur: int = telegram_publisher.DEFAULT_BLUR,
+    buttons: Optional[list] = None,
+) -> int:
+    """Отправляет черновик карантина админам в ЛС бота и возвращает число доставок.
+
+    Альбом одним сообщением кнопок не несёт, поэтому для альбомных рубрик кнопки
+    решения уходят отдельным коротким сообщением сразу под подборкой.
+    """
+    images = await post_images(session, s3, post, blur=blur)
+    keyboard = buttons if buttons is not None else draft_keyboard(int(post.id))
+
+    delivered = 0
+    for chat_id in await admin_chat_ids(session):
+        try:
+            if len(images) >= 2:
+                await telegram_api.send_media_group(
+                    photos=images, caption=post.caption, chat_id=chat_id
+                )
+                await telegram_api.send_message(
+                    text="↑ Черновик канала. Решение:", chat_id=chat_id, buttons=keyboard
+                )
+            elif images:
+                await telegram_api.send_photo(
+                    photo=images[0], caption=post.caption, chat_id=chat_id, buttons=keyboard
+                )
+            else:
+                await telegram_api.send_message(
+                    text=post.caption, chat_id=chat_id, buttons=keyboard
+                )
+            delivered += 1
+        except Exception as exc:  # noqa: BLE001 — карантин не должен ломать воркер
+            print(f"   [tg] карантин не доставлен в {chat_id}: {exc}")
+    return delivered
+
+
 async def make_draft(
     session: AsyncSession,
     s3: S3Storage,
@@ -505,20 +684,7 @@ async def make_draft(
     session.add(post)
     await session.flush()   # id нужен для callback_data кнопок карантина
 
-    image = await render_image(s3, items, "mosaic", max(0, min(24, row.blur)))
-    buttons = draft_keyboard(int(post.id))
-    delivered = 0
-    for chat_id in await admin_chat_ids(session):
-        try:
-            if image:
-                await telegram_api.send_photo(
-                    photo=image, caption=caption, chat_id=chat_id, buttons=buttons
-                )
-            else:
-                await telegram_api.send_message(text=caption, chat_id=chat_id, buttons=buttons)
-            delivered += 1
-        except Exception as exc:  # noqa: BLE001 — карантин не должен ломать воркер
-            print(f"   [tg] карантин не доставлен в {chat_id}: {exc}")
+    delivered = await send_draft_to_admins(session, s3, post, blur=max(0, min(24, row.blur)))
 
     if delivered == 0:
         post.error = "Черновик создан, но админам не доставлен: никто не запускал бота"

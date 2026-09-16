@@ -515,12 +515,12 @@ class TelegramPost(Base):
     id = Column(Integer, primary_key=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     published_at = Column(DateTime, nullable=True)
-    # teaser | digest | announce — от типа зависит шаблон подписи
+    # teaser | digest | announce | rubric — от типа зависит шаблон подписи
     kind = Column(String(16), nullable=False, default="teaser")
     caption = Column(Text, nullable=False, default="")
     # Выбранные файлы: id из `media` (порядок плиток мозаики сохраняем)
     media_ids = Column(JSONB, nullable=True)
-    image_mode = Column(String(12), nullable=False, default="mosaic")  # mosaic | single | none
+    image_mode = Column(String(12), nullable=False, default="mosaic")  # mosaic | single | album | none
     button_text = Column(String(64), nullable=True)
     button_url = Column(String(255), nullable=True)
     # draft | published | failed
@@ -530,6 +530,40 @@ class TelegramPost(Base):
     error = Column(Text, nullable=True)
     created_by = Column(String(120), nullable=True)  # админ-актор, собравший пост
     scheduled_at = Column(DateTime, nullable=True)   # резерв под расписание публикаций
+    # Рубрика автопостинга (fresh | board_day | top_week) — у ручных постов пусто
+    rubric = Column(String(24), nullable=True)
+    # Разбивка файлов рубрики: {"tiles": [id…] — мозаика, "photos": [id…] — альбом,
+    # "blur": 15, "quality": "web", "board": "asmr", "boards": ["gg", …]}
+    rubric_meta = Column(JSONB, nullable=True)
+
+
+class TelegramRubric(Base):
+    """Рубрика автопостинга: свой шаблон поста, интервал и параметры.
+
+    Канал не должен превращаться в однообразную ленту «дайджестов», поэтому посты
+    собираются по рубрикам: «Свежее», «Раздел дня», «Топ недели». Рубрика включается
+    в админке, знает минимальный интервал (`min_gap_hours`) и свои параметры
+    (`options`): сколько плиток в мозаике, сколько разделов перечислять, сколько фото
+    приложить, с каким размытием, какой раздел показывать и т.п.
+
+    Планировщик выбирает рубрику по «просроченности» (`last_run_at` + `min_gap_hours`),
+    чтобы разделы и типы постов чередовались, а не повторялись подряд.
+    """
+
+    __tablename__ = "telegram_rubrics"
+    __table_args__ = (UniqueConstraint("code", name="uq_telegram_rubrics_code"),)
+
+    id = Column(Integer, primary_key=True)
+    code = Column(String(24), nullable=False)        # fresh | board_day | top_week
+    title = Column(String(64), nullable=False, default="")
+    enabled = Column(Boolean, nullable=False, default=False)
+    sort_order = Column(Integer, nullable=False, default=0)   # приоритет при равенстве
+    min_gap_hours = Column(Integer, nullable=False, default=24)
+    options = Column(JSONB, nullable=True)
+    last_run_at = Column(DateTime, nullable=True)    # когда последний раз собиралась
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 
 
 class TelegramAutopost(Base):

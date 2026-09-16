@@ -120,6 +120,44 @@ async def send_message(
     return await _call("sendMessage", data=data)
 
 
+async def send_media_group(
+    *,
+    photos: list[bytes],
+    caption: str = "",
+    chat_id: Optional[str] = None,
+) -> dict:
+    """Отправляет альбом (2–10 фото) одним сообщением.
+
+    Подпись Telegram показывает только у первого элемента, кнопок у альбома нет —
+    поэтому призыв «в боте → @bot» идёт текстовой ссылкой в подписи. Если фото одно
+    или их не хватает, вызывающий код откатывается на `send_photo`.
+    """
+    picked = [payload for payload in photos if payload][:10]
+    if not picked:
+        raise TelegramError("sendMediaGroup: нет картинок")
+
+    media: list[dict] = []
+    files: dict = {}
+    for index, payload in enumerate(picked):
+        name = f"photo{index}"
+        item: dict = {"type": "photo", "media": f"attach://{name}"}
+        if index == 0 and caption:
+            item["caption"] = caption[:1024]
+            item["parse_mode"] = "HTML"
+        media.append(item)
+        files[name] = (f"{name}.jpg", payload, "image/jpeg")
+
+    result = await _call(
+        "sendMediaGroup",
+        data={"chat_id": chat_id or channel_chat_id(), "media": json.dumps(media, ensure_ascii=False)},
+        files=files,
+    )
+    # Возвращаем первое сообщение альбома: его message_id нужен журналу и удалению
+    if isinstance(result, list):
+        return result[0] if result else {}
+    return result or {}
+
+
 async def star_balance() -> int:
     """Баланс звёзд бота в Telegram (`getMyStarBalance`).
 

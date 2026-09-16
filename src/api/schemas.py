@@ -451,6 +451,52 @@ class TelegramAutopostOut(BaseModel):
     reason: Optional[str] = None
 
 
+class TelegramRubricIn(BaseModel):
+    """Правка рубрики автопоста: включение, пауза между постами и параметры."""
+
+    enabled: Optional[bool] = None
+    title: Optional[str] = None
+    sort_order: Optional[int] = None
+    min_gap_hours: Optional[int] = None
+    # Параметры рубрики (blur, tiles, boards_count, board_photos, board, sort…).
+    # Присланные ключи перекрывают сохранённые; пустая строка/None удаляет ключ.
+    options: Optional[Dict[str, object]] = None
+
+
+class TelegramRubricOut(BaseModel):
+    """Рубрика в админке: что настроено и когда выходила в последний раз."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    code: str
+    title: str = ""
+    enabled: bool = False
+    sort_order: int = 0
+    min_gap_hours: int = 24
+    options: Optional[Dict[str, object]] = None
+    # Значения по умолчанию, наложенные на сохранённые: что применится при сборке
+    effective: Dict[str, object] = {}
+    last_run_at: Optional[datetime] = None
+    next_run_at: Optional[datetime] = None
+    can_run: bool = False
+    reason: Optional[str] = None
+
+
+class TelegramRubricPreviewOut(BaseModel):
+    """Предпросмотр рубрики: текст, кадры (data URL) и какие файлы попали в пост."""
+
+    code: str
+    caption: str = ""
+    image_mode: str = "none"
+    images: List[str] = []
+    media_ids: List[int] = []
+    boards: List[str] = []
+    board: str = ""
+    tiles: List[int] = []
+    photos: List[int] = []
+    note: Optional[str] = None
+
+
 class TelegramDigestOut(BaseModel):
     """Готовая подборка для дайджеста: файлы и подпись (без отправки)."""
 
@@ -506,6 +552,8 @@ class TelegramPostOut(BaseModel):
     link: Optional[str] = None
     # Для отложенных: когда пост выйдет (планировщик `telegram-publisher`)
     scheduled_at: Optional[datetime] = None
+    # Рубрика автопоста (fresh | board_day | top_week); у ручных постов пусто
+    rubric: Optional[str] = None
 
 
 class TelegramPostListOut(BaseModel):

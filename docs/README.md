@@ -497,7 +497,8 @@ S3 у провайдера отдаёт ~3 МБ/с (4 потока — ~8 МБ/�
 | `media_cache` | дисковый кэш объектов S3 (LRU по лимиту), `CachingUploader` для парсера: отдача повторных запросов с диска вместо S3 |
 | `telegram_api` | Bot API без зависимостей: отправка фото/текста, кнопки, удаление, `getChatMember`/`getChatMemberCount` |
 | `telegram_publisher` | сборка тизера канала 1280×720 из наших превью + размытие (`DEFAULT_BLUR`) и шаблоны подписей |
-| `telegram_service` | ядро менеджера канала: подбор файлов, дайджест (`day`/`week`), публикация, расписание, карантин, розыгрыши |
+| `telegram_service` | ядро менеджера канала: подбор файлов, дайджест (`day`/`week`), публикация (мозаика или альбом), расписание, карантин, розыгрыши |
+| `telegram_rubrics` | рубрики автопоста «Свежее / Раздел дня / Топ недели»: статистика по разделам (прирост, просмотры, скачивания, метки), выбор треда и раздела дня, сборка подписи и набора кадров |
 | `magic_link` | вход через бота: одноразовые ссылки и аккаунты по Telegram ID |
 
 ### 3.3 API (`src/api/`)
@@ -902,14 +903,23 @@ full      то же + ошибки прогонов (для отладки)
   Telegram ID при входе из бота; **sessions**: `user_id, token_hash, expires_at`
 - **auth_magic_links**: `user_id, token_hash, expires_at, used_at, ip_hash` — одноразовая
   ссылка входа из бота (TTL `MAGIC_LINK_TTL_MINUTES`, по умолчанию 10 минут)
-- **telegram_posts**: `id, created_at, published_at, kind (teaser|digest|announce),
-  caption, media_ids, image_mode (mosaic|single|none), button_text, button_url, channel,
+- **telegram_posts**: `id, created_at, published_at, kind (teaser|digest|announce|rubric),
+  caption, media_ids, image_mode (mosaic|single|album|none), button_text, button_url, channel,
   message_id, status (draft|scheduled|published|failed|deleted|cancelled|rejected),
-  scheduled_at, error, created_by` — журнал публикаций в канал: и ручных, и от
-  планировщика, и черновиков карантина
+  scheduled_at, error, created_by, rubric (fresh|board_day|top_week), rubric_meta` — журнал
+  публикаций в канал: и ручных, и от рубрик, и черновиков карантина. `rubric_meta` хранит
+  разбивку кадров (`tiles` — мозаика, `photos` — приложения), размытие, качество и раздел
+  «Раздела дня» — по ней пост собирается заново при публикации из карантина
 - **telegram_autopost**: `id (одна строка), enabled, posts_per_day, quiet_from, quiet_to,
   require_approval, boards (JSONB), period (day|week), blur, last_check_at, last_post_at,
-  updated_at` — настройки автопостинга с карантином
+  updated_at` — общие настройки автопостинга с карантином: лимит, окна тишины, белый
+  список разделов
+- **telegram_rubrics**: `id, code (fresh|board_day|top_week), title, enabled, sort_order,
+  min_gap_hours, options (JSONB), last_run_at, created_at, updated_at` — рубрики автопоста.
+  Каждая включает свой тип поста и настраивается отдельно: «Свежее» (мозаика 2×2 + разделы
+  с приростом + фото разделов, пауза 12 ч), «Раздел дня» (галерея из треда + описание
+  раздела, пауза 24 ч), «Топ недели» (мозаика + вовлечённость за неделю, пауза 168 ч).
+  Планировщик берёт рубрику с самой истёкшей паузой, поэтому посты чередуются
 - **giveaways**: `id, created_at, title, kind (daily|weekly), prize_days, starts_at,
   ends_at, status (draft|announced|drawn|cancelled), winners (JSONB),
   announce_message_id, result_message_id, created_by`;
@@ -1088,6 +1098,10 @@ GET   /api/v1/admin/telegram/digest        подборка для дайдже�
 GET   /api/v1/admin/telegram/autopost      настройки автопостинга: лимит, окна тишины, карантин, разделы
 PATCH /api/v1/admin/telegram/autopost      изменить настройки автопостинга
 POST  /api/v1/admin/telegram/autopost/run  собрать автопост сейчас (карантин: черновик в ЛС бота)
+GET   /api/v1/admin/telegram/rubrics       рубрики автопоста: вкл/выкл, пауза, параметры, статус
+PATCH /api/v1/admin/telegram/rubrics/{code}  правка рубрики (enabled, min_gap_hours, options)
+POST  /api/v1/admin/telegram/rubrics/{code}/preview  предпросмотр: текст и кадры (без публикации)
+POST  /api/v1/admin/telegram/rubrics/{code}/run      собрать рубрику (карантин или ?publish=true)
 POST  /api/v1/admin/telegram/posts/{id}/approve|reject|later  карантин: кнопки в ЛС бота (только X-Bot-Token)
 GET   /api/v1/admin/telegram/giveaways     розыгрыши премиума: статус, участники, ссылка на анонс
 POST  /api/v1/admin/telegram/giveaways     создать розыгрыш (daily|weekly, prize_days, hours)

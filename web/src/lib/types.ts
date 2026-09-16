@@ -433,10 +433,10 @@ export interface TelegramPostItem {
   id: number;
   created_at: string;
   published_at: string | null;
-  kind: string; // teaser | digest | announce
+  kind: string; // teaser | digest | announce | rubric
   caption: string;
   media_ids: number[] | null;
-  image_mode: string; // mosaic | single | none
+  image_mode: string; // mosaic | single | album | none
   status: string; // draft | scheduled | published | failed | deleted | cancelled | rejected
   channel: string | null;
   message_id: number | null;
@@ -444,6 +444,8 @@ export interface TelegramPostItem {
   created_by: string | null;
   link: string | null;
   scheduled_at: string | null;
+  /** Рубрика автопоста: fresh | board_day | top_week (у ручных постов пусто). */
+  rubric: string | null;
 }
 
 export interface TelegramPostList {
@@ -668,6 +670,37 @@ export interface TelegramAutopost {
   published_last_day: number;
   allowed: boolean;
   reason: string | null;
+}
+
+/** Рубрика автопоста: свой шаблон поста, пауза и параметры. */
+export interface TelegramRubric {
+  code: string; // fresh | board_day | top_week
+  title: string;
+  enabled: boolean;
+  sort_order: number;
+  min_gap_hours: number;
+  /** Сохранённые в БД параметры (могут быть частичными). */
+  options: Record<string, unknown> | null;
+  /** Значения по умолчанию, наложенные на сохранённые: что применится при сборке. */
+  effective: Record<string, unknown>;
+  last_run_at: string | null;
+  next_run_at: string | null;
+  can_run: boolean;
+  reason: string | null;
+}
+
+/** Предпросмотр рубрики: готовый текст и кадры (data URL). */
+export interface TelegramRubricPreview {
+  code: string;
+  caption: string;
+  image_mode: string;
+  images: string[];
+  media_ids: number[];
+  boards: string[];
+  board: string;
+  tiles: number[];
+  photos: number[];
+  note: string | null;
 }
 
 export interface GiveawayItem {
