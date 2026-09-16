@@ -187,6 +187,9 @@ async def update_plan(
     if payload.price_stars is not None:
         # Звёзды задаются вручную (вариант A): 0 или пусто — оплата звёздами выключена
         plan.price_stars = max(0, min(100_000, payload.price_stars)) or None
+    if payload.price_usdt_cents is not None:
+        # Крипта: сумма в центах USDT (150 = 1.50 USDT); 0 или пусто — крипта выключена
+        plan.price_usdt_cents = max(0, min(10_000_000, payload.price_usdt_cents)) or None
     if payload.is_active is not None:
         plan.is_active = payload.is_active
     if payload.sort_order is not None:

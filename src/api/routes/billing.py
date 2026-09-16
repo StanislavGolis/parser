@@ -22,7 +22,7 @@ from src.api.schemas import PaymentOut
 from src.core.config import settings
 from src.core.db import get_session
 from src.core.models import Payment, User
-from src.services import magic_link, pricing
+from src.services import cryptobot, magic_link, pricing
 from src.services.analytics import record_audit
 
 router = APIRouter(prefix="/api/v1/billing", tags=["billing"])
@@ -104,3 +104,177 @@ async def stars_paid(
     await session.commit()
     await session.refresh(payment)
     return PaymentOut.model_validate(payment)
+
+
+# ─────────────────────────── Крипта (Crypto Pay) ───────────────────────────
+
+
+class CryptoInvoiceIn(BaseModel):
+    """Запрос счёта в крипте: кому, за какой тариф и с какой акцией."""
+
+    telegram_id: int
+    plan_code: str
+    promo_id: Optional[int] = None
+
+
+class CryptoCheckIn(BaseModel):
+    """Проверка счёта: `invoice_id` из Crypto Pay."""
+
+    invoice_id: int
+
+
+async def _promo_percent(
+    session: AsyncSession, plan: pricing.Plan, promo_id: Optional[int]
+) -> int:
+    """Процент акции, если она передана и действует на этот тариф."""
+    if not promo_id:
+        return 0
+    promo = await session.get(pricing.Promo, promo_id)
+    if promo is not None and pricing.promo_applies_to(promo, plan.code):
+        return promo.percent
+    return 0
+
+
+@router.post("/crypto")
+async def crypto_invoice(
+    payload: CryptoInvoiceIn,
+    session: AsyncSession = Depends(get_session),
+    _=Depends(verify_bot_token),
+):
+    """Создаёт счёт в Crypto Pay и записывает его в журнал как `pending`.
+
+    Премиум здесь не выдаётся: счёт может остаться неоплаченным. Если у человека уже
+    есть живой счёт по этому тарифу — возвращаем его же, чтобы не плодить ссылки.
+    """
+    plan = await session.get(pricing.Plan, payload.plan_code)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Тариф не найден")
+    if not cryptobot.configured():
+        raise HTTPException(status_code=503, detail="Приём крипты не настроен")
+    if not plan.price_usdt_cents:
+        raise HTTPException(status_code=400, detail="Тариф недоступен для оплаты криптой")
+
+    user = (
+        await session.execute(select(User).where(User.telegram_id == payload.telegram_id))
+    ).scalar_one_or_none()
+    if user is None:
+        # Ещё не заходил на сайт — заводим аккаунт, чтобы оплата не потерялась
+        user = await magic_link.get_or_create_telegram_user(session, payload.telegram_id)
+
+    # Живой счёт по этому тарифу переиспользуем: у нас одна ссылка на тариф
+    pending = (
+        await session.execute(
+            select(Payment)
+            .where(
+                Payment.user_id == user.id,
+                Payment.provider == "crypto",
+                Payment.plan_code == plan.code,
+                Payment.status == "pending",
+            )
+            .order_by(Payment.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if pending is not None and pending.external_id:
+        invoice = await cryptobot.get_invoice(int(pending.external_id))
+        if invoice and invoice.get("status") == "paid":
+            # Оплатили, а бот не успел проверить — зачисляем прямо сейчас
+            pending = await pricing.mark_paid(session, pending)
+            await record_audit(
+                session,
+                action="billing.crypto",
+                target=f"user:{user.id}",
+                details=(
+                    f"{plan.code}: счёт {pending.external_id}, "
+                    f"премиум до {pending.premium_until}"
+                ),
+                user_id=user.id,
+            )
+            await session.commit()
+            return {"paid": True, "status": "paid", "premium_until": pending.premium_until}
+        if invoice and invoice.get("status") == "active":
+            return {
+                "paid": False,
+                "status": "active",
+                "invoice_id": invoice["invoice_id"],
+                "pay_url": invoice.get("bot_invoice_url") or invoice.get("mini_app_invoice_url"),
+                "amount": invoice.get("amount"),
+                "asset": invoice.get("asset"),
+            }
+
+    percent = await _promo_percent(session, plan, payload.promo_id)
+    amount_cents = pricing.apply_discount(plan.price_usdt_cents, percent)
+    invoice = await cryptobot.create_invoice(
+        amount_cents=amount_cents,
+        title=f"Dredger — {plan.title}",
+        description=plan.description or f"Доступ на {plan.days} дн.",
+        payload=f"{plan.code}:{user.id}",
+    )
+    if not invoice:
+        raise HTTPException(status_code=502, detail="Crypto Pay не выдал счёт")
+
+    await pricing.register_payment(
+        session,
+        plan=plan,
+        user=user,
+        provider="crypto",
+        external_id=str(invoice["invoice_id"]),
+        percent=percent,
+        note=f"Crypto Pay: {invoice['amount']} {invoice['asset']}",
+    )
+    return {
+        "paid": False,
+        "status": invoice.get("status"),
+        "invoice_id": invoice["invoice_id"],
+        "pay_url": invoice["pay_url"],
+        "amount": invoice["amount"],
+        "asset": invoice["asset"],
+    }
+
+
+@router.post("/crypto/check")
+async def crypto_check(
+    payload: CryptoCheckIn,
+    session: AsyncSession = Depends(get_session),
+    _=Depends(verify_bot_token),
+):
+    """Проверяет счёт в Crypto Pay и выдаёт премиум ровно один раз.
+
+    Опрос вместо вебхука: наш домен не обязан быть доступен для Crypto Pay, а бот
+    спрашивает статус, когда человек нажал «Я оплатил», и повторно — при следующем
+    обращении. Идемпотентность даёт `mark_paid` (ключ — `payments.external_id`).
+    """
+    payment = (
+        await session.execute(
+            select(Payment).where(
+                Payment.external_id == str(payload.invoice_id),
+                Payment.provider == "crypto",
+            )
+        )
+    ).scalar_one_or_none()
+    if payment is None:
+        raise HTTPException(status_code=404, detail="Счёт не найден в журнале")
+    if payment.status == "paid":
+        return {"paid": True, "status": "paid", "premium_until": payment.premium_until}
+
+    invoice = await cryptobot.get_invoice(payload.invoice_id)
+    if invoice is None:
+        raise HTTPException(status_code=502, detail="Crypto Pay недоступен")
+    status = invoice.get("status")
+    if status != "paid":
+        return {"paid": False, "status": status, "premium_until": None}
+
+    payment = await pricing.mark_paid(session, payment)
+    await record_audit(
+        session,
+        action="billing.crypto",
+        target=f"user:{payment.user_id}",
+        details=(
+            f"{payment.plan_code}: счёт {payment.external_id}, "
+            f"премиум до {payment.premium_until}"
+        ),
+        user_id=payment.user_id,
+    )
+    await session.commit()
+    await session.refresh(payment)
+    return {"paid": True, "status": "paid", "premium_until": payment.premium_until}

@@ -106,6 +106,11 @@ function PlanCard({ plan }: { plan: PlanPrice }) {
   const perDayText = perDay
     ? `≈ ${perDay.toFixed(perDay < 10 ? 1 : 0).replace(".", ",")} ⭐ в день`
     : "оплата один раз — продлевать не нужно";
+  // Крипта (Crypto Pay): та же карточка, но счёт выставляется в USDT
+  const usdtCents = plan.usdt_now_cents ?? plan.price_usdt_cents;
+  const usdtText = usdtCents
+    ? `${(usdtCents / 100).toFixed(usdtCents % 100 === 0 ? 0 : 2)} USDT`
+    : null;
 
   return (
     <div
@@ -127,6 +132,10 @@ function PlanCard({ plan }: { plan: PlanPrice }) {
       </p>
       {/* Вместо «30 дней доступа» (дублировало название) — цена за день */}
       <p className="mt-1 font-mono text-[11px] text-text-muted">{perDayText}</p>
+      {/* Крипта: столько же, но в USDT — счёт выставит бот через Crypto Pay */}
+      {usdtText ? (
+        <p className="mt-0.5 font-mono text-[11px] text-text-muted">или {usdtText} криптой</p>
+      ) : null}
 
       <div className="mt-auto pt-4">
         <a

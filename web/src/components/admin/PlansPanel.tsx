@@ -255,6 +255,24 @@ export default function PlansPanel() {
                       className={`${field} w-20`}
                     />
                   </label>
+                  <label
+                    className="flex items-center gap-1.5"
+                    title="Цена криптой (Crypto Pay, USDT). 0 — оплата криптой для тарифа выключена"
+                  >
+                    цена, USDT:
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={((edit.price_usdt_cents ?? plan.price_usdt_cents ?? 0) / 100).toFixed(2)}
+                      onChange={(e) =>
+                        patchPlan(plan.code, {
+                          price_usdt_cents: Math.round(Number(e.target.value) * 100),
+                        })
+                      }
+                      className={`${field} w-24`}
+                    />
+                  </label>
                   <label className="flex items-center gap-1.5">
                     дней:
                     <input

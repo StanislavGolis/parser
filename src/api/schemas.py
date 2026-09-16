@@ -545,6 +545,9 @@ class PlanPriceOut(BaseModel):
     # Звёзды Telegram: цена задаётся вручную, None — оплата звёздами выключена
     price_stars: Optional[int] = None
     stars_now: Optional[int] = None
+    # Крипта (Crypto Pay): цена в центах USDT, None — оплата криптой выключена
+    price_usdt_cents: Optional[int] = None
+    usdt_now_cents: Optional[int] = None
     discount_percent: int = 0
     promo_id: Optional[int] = None
     promo_title: Optional[str] = None
@@ -590,6 +593,8 @@ class AdminPlanOut(BaseModel):
     days: int
     price_rub: int
     price_stars: Optional[int] = None
+    # Цена криптой в центах USDT (150 = 1.50 USDT); None — оплата криптой выключена
+    price_usdt_cents: Optional[int] = None
     is_active: bool
     sort_order: int
     badge: Optional[str] = None
@@ -610,6 +615,8 @@ class PlanIn(BaseModel):
     days: Optional[int] = None
     price_rub: Optional[int] = None
     price_stars: Optional[int] = None
+    # Цена криптой в центах USDT: 0 или None очищает (тариф недоступен для крипты)
+    price_usdt_cents: Optional[int] = None
     is_active: Optional[bool] = None
     sort_order: Optional[int] = None
     badge: Optional[str] = None

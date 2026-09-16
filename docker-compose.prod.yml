@@ -66,6 +66,13 @@ x-backend: &backend
     # которые входили на сайт через Telegram.
     TELEGRAM_ADMIN_CHAT_ID: ${TELEGRAM_ADMIN_CHAT_ID:-}
     MAGIC_LINK_TTL_MINUTES: ${MAGIC_LINK_TTL_MINUTES:-10}
+
+    # Крипта: Crypto Pay (CryptoBot). Токен приложения — @CryptoBot → /pay → Create App.
+    # Суммы берутся из тарифов (plans.price_usdt_cents), правятся в админке.
+    CRYPTOBOT_TOKEN: ${CRYPTOBOT_TOKEN:-}
+    CRYPTOBOT_TESTNET: ${CRYPTOBOT_TESTNET:-false}
+    CRYPTOBOT_ASSET: ${CRYPTOBOT_ASSET:-USDT}
+    CRYPTOBOT_INVOICE_TTL_MINUTES: ${CRYPTOBOT_INVOICE_TTL_MINUTES:-60}
     MEDIA_DELIVERY: ${MEDIA_DELIVERY:-proxy}
 
     # API (общие настройки нужны и парсеру тоже)
@@ -342,6 +349,10 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
       TELEGRAM_CHANNEL: ${TELEGRAM_CHANNEL:-}
+      # Крипта: бот сам зовёт Crypto Pay (счёт) и наш API (проверка оплаты)
+      CRYPTOBOT_TOKEN: ${CRYPTOBOT_TOKEN:-}
+      CRYPTOBOT_TESTNET: ${CRYPTOBOT_TESTNET:-false}
+      CRYPTOBOT_ASSET: ${CRYPTOBOT_ASSET:-USDT}
       SITE_URL: ${SITE_URL:-https://dredg.ru}
       SITE_MODE: ${SITE_MODE:-public}
     restart: unless-stopped

@@ -175,8 +175,17 @@ async def pricing_view(session: AsyncSession) -> dict:
         stars_now = (
             apply_discount(plan.price_stars, percent) if plan.price_stars else None
         )
-        changed = price_now != plan.price_rub or (
-            plan.price_stars is not None and stars_now != plan.price_stars
+        # Крипта: счёт выставляется в USDT, сумма — из тарифа (в центах)
+        usdt_now_cents = (
+            apply_discount(plan.price_usdt_cents, percent) if plan.price_usdt_cents else None
+        )
+        changed = (
+            price_now != plan.price_rub
+            or (plan.price_stars is not None and stars_now != plan.price_stars)
+            or (
+                plan.price_usdt_cents is not None
+                and usdt_now_cents != plan.price_usdt_cents
+            )
         )
         items.append(
             {
@@ -190,6 +199,9 @@ async def pricing_view(session: AsyncSession) -> dict:
                 # для тарифа выключена
                 "price_stars": plan.price_stars,
                 "stars_now": stars_now,
+                # Цена криптой (в центах USDT): None — оплата криптой выключена
+                "price_usdt_cents": plan.price_usdt_cents,
+                "usdt_now_cents": usdt_now_cents,
                 "discount_percent": percent if changed else 0,
                 "promo_id": promo.id if promo else None,
                 "promo_title": promo.title if promo else None,

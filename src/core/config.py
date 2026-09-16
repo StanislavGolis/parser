@@ -103,6 +103,15 @@ class Settings(BaseSettings):
     # Сколько минут живёт одноразовая ссылка входа
     MAGIC_LINK_TTL_MINUTES: int = 10
 
+    # ── Crypto Pay (CryptoBot): приём крипты ──────────────────────
+    # Токен приложения из @CryptoBot → /pay → Create App. Счёт выставляем в `USDT`,
+    # суммы берём из `plans.price_usdt` (правятся в админке, без деплоя).
+    CRYPTOBOT_TOKEN: str = ""
+    CRYPTOBOT_TESTNET: bool = False   # True — отладка на testnet-pay.crypt.bot
+    CRYPTOBOT_ASSET: str = "USDT"     # монета счёта (USDT, TON, …)
+    # Сколько минут живёт счёт: за это время сумма фиксируется CryptoBot
+    CRYPTOBOT_INVOICE_TTL_MINUTES: int = 60
+
     @property
     def site_closed(self) -> bool:
         """Закрытый режим включён (значение SITE_MODE=closed)."""

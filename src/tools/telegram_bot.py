@@ -16,6 +16,8 @@
 
 Запуск: `python -m src.tools.telegram_bot`
 """
+from __future__ import annotations
+
 import asyncio
 import logging
 import os
@@ -102,7 +104,7 @@ def plans_text(data: Optional[dict]) -> str:
             f"{description}{tail}"
         )
 
-    lines.append("\nОплата звёздами — кнопками ниже.")
+    lines.append("\nОплата звёздами или криптой (USDT) — кнопками ниже.")
     return "\n".join(lines)
 
 
@@ -125,7 +127,99 @@ def plans_keyboard(data: Optional[dict]) -> Optional[dict]:
                 }
             ]
         )
+    # Крипта показывается отдельной кнопкой: свой список тарифов с ценой в USDT
+    if has_crypto(data):
+        rows.append([{"text": "🪙 Оплатить криптой", "callback_data": "crypto:list:0"}])
     return {"inline_keyboard": rows} if rows else None
+
+
+def has_crypto(data: Optional[dict]) -> bool:
+    """Есть ли тарифы с ценой в USDT (иначе кнопку крипты не показываем)."""
+    return any(
+        (plan.get("usdt_now_cents") or plan.get("price_usdt_cents"))
+        for plan in (data or {}).get("plans") or []
+    )
+
+
+def crypto_keyboard(data: Optional[dict]) -> Optional[dict]:
+    """Кнопки тарифов с ценой в USDT: счёт выставляет Crypto Pay по нашей заявке."""
+    rows = []
+    for plan in (data or {}).get("plans") or []:
+        cents = plan.get("usdt_now_cents") or plan.get("price_usdt_cents")
+        if not cents:
+            continue
+        amount = f"{cents / 100:.2f}".rstrip("0").rstrip(".")
+        rows.append(
+            [
+                {
+                    "text": f"{plan.get('title')} — {amount} USDT",
+                    "callback_data": f"cryptobuy:{plan.get('code')}:{plan.get('promo_id') or 0}",
+                }
+            ]
+        )
+    return {"inline_keyboard": rows} if rows else None
+
+
+async def send_crypto_invoice(
+    session: aiohttp.ClientSession, bot: BotClient, chat_id: int, plan_code: str, promo_id: int = 0
+) -> None:
+    """Просит у нашего API счёт в Crypto Pay и присылает ссылку на оплату."""
+    data = await api_request(
+        session,
+        "POST",
+        "/api/v1/billing/crypto",
+        json={"telegram_id": chat_id, "plan_code": plan_code, "promo_id": promo_id or None},
+    )
+    if not data or data.get("error"):
+        await bot.send(
+            chat_id,
+            "Приём крипты сейчас недоступен — попробуйте позже или оплатите звёздами.",
+        )
+        return
+    if data.get("paid"):
+        until = str(data.get("premium_until") or "")[:10]
+        await bot.send(chat_id, f"Оплата уже получена — подписка до {until}.")
+        return
+
+    amount = data.get("amount")
+    asset = data.get("asset") or "USDT"
+    invoice_id = data.get("invoice_id")
+    pay_url = data.get("pay_url")
+    rows = []
+    if pay_url:
+        rows.append([{"text": f"💳 Оплатить {amount} {asset}", "url": pay_url}])
+    rows.append([{"text": "✅ Я оплатил", "callback_data": f"cryptocheck:{invoice_id}"}])
+    await bot.send(
+        chat_id,
+        f"Счёт создан: {amount} {asset}.\n"
+        "Оплатите по кнопке ниже — подписка включится сразу после подтверждения.",
+        keyboard={"inline_keyboard": rows},
+    )
+
+
+async def check_crypto_payment(
+    session: aiohttp.ClientSession, bot: BotClient, chat_id: int, invoice_id: int
+) -> None:
+    """Спрашивает у API статус счёта и выдаёт премиум, если он оплачен."""
+    data = await api_request(
+        session, "POST", "/api/v1/billing/crypto/check", json={"invoice_id": invoice_id}
+    )
+    if not data or data.get("error"):
+        await bot.send(chat_id, "Не получилось проверить счёт — напишите администратору.")
+        return
+    if data.get("paid"):
+        until = str(data.get("premium_until") or "")[:10]
+        await bot.send(
+            chat_id, f"Оплата получена. Подписка активна до {until}.", keyboard=MAIN_KEYBOARD
+        )
+        return
+    if data.get("status") == "expired":
+        await bot.send(chat_id, "Счёт истёк — создайте новый: /subscribe.")
+    else:
+        await bot.send(
+            chat_id,
+            "Оплата пока не поступила. Если только что перевели — попробуйте ещё раз через минуту.",
+        )
 
 
 def _api_base() -> str:
@@ -403,6 +497,33 @@ async def handle_callback(
             await bot.call("answerCallbackQuery", callback_query_id=callback_id)
         promo_id = int(parts[2]) if parts[2].isdigit() else 0
         await send_stars_invoice(session, bot, chat_id, parts[1], promo_id)
+        return
+
+    # Крипта: «🪙 Оплатить криптой» → список тарифов с ценой в USDT
+    if data.startswith("crypto:") and chat_id:
+        if callback_id:
+            await bot.call("answerCallbackQuery", callback_query_id=callback_id)
+        plans = await api_request(session, "GET", "/api/v1/plans")
+        await bot.send(
+            chat_id,
+            "Оплата криптой (USDT). Выберите тариф — пришлю ссылку на оплату:",
+            keyboard=crypto_keyboard(plans) or MAIN_KEYBOARD,
+        )
+        return
+
+    # Счёт по выбранному тарифу: Crypto Pay выставляет сумму в USDT
+    if data.startswith("cryptobuy:") and len(parts) == 3 and chat_id:
+        if callback_id:
+            await bot.call("answerCallbackQuery", callback_query_id=callback_id)
+        promo_id = int(parts[2]) if parts[2].isdigit() else 0
+        await send_crypto_invoice(session, bot, chat_id, parts[1], promo_id)
+        return
+
+    # «Я оплатил»: спрашиваем статус счёта у Crypto Pay и выдаём доступ
+    if data.startswith("cryptocheck:") and len(parts) == 2 and chat_id:
+        if callback_id:
+            await bot.call("answerCallbackQuery", callback_query_id=callback_id)
+        await check_crypto_payment(session, bot, chat_id, int(parts[1]))
         return
 
     if len(parts) != 3 or parts[0] != "post" or not chat_id:

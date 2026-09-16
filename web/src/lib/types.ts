@@ -764,6 +764,8 @@ export interface AdminPlan {
   price_rub: number;
   /** Цена в звёздах Telegram (задаётся вручную); null — оплата звёздами выключена. */
   price_stars: number | null;
+  /** Цена криптой в центах USDT (150 = 1.50 USDT); null — оплата криптой выключена. */
+  price_usdt_cents: number | null;
   is_active: boolean;
   sort_order: number;
   badge: string | null;
@@ -820,6 +822,9 @@ export interface PlanPrice {
   price_now: number;
   price_stars: number | null;
   stars_now: number | null;
+  /** Цена криптой (в центах USDT) и цена со скидкой; null — крипта выключена. */
+  price_usdt_cents: number | null;
+  usdt_now_cents: number | null;
   discount_percent: number;
   promo_id: number | null;
   promo_title: string | null;
