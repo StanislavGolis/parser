@@ -145,8 +145,14 @@ def fetch(url: str, *, delay: float = 1.0, tries: int = 3) -> Optional[bytes]:
     return None
 
 
-def cdx_threads(board: str, host: str, *, limit: int = 0, delay: float = 1.0) -> List[ThreadRef]:
-    """Список HTML-снапшотов тредов раздела из CDX-индекса архива."""
+def cdx_threads(
+    board: str, host: str, *, limit: int = 0, delay: float = 1.0, from_year: str = ""
+) -> List[ThreadRef]:
+    """Список HTML-снапшотов тредов раздела из CDX-индекса архива.
+
+    `from_year` отсекает ранние снапшоты: для страниц 2012 года файлов в архиве
+    обычно уже нет, поэтому боевой прогон выгоднее начинать с 2013.
+    """
     query = (
         f"{CDX_API}?url={host}/{board}/res/&matchType=prefix&output=json"
         "&filter=statuscode:200&filter=mimetype:text/html&collapse=urlkey"
@@ -172,13 +178,14 @@ def cdx_threads(board: str, host: str, *, limit: int = 0, delay: float = 1.0) ->
         match = re.search(r"/res/(\d+)\.html", row.get("urlkey", ""))
         if not match:
             continue
+        timestamp = row.get("timestamp", "")
+        if from_year and timestamp[:4] < from_year:
+            continue
         num = int(match.group(1))
         if num in seen:
             continue
         seen.add(num)
-        refs.append(
-            ThreadRef(num=num, timestamp=row.get("timestamp", ""), url=row.get("original", ""))
-        )
+        refs.append(ThreadRef(num=num, timestamp=timestamp, url=row.get("original", "")))
     refs.sort(key=lambda ref: ref.num)
     return refs
 
@@ -222,11 +229,28 @@ def parse_thread_page(html: str, num: int) -> ParsedThread:
     return parsed
 
 
+def looks_like_media(blob: bytes) -> bool:
+    """Похожи ли байты на картинку/видео.
+
+    Архив на запрос снапшота без точного timestamp отдаёт свою HTML-страницу
+    («нет в архиве»), причём со статусом 200. Без этой проверки такая заглушка
+    попадала в импорт как «битое изображение».
+    """
+    head = blob[:16]
+    if head.startswith((b"\xff\xd8\xff", b"\x89PNG", b"GIF8", b"BM")):
+        return True
+    if head.startswith(b"RIFF"):
+        return blob[8:12] in (b"WEBP", b"AVI ")
+    if b"ftyp" in blob[:32]:
+        return True
+    return head.startswith(b"\x1aE\xdf\xa3")
+
+
 def file_snapshot(path: str, *, year: Optional[str], delay: float) -> Optional[bytes]:
     """Байты файла из архива: точный снапшот из CDX, иначе ближайший по году.
 
-    Три попытки по возрастанию «широты»: точный CDX-снапшот, затем ближайший снапшот
-    к году страницы треда, затем самый ранний доступный (`2im_`).
+    Каждый вариант проверяем на сигнатуру медиа: архив умеет отдавать HTML-заглушку
+    с кодом 200, и без проверки она уходила дальше как «битый файл».
     """
     query = (
         f"{CDX_API}?url={path.lstrip('/')}&matchType=exact&output=json"
@@ -241,15 +265,15 @@ def file_snapshot(path: str, *, year: Optional[str], delay: float) -> Optional[b
                 original, timestamp = row.get("original"), row.get("timestamp")
                 if original and timestamp:
                     data = fetch(f"{ARCHIVE}/{timestamp}im_/{original}", delay=delay, tries=2)
-                    if data:
+                    if data and looks_like_media(data):
                         return data
         except json.JSONDecodeError:
             pass
 
     host_path = path if path.startswith("http") else f"http://{path.lstrip('/')}"
-    for stamp in (f"{year}im_", "2im_", "im_"):
+    for stamp in (f"{year}im_", "2im_"):
         data = fetch(f"{ARCHIVE}/{stamp}/{host_path}", delay=delay, tries=1)
-        if data:
+        if data and looks_like_media(data):
             return data
     return None
 
@@ -410,7 +434,13 @@ async def run(args: argparse.Namespace) -> Stats:
         print("[err] S3 не настроен — импорт невозможен")
         return stats
 
-    refs = cdx_threads(args.board, args.host, limit=args.threads_limit, delay=args.delay)
+    refs = cdx_threads(
+        args.board,
+        args.host,
+        limit=args.threads_limit,
+        delay=args.delay,
+        from_year=args.from_year,
+    )
     print(f"[cdx]  HTML-страниц тредов в архиве: {len(refs)}")
     if not refs:
         return stats
@@ -499,6 +529,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", default="2ch.hk", help="хост, у которого берём снапшоты")
     parser.add_argument(
         "--threads-limit", type=int, default=0, help="сколько тредов обработать (0 — все)"
+    )
+    parser.add_argument(
+        "--from-year",
+        default="2013",
+        help="брать страницы начиная с этого года (у ранних снапшотов файлов в архиве нет)",
     )
     parser.add_argument("--files-limit", type=int, default=0, help="файлов в треде (0 — все)")
     parser.add_argument("--delay", type=float, default=1.5, help="пауза между запросами, с")
