@@ -474,7 +474,7 @@ export default function AdminConsole() {
             ) : null}
           </div>
           <Link
-            href="/admin/sources"
+            href="/admin/content?tab=sources"
             className="mt-2 inline-block text-xs text-accent-primary"
             title="Реестр источников: расписание, лимиты, журнал прогонов"
           >
@@ -732,7 +732,7 @@ function QueueStatus({
       </span>
 
       {!source.is_enabled ? (
-        <Link href="/admin/sources" className="text-xs text-accent-primary">
+        <Link href="/admin/content?tab=sources" className="text-xs text-accent-primary">
           открыть реестр источников →
         </Link>
       ) : !up ? (

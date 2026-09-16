@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 
+import AdminSection from "@/components/admin/AdminSection";
 import PlansPanel from "@/components/admin/PlansPanel";
 
-export const metadata: Metadata = { title: "Тарифы" };
+export const metadata: Metadata = { title: "Продажи" };
 
 /**
  * Тарифы подписки: цены и сроки, стартовая акция и журнал оплат.
@@ -14,14 +15,29 @@ export const metadata: Metadata = { title: "Тарифы" };
 export default function AdminPlansPage() {
   return (
     <div>
-      <h2 className="text-xl font-bold">Тарифы</h2>
+      <h2 className="text-xl font-bold">Продажи</h2>
       <p className="mt-0.5 mb-4 text-xs text-text-secondary">
-        Цены в рублях (для крипты пересчитываются по курсу на момент счёта). Правки
-        вступают в силу сразу: витрину в боте и на сайте читают из одного источника.
-        Стартовая акция «−50% первые 30 дней или до первых 50 оплат» выключается сама,
-        когда сработает любое из условий — рядом видно, сколько оплат и дней осталось.
+        Тарифы, акции и цены — в звёздах Telegram и в USDT для крипты; рядом балансы
+        кошельков и журнал оплат. Рублёвая цена хранится справочно.
       </p>
-      <PlansPanel />
+      <AdminSection
+        storageKey="admin-plans-tab"
+        fallback="plans"
+        tabs={[
+          {
+            value: "plans",
+            label: "Тарифы и акции",
+            hint: "Цены в звёздах и USDT, сроки, включение тарифов, акции",
+            render: () => <PlansPanel section="plans" />,
+          },
+          {
+            value: "wallet",
+            label: "Кошельки и журнал",
+            hint: "Балансы звёзд и крипты, ручная выдача, история оплат",
+            render: () => <PlansPanel section="wallet" />,
+          },
+        ]}
+      />
     </div>
   );
 }

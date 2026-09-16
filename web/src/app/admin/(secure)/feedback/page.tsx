@@ -1,19 +1,6 @@
-import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
-import FeedbackPanel from "@/components/admin/FeedbackPanel";
-
-export const metadata: Metadata = { title: "Обратная связь" };
-
-/** Приёмная обратной связи: заявки посетителей, статусы и заметки-ответы. */
+/** Старый адрес: обратная связь — таб раздела «Обращения». */
 export default function AdminFeedbackPage() {
-  return (
-    <div>
-      <h2 className="text-xl font-bold">Обратная связь</h2>
-      <p className="mt-0.5 mb-4 text-xs text-text-secondary">
-        Обращения с сайта: подписка, баги, идеи, контент. Каждое приходит письмом админам;
-        статусы (новое → в работе → отвечено → закрыто) и заметки видны здесь.
-      </p>
-      <FeedbackPanel />
-    </div>
-  );
+  redirect("/admin/inbox?tab=feedback");
 }

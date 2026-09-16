@@ -3,21 +3,34 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-/** Вкладки админки. Вкладка «Контент» владеет и страницами тредов раздела. */
+/**
+ * Вкладки админки: пять разделов вместо прежних девяти.
+ *
+ * Близкие страницы живут табами внутри раздела (см. `AdminSection`), поэтому меню
+ * отвечает на вопрос «про что», а не «какая именно страница»: Обзор (дашборд,
+ * статистика, пользователи), Контент (разделы и источники), Обращения (жалобы и
+ * обратная связь), Продажи (тарифы, кошельки, журнал оплат) и Канал (Telegram).
+ */
 const TABS: Array<{ href: string; label: string; match: (p: string) => boolean }> = [
-  { href: "/admin", label: "Обзор", match: (p) => p === "/admin" },
+  { href: "/admin", label: "Обзор", match: (p) => p === "/admin" || p.startsWith("/admin/stats") || p.startsWith("/admin/users") },
   {
     href: "/admin/content",
     label: "Контент",
-    match: (p) => p.startsWith("/admin/content") || p.startsWith("/admin/boards"),
+    match: (p) =>
+      p.startsWith("/admin/content") ||
+      p.startsWith("/admin/boards") ||
+      p.startsWith("/admin/sources"),
   },
-  { href: "/admin/sources", label: "Источники", match: (p) => p.startsWith("/admin/sources") },
-  { href: "/admin/feedback", label: "Обратная связь", match: (p) => p.startsWith("/admin/feedback") },
-  { href: "/admin/reports", label: "Жалобы", match: (p) => p.startsWith("/admin/reports") },
-  { href: "/admin/plans", label: "Тарифы", match: (p) => p.startsWith("/admin/plans") },
-  { href: "/admin/telegram", label: "Telegram", match: (p) => p.startsWith("/admin/telegram") },
-  { href: "/admin/users", label: "Пользователи", match: (p) => p.startsWith("/admin/users") },
-  { href: "/admin/stats", label: "Статистика", match: (p) => p.startsWith("/admin/stats") },
+  {
+    href: "/admin/inbox",
+    label: "Обращения",
+    match: (p) =>
+      p.startsWith("/admin/inbox") ||
+      p.startsWith("/admin/reports") ||
+      p.startsWith("/admin/feedback"),
+  },
+  { href: "/admin/plans", label: "Продажи", match: (p) => p.startsWith("/admin/plans") },
+  { href: "/admin/telegram", label: "Канал", match: (p) => p.startsWith("/admin/telegram") },
 ];
 
 /** Навигация админки: вкладки + выход. Подсветка — по текущему адресу. */

@@ -35,7 +35,12 @@ function rub(value: number): string {
  * разделы, скачивание и без рекламы. Цены, сроки и условия акции правятся здесь и
  * вступают в силу сразу: и сайт, и бот читают один и тот же источник.
  */
-export default function PlansPanel() {
+export default function PlansPanel({
+  section = "all",
+}: {
+  /** Что показать: `plans` — тарифы и акции, `wallet` — кошельки и журнал, `all` — всё. */
+  section?: "all" | "plans" | "wallet";
+}) {
   const { token, logout } = useAdminToken();
   const [data, setData] = useState<AdminPlans | null>(null);
   const [payments, setPayments] = useState<PaymentItem[] | null>(null);
@@ -227,8 +232,11 @@ export default function PlansPanel() {
     <div className="mt-4 flex flex-col gap-6">
       {error ? <p className="text-xs text-accent-danger">{error}</p> : null}
 
-      {/* Кошельки: деньги лежат не у нас — звёзды на балансе бота, крипта в Crypto Pay,
-          а в базе только журнал. Показываем рядом, чтобы расхождение было видно. */}
+      {/* ── Кошельки: деньги лежат не у нас — звёзды на балансе бота, крипта в
+          Crypto Pay, а в базе только журнал. Показываем рядом, чтобы расхождение
+          было видно. ─────────────────────────────────────────────────────────── */}
+      {section !== "plans" ? (
+        <>
       <div className="mt-4 rounded border border-line bg-ink-secondary p-4">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
           <h3 className="text-sm font-semibold">Кошельки</h3>
@@ -287,8 +295,12 @@ export default function PlansPanel() {
           выдача не сработала: смотрите логи `telegram-gateway` и `api`.
         </p>
       </div>
+        </>
+      ) : null}
 
-      {/* Тарифы */}
+      {/* ── Тарифы и акции: что продаём и на каких условиях ───────────────────── */}
+      {section !== "wallet" ? (
+        <>
       <div className="rounded border border-line bg-ink-secondary p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-semibold">Тарифы</h3>
@@ -622,8 +634,12 @@ export default function PlansPanel() {
           </p>
         </div>
       </div>
+        </>
+      ) : null}
 
-      {/* Ручная выдача тарифа */}
+      {/* ── Выдача и журнал оплат: ручная выдача, история продаж ─────────────── */}
+      {section !== "plans" ? (
+        <>
       <div className="rounded border border-line bg-ink-secondary p-4">
         <h3 className="text-sm font-semibold">Выдать тариф вручную</h3>
         <p className="mt-1 text-xs text-text-secondary">
@@ -698,12 +714,14 @@ export default function PlansPanel() {
           ))}
           {payments && payments.length === 0 ? (
             <p className="text-xs text-text-muted">
-              Оплат пока нет. Первые продажи появятся здесь, когда подключим CryptoBot;
-              ручные выдачи видны сразу.
+              Оплат пока нет: продажи звёздами и криптой появятся здесь сразу после
+              оплаты, ручные выдачи видны сразу.
             </p>
           ) : null}
         </div>
       </div>
+        </>
+      ) : null}
     </div>
   );
 }

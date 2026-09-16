@@ -1,9 +1,6 @@
-import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
-import AdminStatsPanel from "@/components/admin/AdminStatsPanel";
-
-export const metadata: Metadata = { title: "Статистика" };
-
+/** Старый адрес: статистика — таб раздела «Обзор». */
 export default function AdminStatsPage() {
-  return <AdminStatsPanel />;
+  redirect("/admin?tab=stats");
 }

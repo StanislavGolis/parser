@@ -1,9 +1,6 @@
-import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
-import AdminUsersPanel from "@/components/admin/AdminUsersPanel";
-
-export const metadata: Metadata = { title: "Пользователи" };
-
+/** Старый адрес: пользователи — таб раздела «Обзор». */
 export default function AdminUsersPage() {
-  return <AdminUsersPanel />;
+  redirect("/admin?tab=users");
 }
