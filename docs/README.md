@@ -241,17 +241,23 @@ docker compose -f docker-compose.prod.yml up -d --build
 - [x] **Крипта: Crypto Pay (CryptoBot)** (16.09.2026): счёт в USDT на тариф, цена —
       поле `plans.price_usdt_cents` (правится в админке рядом со звёздами), выдача по
       проверке статуса счёта (`getInvoices`) через идемпотентный `mark_paid`, журнал
-      `payments` (`provider=crypto`). Схема без вебхука: бот просит счёт у нашего API
+      `payments` (`provider=crypto`). Бот просит счёт у нашего API
       (`POST /api/v1/billing/crypto`) и присылает ссылку с кнопкой «Я оплатил»
-      (`POST /api/v1/billing/crypto/check`) — работает без внешней доступности домена.
-      Переменные: `CRYPTOBOT_TOKEN`, `CRYPTOBOT_ASSET` (по умолчанию USDT),
-      `CRYPTOBOT_TESTNET`, `CRYPTOBOT_INVOICE_TTL_MINUTES`.
-- [x] **Вход — по подписке через бота**: на `/login` только кнопка «Войти через Telegram»
-      (одноразовая ссылка, 10 минут), форма email/пароля спрятана под ссылкой
-      «Вход для админов» — для админских и VIP-аккаунтов.
-- [ ] **Оплата и доступ Free** — что осталось до продаж: вебхук Crypto Pay (ускорение
-      выдачи), возвраты платежей, реклама для Free (отложена), тексты оферты.
-      План — [`LAUNCH.md`](LAUNCH.md) §1.
+      (`POST /api/v1/billing/crypto/check`) — это запасной путь, работающий даже если
+      домен недоступен извне. Переменные: `CRYPTOBOT_TOKEN`, `CRYPTOBOT_ASSET`
+      (по умолчанию USDT), `CRYPTOBOT_TESTNET`, `CRYPTOBOT_INVOICE_TTL_MINUTES`.
+- [x] **Вебхук Crypto Pay (16.09.2026)**: `POST /api/v1/billing/crypto/webhook` —
+      Crypto Pay сообщает об оплате сам (`update_type=invoice_paid`), премиум выдаётся
+      за секунды, покупателю не нужно нажимать «Я оплатил». Подпись — заголовок
+      `crypto-pay-api-token` (сравнение постоянным по времени способом), сверх неё
+      статус счёта перепроверяется в `getInvoices`: выдаём только при подтверждённом
+      `paid`, поэтому подделка уведомления ничего не даёт. Ручка открыта анонимам
+      (`/api/v1/billing/` в списке исключений закрытого режима) — сессии у Crypto Pay нет.
+      Управление: админка «Продажи» → «Кошельки» (статус + «включить/выключить») или
+      CLI `python -m src.tools.cryptobot_webhook set|info|delete`; адрес берётся из
+      `SITE_URL`. Ручки админки: `GET|POST|DELETE /api/v1/admin/plans/crypto/webhook`.
+- [ ] **Оплата и доступ Free** — что осталось до продаж: возвраты платежей, реклама
+      для Free (отложена), тексты оферты. План — [`LAUNCH.md`](LAUNCH.md) §1.
 
 **Ограничения и открытые задачи**
 - Прод-деплой выполнен (домен, SSL, бэкапы БД), но **автоматизацию бэкапов и выгрузку

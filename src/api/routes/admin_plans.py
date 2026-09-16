@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +18,7 @@ from src.api.deps import verify_admin
 from src.api.schemas import (
     AdminPlanOut,
     AdminPlansOut,
+    CryptoWebhookOut,
     PaymentOut,
     PlanIn,
     PromoIn,
@@ -86,6 +87,13 @@ async def wallets(_=Depends(verify_admin), session: AsyncSession = Depends(get_s
             crypto.balances = await cryptobot.balance()
         except Exception as exc:  # noqa: BLE001
             crypto.error = str(exc)
+        # Вебхук: с ним премиум выдаётся сразу после оплаты, без кнопки «Я оплатил».
+        # Спрашиваем Crypto Pay один раз вместе с балансом — карточка кошельков
+        # показывает состояние в одном месте.
+        info = await cryptobot.webhook_info()
+        crypto.webhook = _webhook_out(
+            info, error=None if info is not None else "Crypto Pay не ответил"
+        )
 
     rows = (
         await session.execute(
@@ -109,6 +117,94 @@ async def wallets(_=Depends(verify_admin), session: AsyncSession = Depends(get_s
             journal.pending_count += int(count)
 
     return WalletsOut(stars=stars, crypto=crypto, journal=journal)
+
+
+# ── Вебхук Crypto Pay: премиум выдаётся сразу после оплаты ───────────
+
+
+def _webhook_out(info: Optional[dict], error: Optional[str] = None) -> CryptoWebhookOut:
+    """Состояние вебхука: адрес, который мы ставим, и что реально настроено."""
+    current = (info or {}).get("url") or None
+    return CryptoWebhookOut(
+        configured=cryptobot.configured(),
+        enabled=bool(current),
+        url=cryptobot.webhook_url(),
+        current_url=current,
+        last_error=(info or {}).get("last_error_message") or None,
+        error=error,
+    )
+
+
+@router.get("/crypto/webhook", response_model=CryptoWebhookOut)
+async def crypto_webhook_status(_=Depends(verify_admin)):
+    """Что настроено в Crypto Pay: включён ли вебхук и куда шлёт уведомления."""
+    if not cryptobot.configured():
+        return _webhook_out(None, error="Токен Crypto Pay не задан")
+    info = await cryptobot.webhook_info()
+    if info is None:
+        return _webhook_out(None, error="Crypto Pay не ответил")
+    return _webhook_out(info)
+
+
+@router.post("/crypto/webhook", response_model=CryptoWebhookOut)
+async def crypto_webhook_enable(
+    url: Optional[str] = Query(
+        None,
+        description="Свой адрес вебхука; по умолчанию /api/v1/billing/crypto/webhook",
+    ),
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Включает (или переустанавливает) вебхук: Crypto Pay сообщит об оплате сам.
+
+    После этого премиум выдаётся сразу после оплаты счёта — покупателю не нужно
+    нажимать «Я оплатил». Опрос статуса остаётся запасным путём.
+    """
+    if not cryptobot.configured():
+        raise HTTPException(status_code=503, detail="Приём крипты не настроен")
+
+    target = (url or cryptobot.webhook_url()).strip()
+    if not target.startswith("https://"):
+        raise HTTPException(
+            status_code=400,
+            detail="Crypto Pay принимает только https-адрес (проверьте SITE_URL)",
+        )
+
+    result = await cryptobot.set_webhook(target, update_types=["invoice_paid"])
+    if result is None:
+        raise HTTPException(status_code=502, detail="Crypto Pay не принял вебхук")
+
+    await record_audit(
+        session,
+        action="billing.crypto.webhook",
+        target=target,
+        details="вебхук включён (invoice_paid)",
+    )
+    await session.commit()
+
+    info = await cryptobot.webhook_info()
+    return _webhook_out(info or {"url": target})
+
+
+@router.delete("/crypto/webhook", response_model=CryptoWebhookOut)
+async def crypto_webhook_disable(
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Выключает вебхук: остаётся прежний путь — опрос по кнопке «Я оплатил»."""
+    if not cryptobot.configured():
+        raise HTTPException(status_code=503, detail="Приём крипты не настроен")
+    if not await cryptobot.delete_webhook():
+        raise HTTPException(status_code=502, detail="Crypto Pay не ответил")
+
+    await record_audit(
+        session,
+        action="billing.crypto.webhook",
+        target="off",
+        details="вебхук выключен",
+    )
+    await session.commit()
+    return _webhook_out(None)
 
 
 @router.get("/promos", response_model=List[PromoOut])

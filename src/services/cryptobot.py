@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from typing import Any, Dict, Optional
 
 import aiohttp
@@ -133,3 +134,48 @@ async def get_invoice(invoice_id: int) -> Optional[dict]:
     data = await call("getInvoices", {"invoice_ids": str(invoice_id)})
     items = ((data or {}).get("result") or {}).get("items") or []
     return items[0] if items else None
+
+
+# ── Вебхук: мгновенная выдача вместо опроса ──────────────────────────
+
+
+def webhook_token_ok(value: Optional[str]) -> bool:
+    """Проверяет подпись вебхука: Crypto Pay шлёт токен приложения в заголовке.
+
+    Заголовок — `crypto-pay-api-token`. Сравниваем постоянным по времени
+    способом: угадать токен перебором по времени ответа не получится.
+    """
+    token = (settings.CRYPTOBOT_TOKEN or "").strip()
+    sent = (value or "").strip()
+    return bool(token) and secrets.compare_digest(sent, token)
+
+
+def webhook_url() -> str:
+    """Адрес нашего вебхука (из `SITE_URL`): Crypto Pay стучится сюда при оплате."""
+    base = (settings.SITE_URL or "").strip().rstrip("/")
+    return f"{base}/api/v1/billing/crypto/webhook" if base else ""
+
+
+async def set_webhook(url: str, update_types: Optional[list[str]] = None) -> Optional[dict]:
+    """Ставит вебхук: Crypto Pay будет присылать уведомления об оплате счёта.
+
+    `update_types` по умолчанию только `invoice_paid` — нам не нужны события
+    создания/истечения счёта, а поток уведомлений получается минимальным.
+    """
+    body: Dict[str, Any] = {"url": url}
+    if update_types:
+        body["update_types"] = update_types
+    data = await call("setWebhook", body)
+    return (data or {}).get("result")
+
+
+async def delete_webhook() -> bool:
+    """Выключает вебхук (остаётся опрос статуса по кнопке «Я оплатил»)."""
+    return bool(await call("deleteWebhook"))
+
+
+async def webhook_info() -> Optional[dict]:
+    """Что настроено сейчас: `url`, `ip_address`, `update_types`, `last_error_*`."""
+    data = await call("getWebhookInfo")
+    return (data or {}).get("result")
+

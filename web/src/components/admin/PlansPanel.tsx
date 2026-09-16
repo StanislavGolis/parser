@@ -5,7 +5,14 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError, apiPatch, apiPost, apiSend } from "@/lib/api";
 import { useAdminToken } from "@/lib/adminAuth";
 import { formatNumber, parseUtc } from "@/lib/format";
-import type { AdminPlan, AdminPlans, PaymentItem, PromoItem, WalletsView } from "@/lib/types";
+import type {
+  AdminPlan,
+  AdminPlans,
+  CryptoWebhook,
+  PaymentItem,
+  PromoItem,
+  WalletsView,
+} from "@/lib/types";
 
 const PLAN_ORDER = ["days3", "month", "year", "forever"];
 
@@ -89,6 +96,24 @@ export default function PlansPanel({
   useEffect(() => {
     if (token) void load(token);
   }, [token, load]);
+
+  /** Включает/выключает вебхук Crypto Pay: с ним премиум выдаётся сразу после оплаты. */
+  async function setCryptoWebhook(enabled: boolean) {
+    if (!token) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiSend<CryptoWebhook>("/api/v1/admin/plans/crypto/webhook", {
+        method: enabled ? "POST" : "DELETE",
+        token,
+      });
+      await load(token);
+    } catch (err) {
+      guard(err);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   function patchPlan(code: string, patch: Partial<AdminPlan>) {
     setDraft((prev) => ({ ...prev, [code]: { ...prev[code], ...patch } }));
@@ -289,6 +314,48 @@ export default function PlansPanel({
               .map((item) => `${item.available} ${item.currency_code}`)
               .join(" · ")}
           </p>
+        ) : null}
+
+        {/* Вебхук Crypto Pay: с ним премиум выдаётся сразу после оплаты, без кнопки
+            «Я оплатил» (раньше бот опрашивал статус счёта вручную). */}
+        {wallets?.crypto.configured ? (
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+            <span className="font-mono text-text-muted">вебхук Crypto Pay:</span>
+            {wallets.crypto.webhook?.enabled ? (
+              <span
+                className="font-mono text-accent-secondary"
+                title={wallets.crypto.webhook.current_url ?? undefined}
+              >
+                включён — премиум выдаётся сразу после оплаты
+              </span>
+            ) : (
+              <span
+                className="font-mono text-text-secondary"
+                title={wallets.crypto.webhook?.error ?? undefined}
+              >
+                выключен — выдача по кнопке «Я оплатил»
+              </span>
+            )}
+            {wallets.crypto.webhook?.last_error ? (
+              <span className="text-accent-danger" title={wallets.crypto.webhook.last_error}>
+                последняя доставка не удалась
+              </span>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => void setCryptoWebhook(!wallets.crypto.webhook?.enabled)}
+              disabled={busy}
+              className="btn-ghost px-2 py-0.5 text-[11px]"
+              title={
+                wallets.crypto.webhook?.enabled ??
+                false
+                  ? "Снять вебхук: останется проверка по кнопке"
+                  : `Включить вебхук: ${wallets.crypto.webhook?.url ?? ""}`
+              }
+            >
+              {wallets.crypto.webhook?.enabled ? "выключить" : "включить"}
+            </button>
+          </div>
         ) : null}
         <p className="mt-1 text-[11px] text-text-muted">
           Журнал — наши записи о продажах. Если баланс больше журнала, оплата пришла, а

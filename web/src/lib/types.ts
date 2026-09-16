@@ -856,10 +856,24 @@ export interface WalletStars {
   error: string | null;
 }
 
+/** Состояние вебхука Crypto Pay: включён ли и куда шлёт уведомления об оплате. */
+export interface CryptoWebhook {
+  configured: boolean;
+  enabled: boolean;
+  /** Адрес, который ставим при включении (из SITE_URL). */
+  url: string;
+  /** Что настроено в Crypto Pay прямо сейчас. */
+  current_url: string | null;
+  last_error: string | null;
+  error: string | null;
+}
+
 export interface WalletCrypto {
   configured: boolean;
   asset: string;
   balances: Array<{ currency_code: string; available: string; onhold: string }>;
+  /** Вебхук: с ним премиум выдаётся сразу после оплаты. */
+  webhook: CryptoWebhook | null;
   error: string | null;
 }
 

@@ -232,6 +232,77 @@ async def crypto_invoice(
     }
 
 
+@router.post("/crypto/webhook")
+async def crypto_webhook(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    """Вебхук Crypto Pay: счёт оплачен → сразу выдаём премиум.
+
+    До этого оплата зачислялась только по кнопке «Я оплатил» (бот опрашивал статус).
+    Теперь Crypto Pay сам стучится сюда, и выдача происходит за секунды, без действий
+    покупателя. Опрос остаётся запасным путём: если уведомление не дошло (домен
+    недоступен, сбой), бот всё равно выяснит статус по кнопке.
+
+    Защита — заголовок `crypto-pay-api-token`: им Crypto Pay подписывает уведомление.
+    Сверх этого статус счёта перепроверяется в `getInvoices`: выдаём только когда
+    Crypto Pay действительно подтверждает `paid`, поэтому подделка уведомления
+    ничего не даёт. Идемпотентность даёт `mark_paid` (ключ — `external_id`).
+
+    Отвечаем 200 и на «не наше» уведомление: повторять его бессмысленно, а ретраи
+    Crypto Pay нам не нужны.
+    """
+    if not cryptobot.webhook_token_ok(request.headers.get("crypto-pay-api-token")):
+        raise HTTPException(status_code=403, detail="Неверная подпись вебхука")
+
+    try:
+        update = await request.json()
+    except Exception:  # noqa: BLE001 — мусор от сканеров не должен ронять ручку
+        raise HTTPException(status_code=400, detail="Ожидается JSON") from None
+    if not isinstance(update, dict):
+        raise HTTPException(status_code=400, detail="Ожидается JSON-объект")
+
+    payload = update.get("payload") if isinstance(update.get("payload"), dict) else {}
+    invoice_id = payload.get("invoice_id")
+    if not invoice_id:
+        return {"ok": True, "ignored": "в уведомлении нет счёта"}
+
+    payment = (
+        await session.execute(
+            select(Payment).where(
+                Payment.external_id == str(invoice_id),
+                Payment.provider == "crypto",
+            )
+        )
+    ).scalar_one_or_none()
+    if payment is None:
+        return {"ok": True, "ignored": "счёт не найден в журнале"}
+    if payment.status == "paid":
+        return {"ok": True, "paid": True, "status": "paid", "already": True}
+
+    # Подтверждение — только статус счёта у Crypto Pay (а не тело уведомления)
+    invoice = await cryptobot.get_invoice(int(invoice_id))
+    if invoice is None:
+        raise HTTPException(status_code=502, detail="Crypto Pay недоступен")
+    if invoice.get("status") != "paid":
+        return {"ok": True, "paid": False, "status": invoice.get("status")}
+
+    payment = await pricing.mark_paid(session, payment)
+    await record_audit(
+        session,
+        action="billing.crypto",
+        target=f"user:{payment.user_id}",
+        details=(
+            f"{payment.plan_code}: счёт {payment.external_id} (вебхук), "
+            f"премиум до {payment.premium_until}"
+        ),
+        user_id=payment.user_id,
+    )
+    await session.commit()
+    await session.refresh(payment)
+    return {"ok": True, "paid": True, "status": "paid", "premium_until": payment.premium_until}
+
+
 @router.post("/crypto/check")
 async def crypto_check(
     payload: CryptoCheckIn,

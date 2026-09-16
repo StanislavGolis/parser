@@ -657,6 +657,17 @@ class AdminPlansOut(BaseModel):
     sales: Dict[str, int] = {}
 
 
+class CryptoWebhookOut(BaseModel):
+    """Состояние вебхука Crypto Pay: включён ли и куда шлёт уведомления об оплате."""
+
+    configured: bool = False              # задан ли токен приложения
+    enabled: bool = False                 # стоит ли вебхук в Crypto Pay
+    url: str = ""                         # адрес, который ставим (из SITE_URL)
+    current_url: Optional[str] = None     # что настроено в Crypto Pay сейчас
+    last_error: Optional[str] = None
+    error: Optional[str] = None
+
+
 class WalletStarsOut(BaseModel):
     """Баланс звёзд бота в Telegram (`getMyStarBalance`)."""
 
@@ -671,6 +682,8 @@ class WalletCryptoOut(BaseModel):
     configured: bool = False
     asset: str = "USDT"
     balances: List[Dict[str, str]] = []
+    # Вебхук: с ним премиум выдаётся сразу после оплаты (иначе — по кнопке «Я оплатил»)
+    webhook: Optional[CryptoWebhookOut] = None
     error: Optional[str] = None
 
 
