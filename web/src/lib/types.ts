@@ -147,6 +147,25 @@ export interface SourceBoard {
 }
 
 /** Тред доски со статистикой файлов и превью. */
+/**
+ * Кадр карусели превью на плашке треда.
+ *
+ * API отдаёт урезанный набор полей (лёгкая схема `ThreadPreviewOut`): список тредов
+ * с полными `MediaItem` весил под 100 КБ, почти целиком из-за превью. Для миниатюр
+ * хватает ссылок на деривативы, типа файла и признаков премиума.
+ */
+export interface ThreadPreviewItem {
+  id: number;
+  original_name: string;
+  media_type: string;
+  thumb_url: string | null;
+  blur_url: string | null;
+  url: string | null;
+  duration_seconds: number | null;
+  is_premium: boolean;
+  locked: boolean;
+}
+
 export interface BoardThread {
   board_id: number;
   thread_id: number;
@@ -187,7 +206,7 @@ export interface BoardThread {
   media_today?: number;
   /** Когда в тред последний раз добавился видимый файл (на карточке — вместо даты треда). */
   last_media_at?: string | null;
-  preview: MediaItem[];
+  preview: ThreadPreviewItem[];
 }
 
 /** Итог удаления тредов вместе с файлами (админка). */

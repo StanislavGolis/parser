@@ -785,6 +785,28 @@ class MediaListOut(BaseModel):
     has_more: bool = False
 
 
+class ThreadPreviewOut(BaseModel):
+    """Кадр превью в списке тредов — только то, что нужно карусели на плашке.
+
+    Полный `MediaOut` весит около 780 байт (технические поля, хеши, счётчики):
+    в списке из 15 тредов такие превью занимали почти весь ответ (~94 КБ из 100).
+    Карусели нужны лишь ссылки на деривативы, тип файла и признаки премиума —
+    поэтому отдаём урезанный набор полей, а кадров помещается вдвое больше.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    original_name: str = ""
+    media_type: str = "image"
+    thumb_url: Optional[str] = None   # превью (thumb / thumb_blur для премиума)
+    blur_url: Optional[str] = None    # размытый плейсхолдер (blur-up)
+    url: Optional[str] = None         # оригинал: только при активной подписке
+    duration_seconds: Optional[float] = None
+    is_premium: bool = False
+    locked: bool = False              # премиум без подписки у зрителя
+
+
 class ThreadOut(BaseModel):
     """Тред доски с агрегированной статистикой файлов (для сайта/админки)."""
     model_config = ConfigDict(from_attributes=True)
@@ -832,7 +854,7 @@ class ThreadOut(BaseModel):
     last_media_at: Optional[datetime] = None
 
     # Несколько последних файлов треда для превью
-    preview: List[MediaOut] = []
+    preview: List[ThreadPreviewOut] = []
 
 
 class ThreadListOut(BaseModel):

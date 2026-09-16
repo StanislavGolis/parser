@@ -11,16 +11,17 @@ from typing import Dict, List, Optional, Tuple
 from sqlalchemy import Integer, String, and_, cast, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.common import apply_user_flags, is_locked, sign_media_urls
-from src.api.schemas import MediaOut, ThreadOut
+from src.api.common import is_locked, sign_media_urls
+from src.api.schemas import MediaOut, ThreadOut, ThreadPreviewOut
 from src.core.config import settings
 from src.core.models import Media, ThreadState, User
 from src.services import reporting
 from src.services.s3_storage import S3Storage
 
 UPLOADED_STATUSES = ("uploaded", "verified")
-# Сколько последних файлов треда отдавать превью
-PREVIEW_SIZE = 8
+# Сколько первых файлов треда отдавать превью в плашке: с запасом, чтобы карусель
+# было чем листать (в лёгкой схеме `ThreadPreviewOut` кадр весит ~150 байт).
+PREVIEW_SIZE = 16
 
 
 def thread_work_rank():
@@ -463,10 +464,12 @@ async def build_thread_outs(
                 preview_out = [MediaOut.model_validate(m) for m in media_items]
                 if s3 is not None:
                     sign_media_urls(preview_out, media_items, s3, user)
-                if user is not None:
-                    # Отметки зрителя видны и на превью в списке тредов.
-                    await apply_user_flags(session, preview_out, user)
-                item.preview = preview_out
+                # Отдаём лёгкую схему: карусели на плашке нужны только ссылки на
+                # деривативы, тип файла и признаки премиума. Полный `MediaOut`
+                # (хеши, счётчики, техполя) раздувал ответ списка тредов в 5 раз.
+                # Метка зрителя (`marked`) в карусели не используется — запрос
+                # за ней здесь тоже лишний.
+                item.preview = [ThreadPreviewOut.model_validate(p) for p in preview_out]
         out.append(item)
 
     return out

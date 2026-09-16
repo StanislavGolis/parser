@@ -413,7 +413,6 @@ function ThreadCard({
   // размер загруженной порции (300), и счётчик показывал выдуманные «+582».
   const freshCount =
     resume && resume.exact !== false ? Math.max(0, visibleCount - resume.total) : 0;
-
   // ── Карусель превью: лента миниатюр листается колесом мыши ──────────
   // В плашке — начало треда (API отдаёт до 8 кадров), лента занимает всю ширину.
   // Колесо над лентой прокручивает её горизонтально шагами по одному кадру; шаг
@@ -426,6 +425,20 @@ function ThreadCard({
     queued: 0,
   });
   const [stripScrollable, setStripScrollable] = useState(false);
+  // Прогрев кадров: при наведении на карусель догружаем миниатюры, которые ещё
+  // не влезли в плашку — иначе при быстром листании мелькали пустые места.
+  const warmRef = useRef(false);
+  const warmUp = useCallback(() => {
+    if (warmRef.current) return;
+    warmRef.current = true;
+    preview.forEach((m) => {
+      const url = thumbSrc(m);
+      if (!url) return;
+      const image = new window.Image();
+      image.decoding = "async";
+      image.src = url;
+    });
+  }, [preview]);
 
   // Есть ли что листать: подсказку про колесо показываем только если лента
   // реально шире плашки, иначе она бы врала на широком экране.
@@ -456,21 +469,21 @@ function ThreadCard({
       if (!raw) return;
       const max = strip.scrollWidth - strip.clientWidth;
       if (max <= 1) return; // листать нечего — прокрутка уходит странице
-      // Курсор над каруселью: страницу не прокручиваем, листаем ленту. Раньше
-      // при запасе меньше «шага» событие уходило странице — из-за этого казалось,
-      // что карусель не листается.
-      event.preventDefault();
-
       const direction = raw > 0 ? 1 : -1;
       const step = stepOf();
+      const from = strip.scrollLeft;
+      const target = Math.min(Math.max(from + direction * step, 0), max);
+      // Карусель доехала до края: дальше листать нечего, прокручиваем страницу.
+      // (Раньше здесь был заворот на другой конец — выглядело как дёрганье.)
+      if (Math.abs(target - from) < 1) return;
+      event.preventDefault();
 
       const apply = (dir: number) => {
         const from = strip.scrollLeft;
         const target = Math.min(Math.max(from + dir * step, 0), max);
-        // Дошли до края — заворачиваем карусель на другой конец: листание
-        // продолжается, а не «упирается» и не уводит прокрутку в страницу.
-        const wrapped = Math.abs(target - from) < 1 ? (dir > 0 ? 0 : max) : target;
-        strip.scrollTo({ left: wrapped, behavior: "smooth" });
+        if (Math.abs(target - from) < 1) return false; // уже на краю ленты
+        strip.scrollTo({ left: target, behavior: "smooth" });
+        return true;
       };
 
       const now = Date.now();
@@ -631,7 +644,7 @@ function ThreadCard({
           лентой листает её горизонтально (небыстро — миниатюры грузятся лениво),
           клик по кадру открывает тред на этом файле. */}
       {preview.length > 0 ? (
-        <div className="group/strip relative">
+        <div className="group/strip relative" onMouseEnter={warmUp}>
           <div
             ref={stripRef}
             className="flex w-full gap-2 overflow-x-auto px-4 py-3 [scrollbar-width:none] sm:px-4 [&::-webkit-scrollbar]:hidden"
