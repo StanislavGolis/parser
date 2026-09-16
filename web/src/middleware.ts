@@ -63,6 +63,21 @@ function notFound(): NextResponse {
 /** Заголовок для закрытого режима: робот обязан увидеть noindex (см. план §5). */
 const NOINDEX_HEADER = "noindex, nofollow, noarchive";
 
+/**
+ * Старые адреса админки: разделы переехали в пять групп с табами.
+ *
+ * Редирект делаем здесь, а не в самих страницах: middleware отдаёт честный HTTP-307
+ * сразу, не дожидаясь гидратации клиентского лейаута админки. При этом он не требует
+ * входа — cookie проверит следующая ветка, куда ведёт уже новый адрес.
+ */
+const LEGACY_ADMIN: Record<string, string> = {
+  "/admin/stats": "/admin?tab=stats",
+  "/admin/users": "/admin?tab=users",
+  "/admin/sources": "/admin/content?tab=sources",
+  "/admin/reports": "/admin/inbox?tab=reports",
+  "/admin/feedback": "/admin/inbox?tab=feedback",
+};
+
 function withNoIndex(response: NextResponse): NextResponse {
   response.headers.set("x-robots-tag", NOINDEX_HEADER);
   return response;
@@ -78,6 +93,13 @@ export async function middleware(request: NextRequest) {
     url.pathname = `/board/${legacy[1]}`;
     // `?sort=`/`?thread=` переносятся как есть: параметры просмотра не теряются
     return NextResponse.redirect(url, 308);
+  }
+
+  // 2. Старые адреса админки → разделы с табами (307). Вход не требуется: он
+  //    проверится уже на новом адресе, куда ведёт редирект.
+  const legacyAdmin = LEGACY_ADMIN[pathname];
+  if (legacyAdmin) {
+    return NextResponse.redirect(new URL(legacyAdmin, request.url), 307);
   }
 
   // ── Закрытый режим (Dredger 2.0): всё за логином ───────────────────────────
