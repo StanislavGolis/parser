@@ -494,6 +494,8 @@ class TelegramRubricPreviewOut(BaseModel):
     board: str = ""
     tiles: List[int] = []
     photos: List[int] = []
+    blur: int = 0
+    photos_blur: int = 0
     note: Optional[str] = None
 
 

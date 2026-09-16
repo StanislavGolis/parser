@@ -75,12 +75,16 @@ def boards_phrase(value: int, preposition: str = "") -> str:
     return f"{human_count(value)} {plural(value, 'раздел', 'раздела', 'разделов')}{preposition}"
 
 
-def to_jpeg(data: bytes, *, max_side: int = 2560, quality: int = 88) -> Optional[bytes]:
+def to_jpeg(
+    data: bytes, *, max_side: int = 2560, quality: int = 88, blur: int = 0
+) -> Optional[bytes]:
     """Приводит картинку к JPEG, пригодному для Telegram.
 
     Наши деривативы (`web`, `thumb_blur`) — WebP, а `sendPhoto`/`sendMediaGroup`
     надёжно принимают JPEG/PNG. Заодно ужимаем длинную сторону до 2560 px: больше
-    Telegram всё равно пережимает, а лимит на файл — 10 МБ.
+    Telegram всё равно пережимает, а лимит на файл — 10 МБ. `blur` — размытие кадра
+    (0…24) для приложений рубрик: у мозаики и у отдельных фото оно настраивается
+    отдельно.
     """
     try:
         img = Image.open(io.BytesIO(data))
@@ -90,6 +94,9 @@ def to_jpeg(data: bytes, *, max_side: int = 2560, quality: int = 88) -> Optional
     if max(img.size) > max_side:
         scale = max_side / max(img.size)
         img = img.resize((max(1, round(img.width * scale)), max(1, round(img.height * scale))), Image.LANCZOS)
+
+    if blur > 0:
+        img = img.filter(ImageFilter.GaussianBlur(radius=min(24, int(blur))))
 
     buffer = io.BytesIO()
     try:

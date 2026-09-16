@@ -221,12 +221,15 @@ async def render_image(
     return await asyncio.to_thread(telegram_publisher.to_jpeg, image) or image
 
 
-async def asset_bytes(s3: S3Storage, item: Media, quality: str = "web") -> Optional[bytes]:
+async def asset_bytes(
+    s3: S3Storage, item: Media, quality: str = "web", *, blur: int = 0
+) -> Optional[bytes]:
     """Байты дериватива в «хорошем качестве»: `web`, иначе `thumb`.
 
     В альбом рубрик идут кадры в хорошем качестве — это то, что человек увидит в
     канале. Если `web`-варианта нет (старый файл или бэкфилл не проходил), берём
-    превью: пустая плитка хуже, чем кадр меньшего размера. Всё приводим к JPEG.
+    превью: пустая плитка хуже, чем кадр меньшего размера. Всё приводим к JPEG,
+    `blur` — размытие для приложений (настраивается у рубрики отдельно).
     """
     variants = item.variants or {}
     key = variants.get(quality) or variants.get("thumb") or variants.get("thumb_blur")
@@ -243,7 +246,7 @@ async def asset_bytes(s3: S3Storage, item: Media, quality: str = "web") -> Optio
             return None
         finally:
             path.unlink(missing_ok=True)
-    return await asyncio.to_thread(telegram_publisher.to_jpeg, payload)
+    return await asyncio.to_thread(telegram_publisher.to_jpeg, payload, blur=blur)
 
 
 async def album_images(
@@ -274,6 +277,7 @@ async def album_images(
         return picked
 
     blur = max(0, min(24, int(meta.get("blur", default_blur) or 0)))
+    photos_blur = max(0, min(24, int(meta.get("photos_blur", 0) or 0)))
     quality = meta.get("quality") if meta.get("quality") in ("web", "thumb") else "web"
 
     images: List[bytes] = []
@@ -285,7 +289,7 @@ async def album_images(
             images.append(mosaic)
 
     for media_id in ids("photos")[: max(0, ALBUM_MAX - len(images))]:
-        payload = await asset_bytes(s3, by_id[media_id], quality)
+        payload = await asset_bytes(s3, by_id[media_id], quality, blur=photos_blur)
         if payload:
             images.append(payload)
     return images

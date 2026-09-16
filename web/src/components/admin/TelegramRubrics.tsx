@@ -5,41 +5,49 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError, apiPatch, apiPost, apiSend } from "@/lib/api";
 import { useAdminToken } from "@/lib/adminAuth";
 import { parseUtc } from "@/lib/format";
-import type { TelegramRubric, TelegramRubricPreview } from "@/lib/types";
+import type { TelegramAutopost, TelegramRubric, TelegramRubricPreview } from "@/lib/types";
 
 /** Что делает рубрика — короткая подсказка в карточке. */
 const HINTS: Record<string, string> = {
   fresh:
-    "Мозаика 2×2 из свежих файлов, список разделов с приростом за сутки и по одному фото из каждого раздела в хорошем качестве.",
+    "Свежие файлы: мозаика из ведущих разделов, список разделов с приростом за сутки и кадры из этих разделов (первое фото — обложка поста).",
   board_day:
-    "Несколько фото из одного треда раздела, число файлов в разделе и его описание из админки.",
+    "Раздел дня: кадры из одного треда раздела, число файлов в разделе и его описание из админки.",
   top_week:
-    "Мозаика 2×2 и разделы, которые смотрели и сохраняли за период: объём раздела и прирост.",
+    "Топ недели: мозаика из самого популярного и разделы, которые смотрели и сохраняли за период.",
 };
 
-/** Числовые параметры по коду рубрики: подпись и границы. */
-const NUMBER_FIELDS: Record<
+/** Мозаика: обложка поста (сетка из плиток). */
+const MOSAIC_FIELDS: Array<{ key: string; label: string; min: number; max: number }> = [
+  { key: "tiles", label: "плиток (0 — без мозаики)", min: 0, max: 4 },
+  { key: "blur", label: "размытие (0–24)", min: 0, max: 24 },
+];
+
+/** Приложения: отдельные кадры под мозаикой. */
+const APPENDIX_FIELDS: Array<{ key: string; label: string; min: number; max: number }> = [
+  { key: "photos", label: "кадров (0–10)", min: 0, max: 10 },
+  { key: "photos_per_board", label: "из каждого раздела (1–3)", min: 1, max: 3 },
+  { key: "photos_blur", label: "размытие (0–24, 0 — как есть)", min: 0, max: 24 },
+];
+
+/** Что специфично для конкретной рубрики: откуда берутся файлы. */
+const RUBRIC_FIELDS: Record<
   string,
   Array<{ key: string; label: string; min: number; max: number }>
 > = {
   fresh: [
     { key: "hours", label: "период, ч", min: 1, max: 336 },
     { key: "boards_count", label: "разделов в тексте", min: 1, max: 6 },
-    { key: "board_photos", label: "фото разделов (0 — только мозаика)", min: 0, max: 6 },
-    { key: "tiles", label: "плиток мозаики", min: 1, max: 4 },
-    { key: "blur", label: "размытие (0–24)", min: 0, max: 24 },
   ],
-  board_day: [
-    { key: "photos", label: "фото из треда", min: 1, max: 10 },
-    { key: "blur", label: "размытие (0–24, 0 — как есть)", min: 0, max: 24 },
-  ],
+  board_day: [],
   top_week: [
     { key: "days", label: "период, дн.", min: 2, max: 30 },
     { key: "boards_count", label: "разделов", min: 1, max: 6 },
-    { key: "tiles", label: "плиток мозаики", min: 1, max: 4 },
-    { key: "blur", label: "размытие (0–24)", min: 0, max: 24 },
   ],
 };
+
+/** У «Раздела дня» кадры берутся из одного треда — «из каждого раздела» не нужно. */
+const NON_BOARD_RUBRICS = ["fresh", "top_week"];
 
 const SORT_MODES: Array<{ value: string; label: string }> = [
   { value: "activity", label: "что смотрели и сохраняли" },
@@ -97,11 +105,13 @@ function asText(value: unknown, fallback = ""): string {
 export default function TelegramRubrics() {
   const { token, logout } = useAdminToken();
   const [items, setItems] = useState<TelegramRubric[] | null>(null);
+  const [autopost, setAutopost] = useState<TelegramAutopost | null>(null);
   const [previews, setPreviews] = useState<Record<string, TelegramRubricPreview>>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState("");
-  // Черновик поля «раздел» у «Раздела дня»: сохраняем по выходу из поля
+  // Черновик полей-списков: сохраняем по выходу из поля
   const [boardDrafts, setBoardDrafts] = useState<Record<string, string>>({});
+  const [boardsText, setBoardsText] = useState("");
 
   const guard = useCallback(
     (err: unknown) => {
@@ -119,6 +129,15 @@ export default function TelegramRubrics() {
       } catch (err) {
         guard(err);
       }
+      try {
+        const data = await apiSend<TelegramAutopost>("/api/v1/admin/telegram/autopost", {
+          token: t,
+        });
+        setAutopost(data);
+        setBoardsText((data.boards ?? []).join(", "));
+      } catch (err) {
+        guard(err);
+      }
     },
     [guard],
   );
@@ -126,6 +145,21 @@ export default function TelegramRubrics() {
   useEffect(() => {
     if (token) void load(token);
   }, [token, load]);
+
+  async function saveAutopost(patch: Partial<TelegramAutopost>) {
+    if (!token) return;
+    setBusy("autopost");
+    setError(null);
+    try {
+      setAutopost(
+        await apiPatch<TelegramAutopost>("/api/v1/admin/telegram/autopost", patch, token),
+      );
+    } catch (err) {
+      guard(err);
+    } finally {
+      setBusy("");
+    }
+  }
 
   async function save(code: string, patch: Record<string, unknown>) {
     if (!token) return;
@@ -195,15 +229,101 @@ export default function TelegramRubrics() {
 
   return (
     <div className="rounded border border-line bg-ink-secondary p-4">
+      {/* ── Общие правила автопоста ───────────────────────────────────── */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold">Рубрики автопоста</h3>
+        <h3 className="text-sm font-semibold">Автопостинг</h3>
         <span className="font-mono text-[11px] text-text-muted">
-          планировщик берёт рубрику с самой большой паузой
+          {autopost
+            ? `за сутки: ${autopost.published_last_day}/${autopost.posts_per_day} · ` +
+              (autopost.allowed ? "можно запускать" : `пауза: ${autopost.reason ?? "—"}`)
+            : "загрузка…"}
         </span>
       </div>
       <p className="mt-1 text-xs text-text-secondary">
-        Каждая рубрика — свой тип поста в канале: включайте нужные и настраивайте
-        параметры. По умолчанию всё уходит в карантин — черновик приходит вам в ЛС бота.
+        Посты собираются по рубрикам: планировщик берёт ту, у которой истекла пауза. Здесь
+        общие правила — сколько постов в сутки, когда молчать и нужно ли подтверждение.
+      </p>
+
+      {autopost ? (
+        <>
+          <div className="mt-2.5 flex flex-wrap items-end gap-x-4 gap-y-2 text-xs text-text-secondary">
+            <label className="flex items-center gap-1.5">
+              постов в сутки:
+              <input
+                type="number"
+                min={1}
+                max={10}
+                value={autopost.posts_per_day}
+                onChange={(e) => void saveAutopost({ posts_per_day: Number(e.target.value) })}
+                className={`${field} w-16`}
+              />
+            </label>
+            <label className="flex items-center gap-1.5">
+              тишина с:
+              <input
+                type="number"
+                min={0}
+                max={23}
+                value={autopost.quiet_from}
+                onChange={(e) => void saveAutopost({ quiet_from: Number(e.target.value) })}
+                className={`${field} w-16`}
+              />
+            </label>
+            <label className="flex items-center gap-1.5">
+              до:
+              <input
+                type="number"
+                min={0}
+                max={23}
+                value={autopost.quiet_to}
+                onChange={(e) => void saveAutopost({ quiet_to: Number(e.target.value) })}
+                className={`${field} w-16`}
+              />
+            </label>
+            <label className="flex items-center gap-1.5">
+              разделы (слаги через запятую, пусто — все):
+              <input
+                value={boardsText}
+                onChange={(e) => setBoardsText(e.target.value)}
+                onBlur={() =>
+                  void saveAutopost({
+                    boards: boardsText
+                      .split(",")
+                      .map((slug) => slug.trim())
+                      .filter(Boolean),
+                  })
+                }
+                placeholder="asmr, gg"
+                className={`${field} w-56`}
+              />
+            </label>
+            <label className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={autopost.require_approval}
+                onChange={(e) => void saveAutopost({ require_approval: e.target.checked })}
+              />
+              подтверждать в боте (карантин)
+            </label>
+            <button
+              type="button"
+              onClick={() => void saveAutopost({ enabled: !autopost.enabled })}
+              disabled={busy === "autopost"}
+              className={
+                autopost.enabled ? "btn-ghost px-3 py-1.5 text-xs" : "btn-primary px-3 py-1.5 text-xs"
+              }
+            >
+              {autopost.enabled ? "Выключить автопостинг" : "Включить автопостинг"}
+            </button>
+          </div>
+        </>
+      ) : null}
+
+      {/* ── Рубрики: мозаика + приложения ─────────────────────────────── */}
+      <h4 className="mt-5 text-sm font-semibold">Рубрики</h4>
+      <p className="mt-1 text-xs text-text-secondary">
+        Каждая рубрика — свой тип поста. Мозаика — обложка поста, приложения — отдельные
+        кадры под ней в хорошем качестве; размытие у них настраивается отдельно.
       </p>
 
       {error ? <p className="mt-2 text-xs text-accent-danger">{error}</p> : null}
@@ -275,7 +395,7 @@ export default function TelegramRubrics() {
 
               <p className="mt-1.5 text-xs text-text-secondary">{HINTS[item.code] ?? ""}</p>
 
-              {/* Настройки рубрики */}
+              {/* Настройки: мозаика, приложения и специфика рубрики */}
               <div className="mt-2.5 flex flex-wrap items-end gap-x-4 gap-y-2 text-xs text-text-secondary">
                 <label className="flex items-center gap-1.5">
                   не чаще, чем раз в
@@ -291,7 +411,26 @@ export default function TelegramRubrics() {
                   />
                   ч
                 </label>
-                {(NUMBER_FIELDS[item.code] ?? []).map((row) => (
+
+                <span className="font-mono text-[11px] text-text-muted">мозаика:</span>
+                {MOSAIC_FIELDS.map((row) => (
+                  <label key={row.key} className="flex items-center gap-1.5">
+                    {row.label}:
+                    <input
+                      type="number"
+                      min={row.min}
+                      max={row.max}
+                      value={asNumber(options[row.key], row.min)}
+                      onChange={(e) => void saveOption(item.code, row.key, Number(e.target.value))}
+                      className={`${field} w-16`}
+                    />
+                  </label>
+                ))}
+
+                <span className="font-mono text-[11px] text-text-muted">приложения:</span>
+                {APPENDIX_FIELDS.filter(
+                  (row) => row.key !== "photos_per_board" || NON_BOARD_RUBRICS.includes(item.code),
+                ).map((row) => (
                   <label key={row.key} className="flex items-center gap-1.5">
                     {row.label}:
                     <input
@@ -311,13 +450,27 @@ export default function TelegramRubrics() {
                     onChange={(e) => void saveOption(item.code, "quality", e.target.value)}
                     className={field}
                   >
-                    {QUALITIES.map((item) => (
-                      <option key={item.value} value={item.value}>
-                        {item.label}
+                    {QUALITIES.map((quality) => (
+                      <option key={quality.value} value={quality.value}>
+                        {quality.label}
                       </option>
                     ))}
                   </select>
                 </label>
+
+                {(RUBRIC_FIELDS[item.code] ?? []).map((row) => (
+                  <label key={row.key} className="flex items-center gap-1.5">
+                    {row.label}:
+                    <input
+                      type="number"
+                      min={row.min}
+                      max={row.max}
+                      value={asNumber(options[row.key], row.min)}
+                      onChange={(e) => void saveOption(item.code, row.key, Number(e.target.value))}
+                      className={`${field} w-16`}
+                    />
+                  </label>
+                ))}
                 {item.code === "board_day" ? (
                   <label className="flex items-center gap-1.5">
                     раздел (пусто — ротация):

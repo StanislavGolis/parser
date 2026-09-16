@@ -700,6 +700,8 @@ export interface TelegramRubricPreview {
   board: string;
   tiles: number[];
   photos: number[];
+  blur: number;
+  photos_blur: number;
   note: string | null;
 }
 

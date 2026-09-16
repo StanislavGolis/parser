@@ -54,29 +54,28 @@ ALBUM_MAX = 10
 MOSAIC_TILES = 4
 QUALITIES = ("web", "thumb")
 
-# Настройки по умолчанию: их перекрывает `telegram_rubrics.options` из админки.
-# Размытие — целое 0…24, как и в остальных постах канала: 15 = мягче прежнего
-# дефолта 7, но форма кадра ещё читается.
+# Единый шаблон настроек рубрики: мозаика (обложка) и приложения (отдельные кадры).
+# Ключи одинаковые у всех рубрик — в админке это две группы полей, а сама рубрика
+# решает только, откуда брать файлы (свежие / тред раздела / популярные за неделю).
+COMMON_DEFAULTS: Dict[str, Any] = {
+    "tiles": 4,             # плиток мозаики: 0 — без мозаики, 4 — сетка 2×2
+    "blur": 15,             # размытие мозаики (0…24)
+    "photos": 4,            # сколько кадров приложить отдельными фото
+    "photos_per_board": 1,  # по сколько кадров брать из каждого раздела
+    "photos_blur": 0,       # размытие приложений: 0 — фото как есть
+    "quality": "web",       # качество приложений: web | thumb
+}
+
+# Рубрики: общий шаблон плюс то, что специфично для каждой
 DEFAULT_OPTIONS: Dict[str, Dict[str, Any]] = {
-    "fresh": {
-        "hours": 24,           # за какой период считаем «свежее»
-        "boards_count": 4,     # сколько разделов перечисляем в тексте
-        "board_photos": 4,     # сколько фото прикладываем (по одному из раздела)
-        "tiles": 4,            # плиток в мозаике (2×2)
-        "blur": 15,
-        "quality": "web",      # какой дериватив идёт в альбом: web | thumb
-    },
-    "board_day": {
-        "board": "",           # пусто — раздел дня выбирает ротация
-        "photos": 5,
-        "blur": 0,             # галерея рубрики не размывается
-        "quality": "web",
-    },
+    "fresh": {**COMMON_DEFAULTS, "hours": 24, "boards_count": 4},
+    "board_day": {**COMMON_DEFAULTS, "tiles": 0, "photos": 5, "board": ""},
     "top_week": {
+        **COMMON_DEFAULTS,
+        "tiles": 4,
+        "photos": 0,
         "days": 7,
         "boards_count": 3,
-        "tiles": 4,
-        "blur": 15,
         # activity — просмотры+скачивания+метки, growth — прирост, size — размер раздела
         "sort": "activity",
     },
@@ -99,9 +98,14 @@ def _quality(options: Dict[str, Any]) -> str:
 
 
 def options_for(rubric: TelegramRubric) -> Dict[str, Any]:
-    """Настройки рубрики: значения по умолчанию, перекрытые сохранёнными."""
+    """Настройки рубрики: значения общего шаблона, перекрытые сохранёнными."""
     base = dict(DEFAULT_OPTIONS.get(rubric.code, {}))
-    base.update(rubric.options or {})
+    stored = dict(rubric.options or {})
+    # Совместимость: раньше число приложений у «Свежего» называлось board_photos
+    if "photos" not in stored and "board_photos" in stored:
+        stored["photos"] = stored["board_photos"]
+    stored.pop("board_photos", None)
+    base.update(stored)
     return base
 
 
@@ -519,8 +523,9 @@ class RubricBuild:
 
     code: str
     caption: str
-    image_mode: str = "mosaic"       # mosaic | single | album
-    blur: int = 0
+    image_mode: str = "mosaic"       # mosaic | single | album | none
+    blur: int = 0                    # размытие мозаики
+    photos_blur: int = 0             # размытие приложений
     quality: str = "web"
     tiles: List[int] = field(default_factory=list)     # кадры мозаики (по порядку)
     photos: List[int] = field(default_factory=list)    # приложения в хорошем качестве
@@ -537,7 +542,11 @@ class RubricBuild:
     @property
     def meta(self) -> Dict[str, Any]:
         """Разбивка для `telegram_posts.rubric_meta` — по ней пост собирается заново."""
-        data: Dict[str, Any] = {"blur": self.blur, "quality": self.quality}
+        data: Dict[str, Any] = {
+            "blur": self.blur,
+            "photos_blur": self.photos_blur,
+            "quality": self.quality,
+        }
         if self.tiles:
             data["tiles"] = self.tiles
         if self.photos:
@@ -547,6 +556,18 @@ class RubricBuild:
         if self.board:
             data["board"] = self.board
         return data
+
+
+def image_mode(tiles: int, photos: int) -> str:
+    """Как отправлять собранное: альбом, одно фото-мозаика, одиночный кадр или текст."""
+    if photos >= 1 and (tiles or photos > 1):
+        return "album"
+    if photos == 1:
+        return "single"
+    if tiles:
+        return "mosaic"
+    return "none"
+
 
 
 def boards_in_phrase(value: int) -> str:
@@ -607,12 +628,14 @@ def top_week_caption(*, rows: List[BoardStat], days: int = 7) -> str:
 async def _build_fresh(
     session: AsyncSession, options: Dict[str, Any], boards: Optional[Sequence[str]]
 ) -> Optional[RubricBuild]:
-    """«Свежее»: мозаика из свежих файлов + разделы с приростом + фото разделов."""
+    """«Свежее»: мозаика из свежих файлов, разделы с приростом и фото из разделов."""
     hours = _int(options, "hours", 24, 1, 336)
     boards_count = _int(options, "boards_count", 4, 1, 6)
-    board_photos = _int(options, "board_photos", 4, 0, 6)
-    tiles_wanted = _int(options, "tiles", MOSAIC_TILES, 1, MOSAIC_TILES)
+    tiles_wanted = _int(options, "tiles", MOSAIC_TILES, 0, MOSAIC_TILES)
+    photos_wanted = _int(options, "photos", 4, 0, ALBUM_MAX)
+    per_board = _int(options, "photos_per_board", 1, 1, 3)
     blur = _int(options, "blur", 15, 0, 24)
+    photos_blur = _int(options, "photos_blur", 0, 0, 24)
     quality = _quality(options)
     days = max(1, (hours + 23) // 24)
     since = datetime.utcnow() - timedelta(hours=hours)
@@ -625,28 +648,31 @@ async def _build_fresh(
     slugs = [item.slug for item in shown]
 
     # Мозаика 2×2: по одному свежему файлу из ведущих разделов, остальное — добираем
-    tiles = await board_media(session, slugs, per_board=1, since=since, quality="thumb")
-    if len(tiles) < tiles_wanted:
-        extra = await latest_media(session, limit=tiles_wanted - len(tiles), quality="thumb")
-        taken = {item.id for item in tiles}
-        tiles.extend(item for item in extra if item.id not in taken)
-    tiles = tiles[:tiles_wanted]
-    if not tiles:
-        return None
+    tiles: List[Media] = []
+    if tiles_wanted:
+        tiles = await board_media(session, slugs, per_board=1, since=since, quality="thumb")
+        if len(tiles) < tiles_wanted:
+            extra = await latest_media(session, limit=tiles_wanted - len(tiles), quality="thumb")
+            taken = {item.id for item in tiles}
+            tiles.extend(item for item in extra if item.id not in taken)
+        tiles = tiles[:tiles_wanted]
 
-    # Приложения: по одному фото в хорошем качестве из каждого раздела
+    # Приложения: свежие фото разделов (по `photos_per_board` с каждого) в хорошем качестве
     photos: List[Media] = []
-    if board_photos:
+    if photos_wanted:
         photos = await board_media(
             session,
             slugs,
-            per_board=1,
+            per_board=per_board,
             since=since,
             images_only=True,
             quality=quality,
             skip=[item.id for item in tiles],
         )
-        photos = photos[: min(board_photos, ALBUM_MAX - 1)]
+        photos = photos[: min(photos_wanted, ALBUM_MAX - (1 if tiles else 0))]
+
+    if not tiles and not photos:
+        return None
 
     return RubricBuild(
         code="fresh",
@@ -656,8 +682,9 @@ async def _build_fresh(
             rows=shown,
             hours=hours,
         ),
-        image_mode="album" if photos else "mosaic",
+        image_mode=image_mode(len(tiles), len(photos)),
         blur=blur,
+        photos_blur=photos_blur,
         quality=quality,
         tiles=[item.id for item in tiles],
         photos=[item.id for item in photos],
@@ -669,9 +696,13 @@ async def _build_board_day(
     session: AsyncSession, options: Dict[str, Any], boards: Optional[Sequence[str]]
 ) -> Optional[RubricBuild]:
     """«Раздел дня»: галерея из одного треда раздела и описание раздела."""
-    photos_wanted = _int(options, "photos", 5, 1, ALBUM_MAX)
-    blur = _int(options, "blur", 0, 0, 24)
+    tiles_wanted = _int(options, "tiles", 0, 0, MOSAIC_TILES)
+    photos_wanted = _int(options, "photos", 5, 0, ALBUM_MAX)
+    blur = _int(options, "blur", 15, 0, 24)
+    photos_blur = _int(options, "photos_blur", 0, 0, 24)
     quality = _quality(options)
+    if not tiles_wanted and not photos_wanted:
+        return None
 
     board = await pick_board_of_day(
         session, boards=boards, preferred=str(options.get("board") or "")
@@ -680,21 +711,27 @@ async def _build_board_day(
         return None
 
     stats = {item.slug: item for item in await board_stats(session, days=30, boards=[board.slug])}
-    photos = await thread_media(session, board, limit=photos_wanted, quality=quality)
-    if not photos:
+    pool = await thread_media(
+        session, board, limit=min(ALBUM_MAX, tiles_wanted + photos_wanted), quality=quality
+    )
+    if not pool:
         return None
+    tiles = pool[:tiles_wanted]
+    photos = pool[tiles_wanted : tiles_wanted + photos_wanted]
 
     return RubricBuild(
         code="board_day",
         caption=board_day_caption(
             slug=board.slug,
-            total=stats[board.slug].total if board.slug in stats else len(photos),
+            total=stats[board.slug].total if board.slug in stats else len(pool),
             description=board.description or "",
             title=board.title or "",
         ),
-        image_mode="album" if len(photos) > 1 else "single",
+        image_mode=image_mode(len(tiles), len(photos)),
         blur=blur,
+        photos_blur=photos_blur,
         quality=quality,
+        tiles=[item.id for item in tiles],
         photos=[item.id for item in photos],
         boards=[board.slug],
         board=board.slug,
@@ -707,31 +744,43 @@ async def _build_top_week(
     """«Топ недели»: мозаика из популярного и разделы, которые смотрели за неделю."""
     days = _int(options, "days", 7, 2, 30)
     boards_count = _int(options, "boards_count", 3, 1, 6)
-    tiles_wanted = _int(options, "tiles", MOSAIC_TILES, 1, MOSAIC_TILES)
+    tiles_wanted = _int(options, "tiles", MOSAIC_TILES, 0, MOSAIC_TILES)
+    photos_wanted = _int(options, "photos", 0, 0, ALBUM_MAX)
     blur = _int(options, "blur", 15, 0, 24)
+    photos_blur = _int(options, "photos_blur", 0, 0, 24)
+    quality = _quality(options)
     mode = str(options.get("sort") or "activity")
+    if not tiles_wanted and not photos_wanted:
+        return None
 
     stats = await board_stats(session, days=days, boards=boards)
     rows = sort_stats([item for item in stats if item.total > 0], mode)[:boards_count]
     if not rows:
         return None
 
-    tiles = await top_media(
-        session, limit=tiles_wanted, days=days, boards=[item.slug for item in rows]
+    pool = await top_media(
+        session,
+        limit=min(ALBUM_MAX, tiles_wanted + photos_wanted),
+        days=days,
+        boards=[item.slug for item in rows],
     )
-    tiles = tiles[:tiles_wanted]
-    if not tiles:
+    tiles = pool[:tiles_wanted]
+    photos = pool[tiles_wanted : tiles_wanted + photos_wanted]
+    if not tiles and not photos:
         return None
 
     return RubricBuild(
         code="top_week",
         caption=top_week_caption(rows=rows, days=days),
-        image_mode="mosaic",
+        image_mode=image_mode(len(tiles), len(photos)),
         blur=blur,
-        quality="thumb",
+        photos_blur=photos_blur,
+        quality=quality,
         tiles=[item.id for item in tiles],
+        photos=[item.id for item in photos],
         boards=[item.slug for item in rows],
     )
+
 
 
 async def build(
@@ -819,7 +868,7 @@ async def preview(
     rubric: TelegramRubric,
     *,
     boards: Optional[Sequence[str]] = None,
-    max_images: int = 4,
+    max_images: int = ALBUM_MAX,
 ) -> Dict[str, Any]:
     """Предпросмотр рубрики: текст и уменьшенные кадры — без записи и публикации."""
     from src.services import telegram_service
@@ -835,6 +884,8 @@ async def preview(
             "board": "",
             "tiles": [],
             "photos": [],
+            "blur": 0,
+            "photos_blur": 0,
             "note": "Пока нечего показать: в архиве нет подходящих файлов",
         }
 
@@ -854,11 +905,12 @@ async def preview(
     thumbs: List[str] = []
     for payload in images[: max(1, max_images)]:
         small = await asyncio.to_thread(
-            telegram_publisher.to_jpeg, payload, max_side=900, quality=72
+            telegram_publisher.to_jpeg, payload, max_side=800, quality=70
         )
         if small:
             thumbs.append("data:image/jpeg;base64," + base64.b64encode(small).decode("ascii"))
 
+    cover = 1 if result.tiles else 0
     return {
         "caption": result.caption,
         "image_mode": result.image_mode,
@@ -868,7 +920,12 @@ async def preview(
         "board": result.board,
         "tiles": result.tiles,
         "photos": result.photos,
-        "note": f"кадров всего: {len(images)}",
+        "blur": result.blur,
+        "photos_blur": result.photos_blur,
+        "note": (
+            f"кадров в посте: {len(images)} "
+            f"(мозаика: {cover}, приложений: {len(result.photos)})"
+        ),
     }
 
 

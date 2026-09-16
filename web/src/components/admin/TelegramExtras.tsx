@@ -2,15 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { ApiError, apiPatch, apiPost, apiSend } from "@/lib/api";
+import { ApiError, apiPost, apiSend } from "@/lib/api";
 import { useAdminToken } from "@/lib/adminAuth";
 import { parseUtc } from "@/lib/format";
-import type { GiveawayItem, TelegramAutopost, TelegramPostItem } from "@/lib/types";
-
-const PERIODS: Array<{ value: string; label: string }> = [
-  { value: "day", label: "Сутки" },
-  { value: "week", label: "Неделя" },
-];
+import type { GiveawayItem } from "@/lib/types";
 
 const STATUS_LABELS: Record<string, string> = {
   draft: "черновик",
@@ -34,24 +29,17 @@ function when(iso: string | null): string {
 }
 
 /**
- * Автопостинг и розыгрыши — вторая половина менеджера канала.
+ * Розыгрыши премиум-подписки — часть менеджера канала.
  *
- * Автопост по умолчанию идёт в карантин: черновик приходит в ЛС бота, в канал он
- * попадает только после «Опубликовать». Здесь включаются лимиты, окна тишины и
- * белый список разделов, а также ведутся розыгрыши премиума.
+ * Подборкой постов и рубриками занимается вкладка «Автопостинг» (см.
+ * `TelegramRubrics.tsx`), здесь только конкурсы: анонс, участие из бота, жеребьёвка
+ * и пост-итоги.
  */
-export default function TelegramExtras({
-  section = "all",
-}: {
-  /** Что показать: `autopost` — расписание и карантин, `giveaways` — розыгрыши, `all` — оба. */
-  section?: "all" | "autopost" | "giveaways";
-}) {
+export default function TelegramExtras() {
   const { token, logout } = useAdminToken();
-  const [autopost, setAutopost] = useState<TelegramAutopost | null>(null);
   const [giveaways, setGiveaways] = useState<GiveawayItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [boards, setBoards] = useState("");
   const [kind, setKind] = useState("daily");
   const [prizeDays, setPrizeDays] = useState(3);
   const [title, setTitle] = useState("");
@@ -67,19 +55,10 @@ export default function TelegramExtras({
   const load = useCallback(
     async (t: string) => {
       try {
-        const data = await apiSend<TelegramAutopost>("/api/v1/admin/telegram/autopost", {
-          token: t,
-        });
-        setAutopost(data);
-        setBoards((data.boards ?? []).join(", "));
-        setError(null);
-      } catch (err) {
-        guard(err);
-      }
-      try {
         setGiveaways(
           await apiSend<GiveawayItem[]>("/api/v1/admin/telegram/giveaways", { token: t }),
         );
+        setError(null);
       } catch (err) {
         guard(err);
       }
@@ -90,43 +69,6 @@ export default function TelegramExtras({
   useEffect(() => {
     if (token) void load(token);
   }, [token, load]);
-
-  async function saveAutopost(patch: Partial<TelegramAutopost>) {
-    if (!token) return;
-    setBusy(true);
-    setError(null);
-    try {
-      setAutopost(
-        await apiPatch<TelegramAutopost>("/api/v1/admin/telegram/autopost", patch, token),
-      );
-    } catch (err) {
-      guard(err);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /** Кнопка «Собрать сейчас»: при карантине черновик уходит в ЛС бота. */
-  async function runAutopost() {
-    if (!token) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const post = await apiPost<TelegramPostItem>(
-        "/api/v1/admin/telegram/autopost/run",
-        undefined,
-        token,
-      );
-      if (post.status === "draft") {
-        window.alert("Черновик отправлен вам в ЛС бота: подтвердите или отклоните его там.");
-      }
-      await load(token);
-    } catch (err) {
-      guard(err);
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function createGiveaway() {
     if (!token) return;
@@ -185,148 +127,11 @@ export default function TelegramExtras({
 
   return (
     <div className="rounded border border-line bg-ink-secondary p-4">
-      {/* ── Автопостинг с карантином ─────────────────────────────────────── */}
-      {section !== "giveaways" ? (
-        <>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold">Автопостинг</h3>
-        <span className="font-mono text-[11px] text-text-muted">
-          {autopost
-            ? `за сутки: ${autopost.published_last_day}/${autopost.posts_per_day} · ` +
-              (autopost.allowed ? "можно запускать" : `пауза: ${autopost.reason ?? "—"}`)
-            : "загрузка…"}
-        </span>
-      </div>
-      <p className="mt-1 text-xs text-text-secondary">
-        Автопост не публикует сам: черновик приходит вам в ЛС бота с кнопками
-        «Опубликовать / Отклонить / Отложить». Окна тишины — по МСК.
-      </p>
-
-      {autopost ? (
-        <>
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-text-secondary">
-            <label className="flex items-center gap-1.5">
-              постов в сутки:
-              <input
-                type="number"
-                min={1}
-                max={10}
-                value={autopost.posts_per_day}
-                onChange={(e) => void saveAutopost({ posts_per_day: Number(e.target.value) })}
-                className={`${field} w-16`}
-              />
-            </label>
-            <label className="flex items-center gap-1.5">
-              тишина с:
-              <input
-                type="number"
-                min={0}
-                max={23}
-                value={autopost.quiet_from}
-                onChange={(e) => void saveAutopost({ quiet_from: Number(e.target.value) })}
-                className={`${field} w-16`}
-              />
-            </label>
-            <label className="flex items-center gap-1.5">
-              до:
-              <input
-                type="number"
-                min={0}
-                max={23}
-                value={autopost.quiet_to}
-                onChange={(e) => void saveAutopost({ quiet_to: Number(e.target.value) })}
-                className={`${field} w-16`}
-              />
-            </label>
-            <label className="flex items-center gap-1.5">
-              дайджест:
-              <select
-                value={autopost.period}
-                onChange={(e) => void saveAutopost({ period: e.target.value })}
-                className={field}
-              >
-                {PERIODS.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex items-center gap-1.5">
-              размытие:
-              <input
-                type="number"
-                min={0}
-                max={24}
-                value={autopost.blur}
-                onChange={(e) => void saveAutopost({ blur: Number(e.target.value) })}
-                className={`${field} w-16`}
-              />
-            </label>
-          </div>
-
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-text-secondary">
-            <label className="flex items-center gap-1.5">
-              разделы (слаги через запятую, пусто — все):
-              <input
-                value={boards}
-                onChange={(e) => setBoards(e.target.value)}
-                onBlur={() =>
-                  void saveAutopost({
-                    boards: boards
-                      .split(",")
-                      .map((slug) => slug.trim())
-                      .filter(Boolean),
-                  })
-                }
-                placeholder="b, mlp"
-                className={`${field} w-48`}
-              />
-            </label>
-            <label className="flex items-center gap-1.5">
-              <input
-                type="checkbox"
-                checked={autopost.require_approval}
-                onChange={(e) => void saveAutopost({ require_approval: e.target.checked })}
-              />
-              подтверждать в боте (карантин)
-            </label>
-          </div>
-
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void saveAutopost({ enabled: !autopost.enabled })}
-              disabled={busy}
-              className={autopost.enabled ? "btn-ghost px-3 py-1.5 text-xs" : "btn-primary px-3 py-1.5 text-xs"}
-            >
-              {autopost.enabled ? "Выключить автопостинг" : "Включить автопостинг"}
-            </button>
-            <button
-              type="button"
-              onClick={() => void runAutopost()}
-              disabled={busy}
-              title="Собрать черновик прямо сейчас: при карантине он придёт в ЛС бота"
-              className="btn-ghost px-3 py-1.5 text-xs"
-            >
-              Собрать сейчас
-            </button>
-            <span className="font-mono text-[11px] text-text-muted">
-              проверка: {when(autopost.last_check_at)} · последний пост:{" "}
-              {when(autopost.last_post_at)}
-            </span>
-          </div>
-        </>
-      ) : null}
 
       {error ? <p className="mt-2 text-xs text-accent-danger">{error}</p> : null}
-        </>
-      ) : null}
 
       {/* ── Розыгрыши премиума ───────────────────────────────────────────── */}
-      {section !== "autopost" ? (
-        <>
-      <div className={section === "all" ? "mt-6 border-t border-line pt-4" : ""}>
+      <div>
         <h3 className="text-sm font-semibold">Розыгрыши премиума</h3>
         <p className="mt-1 text-xs text-text-secondary">
           Участие — через бота: в посте-анонсе кнопка «Участвовать» проверяет подписку
@@ -434,8 +239,6 @@ export default function TelegramExtras({
           ) : null}
         </div>
       </div>
-        </>
-      ) : null}
     </div>
   );
 }
