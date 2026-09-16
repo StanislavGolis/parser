@@ -146,7 +146,7 @@ def fetch(url: str, *, delay: float = 1.0, tries: int = 3) -> Optional[bytes]:
 
 
 def cdx_threads(
-    board: str, host: str, *, limit: int = 0, delay: float = 1.0, from_year: str = ""
+    board: str, host: str, *, delay: float = 1.0, from_year: str = ""
 ) -> List[ThreadRef]:
     """Список HTML-снапшотов тредов раздела из CDX-индекса архива.
 
@@ -157,8 +157,6 @@ def cdx_threads(
         f"{CDX_API}?url={host}/{board}/res/&matchType=prefix&output=json"
         "&filter=statuscode:200&filter=mimetype:text/html&collapse=urlkey"
     )
-    if limit:
-        query += f"&limit={limit}"
     blob = fetch(query, delay=delay)
     if not blob:
         return []
@@ -434,13 +432,10 @@ async def run(args: argparse.Namespace) -> Stats:
         print("[err] S3 не настроен — импорт невозможен")
         return stats
 
-    refs = cdx_threads(
-        args.board,
-        args.host,
-        limit=args.threads_limit,
-        delay=args.delay,
-        from_year=args.from_year,
-    )
+    refs = cdx_threads(args.board, args.host, delay=args.delay, from_year=args.from_year)
+    # Лимит применяем после фильтра по годам: в CDX он режет выборку до отсева
+    if args.threads_limit:
+        refs = refs[: args.threads_limit]
     print(f"[cdx]  HTML-страниц тредов в архиве: {len(refs)}")
     if not refs:
         return stats
