@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { DMCA_EMAIL, SUPPORT_EMAIL } from "@/lib/legal";
+import { DMCA_URL, FEEDBACK_URL } from "@/lib/legal";
 
 export const metadata: Metadata = {
   title: "Конфиденциальность",
@@ -64,20 +64,20 @@ export default function PrivacyPage() {
       <h2 className="mt-6 text-base font-semibold text-text-primary">6. Ваши права</h2>
       <p className="mt-2">
         Вы можете запросить удаление аккаунта и связанных данных, а также копию данных о
-        себе: напишите на{" "}
-        <a href={`mailto:${SUPPORT_EMAIL}`} className="text-accent-primary hover:underline">
-          {SUPPORT_EMAIL}
-        </a>
+        себе: отправьте запрос через{" "}
+        <Link href={FEEDBACK_URL} className="text-accent-primary hover:underline">
+          форму обратной связи
+        </Link>
         . После удаления аккаунта доступ к архиву закрывается.
       </p>
 
       <h2 className="mt-6 text-base font-semibold text-text-primary">7. Обращения</h2>
       <p className="mt-2">
-        Требования правообладателей разбираем по адресу{" "}
-        <a href={`mailto:${DMCA_EMAIL}`} className="text-accent-primary hover:underline">
-          {DMCA_EMAIL}
-        </a>{" "}
-        — см.{" "}
+        Требования правообладателей разбираем через{" "}
+        <Link href={DMCA_URL} className="text-accent-primary hover:underline">
+          форму обратной связи
+        </Link>{" "}
+        (тема «Права и контент») — см.{" "}
         <Link href="/dmca" className="text-accent-primary hover:underline">
           страницу DMCA
         </Link>

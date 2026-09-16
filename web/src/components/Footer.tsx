@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { DMCA_EMAIL, SUPPORT_EMAIL } from "@/lib/legal";
+import { DMCA_URL, FEEDBACK_URL } from "@/lib/legal";
 
 export default function Footer() {
   return (
@@ -29,13 +29,13 @@ export default function Footer() {
         </nav>
         <p>
           связь:{" "}
-          <a href={`mailto:${SUPPORT_EMAIL}`} className="transition-colors hover:text-text-secondary">
-            {SUPPORT_EMAIL}
-          </a>{" "}
+          <Link href={FEEDBACK_URL} className="transition-colors hover:text-text-secondary">
+            форма обратной связи
+          </Link>{" "}
           · контент:{" "}
-          <a href={`mailto:${DMCA_EMAIL}`} className="transition-colors hover:text-text-secondary">
-            {DMCA_EMAIL}
-          </a>
+          <Link href={DMCA_URL} className="transition-colors hover:text-text-secondary">
+            правообладателям
+          </Link>
         </p>
       </div>
     </footer>

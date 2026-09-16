@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { DMCA_EMAIL, DMCA_RESPONSE_HOURS, SUPPORT_EMAIL } from "@/lib/legal";
+import { DMCA_RESPONSE_HOURS, DMCA_URL, FEEDBACK_URL } from "@/lib/legal";
 
 export const metadata: Metadata = {
   title: "Правообладателям (DMCA)",
@@ -19,11 +19,11 @@ export default function DmcaPage() {
 
       <h2 className="mt-6 text-base font-semibold text-text-primary">Как подать требование</h2>
       <p className="mt-2">
-        Напишите на{" "}
-        <a href={`mailto:${DMCA_EMAIL}`} className="text-accent-primary hover:underline">
-          {DMCA_EMAIL}
-        </a>{" "}
-        и укажите:
+        Отправьте требование через{" "}
+        <Link href={DMCA_URL} className="text-accent-primary hover:underline">
+          форму обратной связи
+        </Link>{" "}
+        (тема «Права и контент») и укажите:
       </p>
       <ul className="mt-2 list-disc pl-5">
         <li>кто вы и как с вами связаться (email, при необходимости — телефон);</li>
@@ -70,7 +70,11 @@ export default function DmcaPage() {
       </p>
 
       <p className="mt-6 text-xs text-text-muted">
-        Общие вопросы — {SUPPORT_EMAIL}; см. также{" "}
+        Общие вопросы — через{" "}
+        <Link href={FEEDBACK_URL} className="text-accent-primary hover:underline">
+          форму обратной связи
+        </Link>
+        ; см. также{" "}
         <Link href="/tos" className="text-accent-primary hover:underline">
           правила пользования
         </Link>{" "}

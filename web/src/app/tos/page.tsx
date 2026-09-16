@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { DMCA_EMAIL, SUPPORT_EMAIL } from "@/lib/legal";
+import { DMCA_URL, FEEDBACK_URL } from "@/lib/legal";
 
 export const metadata: Metadata = {
   title: "Правила пользования",
@@ -35,7 +35,13 @@ export default function TosPage() {
       <ul className="mt-2 list-disc pl-5">
         <li>аккаунт личный, передавать его третьим лицам нельзя;</li>
         <li>доступ привязан к Telegram или email — не публикуйте ссылки входа;</li>
-        <li>при подозрении на взлом напишите в поддержку: {SUPPORT_EMAIL}.</li>
+        <li>
+          при подозрении на взлом напишите через{" "}
+          <Link href={FEEDBACK_URL} className="text-accent-primary hover:underline">
+            форму обратной связи
+          </Link>
+          .
+        </li>
       </ul>
 
       <h2 className="mt-6 text-base font-semibold text-text-primary">4. Что запрещено</h2>
@@ -53,7 +59,12 @@ export default function TosPage() {
         <Link href="/dmca" className="text-accent-primary hover:underline">
           страница DMCA
         </Link>{" "}
-        ({DMCA_EMAIL}). Мы скрываем файл и его тред и рассматриваем обращения в первую очередь.
+        или сразу{" "}
+        <Link href={DMCA_URL} className="text-accent-primary hover:underline">
+          форма обратной связи
+        </Link>{" "}
+        с темой «Права и контент». Мы скрываем файл и его тред и рассматриваем такие
+        обращения в первую очередь.
       </p>
 
       <h2 className="mt-6 text-base font-semibold text-text-primary">6. Ответственность</h2>
@@ -70,7 +81,14 @@ export default function TosPage() {
       </p>
 
       <p className="mt-6 text-xs text-text-muted">
-        Вопросы и претензии: {SUPPORT_EMAIL} · требования правообладателей: {DMCA_EMAIL}
+        Вопросы и претензии —{" "}
+        <Link href={FEEDBACK_URL} className="text-accent-primary hover:underline">
+          форма обратной связи
+        </Link>{" "}
+        · требования правообладателей —{" "}
+        <Link href={DMCA_URL} className="text-accent-primary hover:underline">
+          та же форма с темой «Права и контент»
+        </Link>
       </p>
     </article>
   );
