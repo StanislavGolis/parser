@@ -29,19 +29,19 @@ export default function AdminHomePage() {
             value: "dashboard",
             label: "Дашборд",
             hint: "Состояние парсера, объёмы, кэш медиа",
-            render: () => <AdminOverviewPanel />,
+            content: <AdminOverviewPanel />,
           },
           {
             value: "stats",
             label: "Статистика",
             hint: "Посещаемость, топы, отчёты за период",
-            render: () => <AdminStatsPanel />,
+            content: <AdminStatsPanel />,
           },
           {
             value: "users",
             label: "Пользователи",
             hint: "Аккаунты, подписки, сессии, ручная выдача",
-            render: () => <AdminUsersPanel />,
+            content: <AdminUsersPanel />,
           },
         ]}
       />

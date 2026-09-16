@@ -28,13 +28,13 @@ export default function AdminPlansPage() {
             value: "plans",
             label: "Тарифы и акции",
             hint: "Цены в звёздах и USDT, сроки, включение тарифов, акции",
-            render: () => <PlansPanel section="plans" />,
+            content: <PlansPanel section="plans" />,
           },
           {
             value: "wallet",
             label: "Кошельки и журнал",
             hint: "Балансы звёзд и крипты, ручная выдача, история оплат",
-            render: () => <PlansPanel section="wallet" />,
+            content: <PlansPanel section="wallet" />,
           },
         ]}
       />

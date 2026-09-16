@@ -28,13 +28,13 @@ export default function AdminInboxPage() {
             value: "reports",
             label: "Жалобы",
             hint: "Очередь жалоб: скрыть файл, тред, удалить; блок-лист хешей",
-            render: () => <ReportsPanel />,
+            content: <ReportsPanel />,
           },
           {
             value: "feedback",
             label: "Обратная связь",
             hint: "Форма с сайта: статусы и заметки-ответы",
-            render: () => <FeedbackPanel />,
+            content: <FeedbackPanel />,
           },
         ]}
       />

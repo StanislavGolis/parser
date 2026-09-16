@@ -27,13 +27,13 @@ export default function AdminContentPage() {
             value: "boards",
             label: "Разделы и треды",
             hint: "Консоль: разделы, треды, кэш медиа, операции с S3",
-            render: () => <AdminConsole />,
+            content: <AdminConsole />,
           },
           {
             value: "sources",
             label: "Источники",
             hint: "Реестр парсеров: запуск, расписание, лимиты, журнал прогонов",
-            render: () => <SourcesPanel />,
+            content: <SourcesPanel />,
           },
         ]}
       />

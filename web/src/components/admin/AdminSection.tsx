@@ -20,8 +20,12 @@ export interface AdminSectionTab {
   label: string;
   /** Подсказка при наведении: что внутри таба. */
   hint?: string;
-  /** Ленивый рендер: содержимое создаётся только для активного таба. */
-  render: () => ReactNode;
+  /**
+   * Содержимое таба. Передаётся именно элементом (`<Panel />`), а не функцией:
+   * функции нельзя передавать в клиентские компоненты из серверных страниц.
+   * Монтируется только активный таб — остальные остаются простыми элементами.
+   */
+  content: ReactNode;
 }
 
 interface Props {
@@ -80,7 +84,7 @@ export default function AdminSection({ storageKey, fallback, tabs }: Props) {
           );
         })}
       </div>
-      {active.render()}
+      {active.content}
     </div>
   );
 }
