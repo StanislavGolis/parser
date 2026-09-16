@@ -726,7 +726,7 @@ class Payment(Base):
     # Сколько заплачено: с учётом скидки — эту сумму видит человек в счёте
     amount_rub = Column(Integer, nullable=False, default=0)
     discount_percent = Column(Integer, nullable=False, default=0)
-    # manual | cryptobot | stars
+    # manual | crypto | stars
     provider = Column(String(16), nullable=False, default="manual")
     # Идентификатор платежа у провайдера: у Telegram Stars это
     # `telegram_payment_charge_id`, и он длиннее 64 символов — держим 255
