@@ -8,6 +8,7 @@
 from typing import Dict, Type
 
 from src.parsers.base import BoardNode, CatalogResult, FileNode, SourceAdapter, ThreadNode
+from src.parsers.chan4 import Chan4Adapter
 from src.parsers.dvach import DvachAdapter
 from src.parsers.slivach import SlivachAdapter
 from src.parsers.wayback import WaybackAdapter
@@ -17,6 +18,8 @@ ADAPTERS: Dict[str, Type] = {
     "slivach": SlivachAdapter,
     # Архивный источник: разделы, восстановленные из веб-архива (Wayback Machine)
     "wayback": WaybackAdapter,
+    # 4chan: официальный JSON API (каталог, треды, медиа i.4cdn.org)
+    "chan4": Chan4Adapter,
 }
 
 
@@ -32,6 +35,7 @@ __all__ = [
     "ADAPTERS",
     "BoardNode",
     "CatalogResult",
+    "Chan4Adapter",
     "DvachAdapter",
     "FileNode",
     "SlivachAdapter",

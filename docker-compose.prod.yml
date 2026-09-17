@@ -349,6 +349,58 @@ services:
           cpus: "1.0"
           memory: 1g
 
+  # ── 4chan: официальный JSON API (каталог, треды, медиа i.4cdn.org) ──
+  # Треды на 4chan живут недолго (свой архив — несколько суток), поэтому прогон
+  # частый: что успели скачать — остаётся у нас, ушедшее в архив добирается
+  # отдельным инструментом (`src/tools/chan4_import.py`).
+  parser-chan4:
+    <<: *backend
+    command: ["python", "src/main.py"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-parser}:${POSTGRES_PASSWORD:-parser-pass}@postgres:5432/${POSTGRES_DB:-parser}
+      # Транскодирование видео выключено: на этом VPS ffmpeg забивает диск и CPU
+      VIDEO_WEB_ENABLED: ${PARSER_VIDEO_WEB_ENABLED:-0}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-15}
+      DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-1800}
+      REDIS_URL: redis://redis:6379/0
+      S3_URL: ${S3_URL:-https://s3.twcstorage.ru}
+      S3_REGION: ${S3_REGION:-ru-1}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      S3_ADDRESSING_STYLE: ${S3_ADDRESSING_STYLE:-path}
+      MEDIA_DELIVERY: ${MEDIA_DELIVERY:-proxy}
+      STORAGE_PATH: /data/media
+      MEDIA_CACHE_ENABLED: ${MEDIA_CACHE_ENABLED:-1}
+      MEDIA_CACHE_DIR: /data/cache
+      MEDIA_CACHE_MAX_BYTES: ${MEDIA_CACHE_MAX_BYTES:-42949672960}
+      MEDIA_CACHE_MIN_FREE_BYTES: ${MEDIA_CACHE_MIN_FREE_BYTES:-10737418240}
+      PARSER_SOURCE: chan4
+      # 4chan API просит не чаще одного запроса в секунду — держим паузу и по одной
+      # загрузке на процесс, чтобы не получить бан по IP
+      REQUEST_DELAY: ${CHAN4_REQUEST_DELAY:-1.0}
+      PARSE_INTERVAL: ${CHAN4_PARSE_INTERVAL:-300}
+      MAX_PARALLEL_DOWNLOADS: ${CHAN4_MAX_PARALLEL_DOWNLOADS:-2}
+      MAX_PARALLEL_UPLOADS: 1
+      # В посте 4chan максимум 4 вложения
+      MAX_FILES_PER_POST: ${CHAN4_MAX_FILES_PER_POST:-4}
+      MAX_FILE_SIZE: ${CHAN4_MAX_FILE_SIZE:-104857600}
+      # Сверку данных ведёт только 2ch-контейнер
+      RECONCILE_MINUTES: -1
+    volumes:
+      - media:/data/media
+      - mediacache:/data/cache
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+
   # ── Telegram-бот (модель Dredger 2.0) ──────────────────────────
   # Витрина и вход: выдаёт одноразовые ссылки на закрытый сайт, показывает статус
   # подписки. Работает через long polling — публичный вебхук и домен не нужны, а
