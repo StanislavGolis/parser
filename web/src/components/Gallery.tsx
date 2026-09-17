@@ -316,21 +316,32 @@ export default function Gallery({
     /**
      * Шаг прокрутки = один ряд ленты: высота карточки плюс отступ до следующей.
      *
-     * Меряем по первой колонке: разница между верхом второй карточки и низом первой
-     * даёт точный шаг для текущей ширины экрана и пропорций медиа. Пока карточек нет
+     * Берём медиану высот нескольких первых карточек первой колонки: одна случайная
+     * карточка может оказаться высоким портретом, и шаг «уехал» бы на полтора ряда.
+     * Отступ считаем по разнице между первой и второй карточкой. Пока карточек нет
      * (первая загрузка, пустой список) шагаем половиной экрана — прокручивать всё
      * равно нечего.
      */
     const stepOf = () => {
       const column = gridRef.current?.firstElementChild as HTMLElement | null;
-      const first = column?.firstElementChild as HTMLElement | null;
-      const second = (column?.children[1] as HTMLElement | undefined) ?? null;
-      if (!first) return Math.round(window.innerHeight * 0.5);
-      const height = first.getBoundingClientRect().height;
-      const gap = second
-        ? Math.max(0, second.getBoundingClientRect().top - first.getBoundingClientRect().bottom)
-        : FEED_GAP_PX;
-      return Math.max(1, Math.round(height + gap));
+      const cards = column ? (Array.from(column.children) as HTMLElement[]).slice(0, 5) : [];
+      if (cards.length === 0) return Math.round(window.innerHeight * 0.5);
+
+      const heights = cards
+        .map((card) => card.getBoundingClientRect().height)
+        .filter((h) => h > 1)
+        .sort((a, b) => a - b);
+      if (heights.length === 0) return Math.round(window.innerHeight * 0.5);
+
+      const gap =
+        cards.length > 1
+          ? Math.max(
+              0,
+              cards[1].getBoundingClientRect().top - cards[0].getBoundingClientRect().bottom,
+            )
+          : FEED_GAP_PX;
+      const median = heights[Math.floor(heights.length / 2)];
+      return Math.max(1, Math.round(median + gap));
     };
 
     const onWheel = (event: WheelEvent) => {
