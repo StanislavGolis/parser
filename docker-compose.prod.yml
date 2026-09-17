@@ -86,6 +86,15 @@ x-backend: &backend
     EVENTS_RATE_LIMIT: ${EVENTS_RATE_LIMIT:-900}
     API_CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost}
     POPULARITY_RECALC_MINUTES: ${POPULARITY_RECALC_MINUTES:-5}
+
+    # Подписанные ссылки на премиум-превью (см. src/services/asset_sign.py).
+    # Пусто — выключено (превью идут только по сессии, `private, no-store`). С секретом
+    # ссылка подписана, поэтому её отдаёт и кэширует nginx: 65 → 1000+ превью/с.
+    ASSET_LINK_SECRET: ${ASSET_LINK_SECRET:-}
+    ASSET_LINK_TTL_MINUTES: ${ASSET_LINK_TTL_MINUTES:-60}
+    # Кэш проверок доступа к файлу и JSON-ленты: убирает лишние SQL при листании
+    MEDIA_ACCESS_CACHE_SECONDS: ${MEDIA_ACCESS_CACHE_SECONDS:-120}
+    FEED_CACHE_SECONDS: ${FEED_CACHE_SECONDS:-45}
     # Диагностика/безопасность
     SQL_ECHO: ${SQL_ECHO:-0}
     SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-0}

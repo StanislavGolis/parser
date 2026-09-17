@@ -1,4 +1,5 @@
 # src/api/routes/boards.py
+import json
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -14,15 +15,50 @@ from src.api.common import (
 from src.api.deps import check_rate_limit, client_ip, get_current_user, get_s3
 from src.api.schemas import BoardOut, ThreadListOut
 from src.api.threads_service import build_thread_outs, list_threads
+from src.core.config import settings
 from src.core.db import get_session
 from src.core.models import Board, Media, User
+from src.core.redis_client import redis_client
 from src.services import reporting
+from src.services.premium import premium_active
 from src.services.s3_storage import S3Storage
 
 router = APIRouter(prefix="/api/v1/boards", tags=["boards"])
 
 # Сколько превью показываем на карточке раздела (мозаика 2×2).
 COVER_THUMBS = 4
+
+# Кэш JSON-ленты: ключ — раздел + страница + сортировка + уровень доступа.
+FEED_CACHE_PREFIX = "feed:"
+
+
+async def _feed_cached(key: str) -> Optional[dict]:
+    """Читает кэш ленты (`None` — нет или Redis недоступен)."""
+    if settings.FEED_CACHE_SECONDS <= 0:
+        return None
+    try:
+        raw = await redis_client.get(f"{FEED_CACHE_PREFIX}{key}")
+    except Exception:  # noqa: BLE001 — кэш не должен ломать выдачу ленты
+        return None
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except Exception:  # noqa: BLE001
+        return None
+    return data if isinstance(data, dict) else None
+
+
+async def _feed_store(key: str, payload: dict) -> None:
+    """Складывает готовый ответ ленты в Redis (короткий TTL)."""
+    if settings.FEED_CACHE_SECONDS <= 0:
+        return
+    try:
+        await redis_client.set(
+            f"{FEED_CACHE_PREFIX}{key}", json.dumps(payload), ex=settings.FEED_CACHE_SECONDS
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
 
 async def _cover_thumbs(
@@ -208,6 +244,15 @@ async def board_threads(
     if not board:
         raise HTTPException(status_code=404, detail="Board not found")
 
+    # Кэш ответа: страницы ленты повторяются и при скролле одним зрителем, и между
+    # зрителями. Ключ включает уровень доступа: у премиума в JSON подписанные ссылки,
+    # у free — размытые превью, смешивать эти варианты нельзя.
+    access = "premium" if premium_active(user) else "free"
+    cache_key = f"{board.id}:{page}:{per_page}:{sort}:{access}"
+    cached = await _feed_cached(cache_key)
+    if cached is not None:
+        return ThreadListOut(**cached)
+
     threads, total = await list_threads(
         session, board.id, page, per_page, only_visible=True, sort=sort
     )
@@ -220,4 +265,6 @@ async def board_threads(
         user=user,
         board_premium=board.is_premium,
     )
-    return ThreadListOut(items=items, page=page, per_page=per_page, total=total)
+    payload = ThreadListOut(items=items, page=page, per_page=per_page, total=total)
+    await _feed_store(cache_key, payload.model_dump(mode="json"))
+    return payload

@@ -1,5 +1,6 @@
 # src/api/routes/media.py
 import asyncio
+import json
 import re
 import urllib.parse
 from datetime import datetime, timedelta
@@ -17,6 +18,7 @@ from src.api.common import (
     apply_user_flags,
     build_media_url,
     content_locked,
+    is_locked,
     media_locked,
     sign_media_urls,
     visible_thread_clause,
@@ -49,9 +51,12 @@ from src.core.models import (
     User,
     ViewStat,
 )
+from src.services import asset_sign
 from src.services.media_cache import MediaCache, get_media_cache
 from src.services.premium import premium_active
 from src.services.s3_storage import S3Storage
+
+from src.core.redis_client import redis_client
 
 router = APIRouter(prefix="/api/v1", tags=["media"])
 
@@ -94,6 +99,53 @@ async def _check_media_access(
     if not thread or not thread.is_active or not thread.is_visible:
         raise HTTPException(status_code=404, detail="Media not found")
     return board
+
+
+ASSET_META_PREFIX = "media:meta:"
+
+
+async def _asset_meta(session: AsyncSession, media_id: int) -> dict:
+    """Данные, нужные для отдачи файла: варианты, тип, имя и решение по доступу.
+
+    На каждую картинку раньше уходило три SQL (`media`, `boards`, `threads_state`), а
+    лента запрашивает их десятками — это и был основной расход CPU (см. LAUNCH,
+    «Замеры нагрузки»). Готовый результат на `MEDIA_ACCESS_CACHE_SECONDS` кладём в
+    Redis: кэш короткий, поэтому скрытый админом файл перестаёт отдаваться через пару
+    минут, а обычное листание уже не трогает БД.
+    """
+    cache_key = f"{ASSET_META_PREFIX}{media_id}"
+    if settings.MEDIA_ACCESS_CACHE_SECONDS > 0:
+        try:
+            cached = await redis_client.get(cache_key)
+        except Exception:  # noqa: BLE001 — Redis не должен ломать отдачу файла
+            cached = None
+        if cached:
+            try:
+                data = json.loads(cached)
+            except Exception:  # noqa: BLE001
+                data = None
+            if isinstance(data, dict):
+                return data
+
+    media = await _get_visible_media(session, media_id)
+    board = await _check_media_access(session, media)
+    meta = {
+        "media_id": media.id,
+        "variants": media.variants or {},
+        "mime_type": media.mime_type or "",
+        "original_name": media.original_name or "",
+        "s3_key": media.s3_key or "",
+        # Премиум-доски закрывают файл даже при рассинхроне флага у самого файла
+        "is_premium": bool(media.is_premium) or bool(board.is_premium),
+    }
+    if settings.MEDIA_ACCESS_CACHE_SECONDS > 0:
+        try:
+            await redis_client.set(
+                cache_key, json.dumps(meta), ex=settings.MEDIA_ACCESS_CACHE_SECONDS
+            )
+        except Exception:  # noqa: BLE001
+            pass
+    return meta
 
 
 def _require_premium(
@@ -446,7 +498,7 @@ def _iter_file(path: Path, start: int = 0, end: Optional[int] = None):
 
 def _local_file_response(
     *,
-    media: Media,
+    meta: dict,
     path: Path,
     request: Request,
     media_type: str,
@@ -463,7 +515,7 @@ def _local_file_response(
         "ETag": f'"{int(stat.st_mtime)}-{size}"',
     }
     if download:
-        headers["Content-Disposition"] = _content_disposition(media.original_name)
+        headers["Content-Disposition"] = _content_disposition(meta.get("original_name") or "")
 
     span = _parse_range(request.headers.get("range"), size)
     if span is None:
@@ -565,7 +617,7 @@ def _schedule_warm(key: str, s3: S3Storage, cache: MediaCache) -> None:
 
 async def _stream_object(
     *,
-    media: Media,
+    meta: dict,
     key: str,
     request: Request,
     s3: S3Storage,
@@ -579,14 +631,20 @@ async def _stream_object(
     Локальный диск (замер: 500+ МБ/с) на порядки быстрее S3 у провайдера
     (~3 МБ/с), поэтому повторные запросы — включая премиум-оригиналы, которые
     нельзя класть в общий кэш nginx, — обслуживаются прямо с диска.
+
+    `meta` — словарь из `_asset_meta` (кэшированный результат проверок доступа):
+    отдаём файл по нему, не поднимая ORM-объекты.
+
+    ВАЖНО: параметр называется `cache`, а не `cache_control` — объект кэша приходит
+    из `Depends(get_media_cache)`.
     """
-    media_type = content_type or media.mime_type
+    media_type = content_type or meta.get("mime_type") or "application/octet-stream"
 
     if cache is not None and cache.enabled:
         cached = cache.get(key)
         if cached is not None:
             return _local_file_response(
-                media=media,
+                meta=meta,
                 path=cached,
                 request=request,
                 media_type=media_type,
@@ -610,7 +668,7 @@ async def _stream_object(
     if obj.get("etag"):
         headers["ETag"] = obj["etag"]
     if download:
-        headers["Content-Disposition"] = _content_disposition(media.original_name)
+        headers["Content-Disposition"] = _content_disposition(meta.get("original_name") or "")
     headers["Cache-Control"] = cache_control
 
     body_iter = _iter_body(obj["body"])
@@ -666,11 +724,9 @@ async def media_raw(
     """
     await check_rate_limit(client_ip(request), limit=settings.MEDIA_RATE_LIMIT, scope="media")
 
-    media = await _get_visible_media(session, media_id)
-    if not media.s3_key:
+    meta = await _asset_meta(session, media_id)
+    if not meta["s3_key"]:
         raise HTTPException(status_code=404, detail="File not available")
-
-    board = await _check_media_access(session, media)
 
     # Модель «открытый архив»: Free смотрит открытые файлы через деривативы
     # (`thumb`/`web`/`video`), а оригинал и скачивание входят в подписку.
@@ -681,8 +737,8 @@ async def media_raw(
         raise HTTPException(status_code=403, detail="Оригиналы и скачивание — по подписке")
 
     return await _stream_object(
-        media=media,
-        key=media.s3_key,
+        meta=meta,
+        key=meta["s3_key"],
         request=request,
         s3=s3,
         cache=cache,
@@ -723,10 +779,8 @@ async def media_asset(
             client_ip(request), limit=settings.MEDIA_RATE_LIMIT, scope="media"
         )
 
-    media = await _get_visible_media(session, media_id)
-    board = await _check_media_access(session, media)
-
-    variants = media.variants or {}
+    meta = await _asset_meta(session, media_id)
+    variants = meta["variants"]
 
     if kind == "thumb_blur":
         # Публичный размытый превью премиум-контента. Пока блюр не сгенерирован
@@ -736,7 +790,7 @@ async def media_asset(
         if not key:
             raise HTTPException(status_code=404, detail="Asset not available")
         return await _stream_object(
-            media=media,
+            meta=meta,
             key=key,
             request=request,
             s3=s3,
@@ -745,21 +799,36 @@ async def media_asset(
             cache_control="public, max-age=31536000, immutable",
         )
 
-    _require_premium(media, user, board)
+    # Подпись из URL (`e`/`s`): по ней файл отдаётся без сессии и кэшируется nginx.
+    # Ссылку выпускает только API (`asset_url(..., premium=True)`), поэтому её наличие
+    # и означает «премиум-пользователь получил адрес картинки».
+    version = (request.query_params.get("v") or "").strip()
+    signed = asset_sign.verify(
+        meta["media_id"],
+        kind,
+        version,
+        request.query_params.get("e"),
+        request.query_params.get("s"),
+    )
+    if not signed and is_locked(meta["is_premium"], user):
+        raise HTTPException(status_code=403, detail="Требуется премиум-доступ")
+
     key = variants.get(kind)
     if not key:
         raise HTTPException(status_code=404, detail="Asset not available")
 
     content_type = _asset_content_type(kind, key)
-    # ВАЖНО: имя не `cache` — иначе локальная переменная перекрывает объект кэша,
-    # пришедший из Depends(get_media_cache), и _stream_object получает строку.
-    cache_control = (
-        "private, no-store"
-        if media.is_premium
-        else "public, max-age=31536000, immutable"
-    )
+    if signed:
+        # Подписанная ссылка: час кэша в nginx (дальше запрос снова дойдёт до API и
+        # там перепроверится срок подписи). Просроченная ссылка вернёт 403 — но только
+        # пока её нет в кэше, поэтому срок и держим коротким.
+        cache_control = "public, max-age=3600"
+    elif meta["is_premium"]:
+        cache_control = "private, no-store"
+    else:
+        cache_control = "public, max-age=31536000, immutable"
     return await _stream_object(
-        media=media,
+        meta=meta,
         key=key,
         request=request,
         s3=s3,

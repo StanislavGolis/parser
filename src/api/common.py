@@ -7,6 +7,7 @@ from sqlalchemy import exists, select
 from src.api.schemas import MediaOut
 from src.core.config import settings
 from src.core.models import Board, Media, MediaMark, ThreadState, User
+from src.services import asset_sign
 from src.services.premium import premium_active
 from src.services.s3_storage import S3Storage
 
@@ -76,19 +77,35 @@ def visible_thread_clause():
 ASSET_URL_VERSION = "2"
 
 
-def asset_url(media_id: int, kind: str, key: Optional[str] = None) -> str:
-    """URL дериватива (thumb/web) через наш API.
+def asset_url(
+    media_id: int, kind: str, key: Optional[str] = None, *, premium: bool = False
+) -> str:
+    """URL дериватива (thumb/web/video) через наш API.
 
     `?v=<hash>` версионирует URL: кэш nginx/браузера не отдаст устаревший
     вариант, если дериватив перегенерируется. Хеш берём из имени файла, а
     номер `ASSET_URL_VERSION` — от формата ответа.
+
+    `premium=True` добавляет подпись (`e` — срок, `s` — HMAC, см.
+    `src/services/asset_sign.py`): по подписанной ссылке премиум-файл отдаётся без
+    сессии и кэшируется nginx на час. Без этого каждое премиум-превью шло бы в Python
+    (отдать его из общего кэша «как есть» нельзя — файл утёк бы анонимам).
     """
     version = ""
     if key:
         version = key.rsplit("/", 1)[-1].split("_", 1)[0][:16]
     if version:
         version = f"{version}-{ASSET_URL_VERSION}"
-    suffix = f"?v={version}" if version else ""
+
+    parts = [f"v={version}"] if version else []
+    if premium:
+        signed = asset_sign.sign(media_id, kind, version)
+        if signed:
+            expires, signature = signed
+            parts.append(f"e={expires}")
+            parts.append(f"s={signature}")
+
+    suffix = f"?{'&'.join(parts)}" if parts else ""
     return f"/api/v1/media/{media_id}/asset/{kind}{suffix}"
 
 
@@ -151,14 +168,20 @@ def apply_media_urls(
         if fallback_key:
             item.thumb_url = asset_url(source.id, "thumb_blur", fallback_key)
     elif variants.get("thumb"):
-        item.thumb_url = asset_url(source.id, "thumb", variants["thumb"])
+        item.thumb_url = asset_url(
+            source.id, "thumb", variants["thumb"], premium=item.is_premium
+        )
 
     if not locked:
         if source.media_type == "video":
             if variants.get("video"):
-                item.web_url = asset_url(source.id, "video", variants["video"])
+                item.web_url = asset_url(
+                    source.id, "video", variants["video"], premium=item.is_premium
+                )
         elif variants.get("web"):
-            item.web_url = asset_url(source.id, "web", variants["web"])
+            item.web_url = asset_url(
+                source.id, "web", variants["web"], premium=item.is_premium
+            )
     return item
 
 

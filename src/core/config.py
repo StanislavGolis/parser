@@ -156,6 +156,16 @@ class Settings(BaseSettings):
     # на экран, и при быстром листании общий лимит выбирался — карточки пропадали (429).
     MEDIA_PREVIEW_RATE_LIMIT: int = 12000     # превью в минуту на IP (0 — выключить лимит превью)
     EVENTS_RATE_LIMIT: int = 900              # посещения/события интерфейса в минуту на IP (своя аналитика)
+    # Подписанные ссылки на деривативы премиум-контента (`src/services/asset_sign.py`).
+    # Пустой секрет — подписи выключены: премиум-превью отдаются как раньше (только по
+    # сессии, `Cache-Control: private, no-store`). С секретом ссылка подписана, поэтому
+    # её отдаёт и кэширует nginx — это и даёт кратный рост (LAUNCH, «Замеры нагрузки»).
+    ASSET_LINK_SECRET: str = ""
+    ASSET_LINK_TTL_MINUTES: int = 60          # окно жизни подписи (ссылка живёт 1–2 окна)
+    # Кэш проверок доступа к файлу (3 SQL на каждую картинку → один Redis GET)
+    MEDIA_ACCESS_CACHE_SECONDS: int = 120
+    # Кэш JSON-ленты раздела: страницы повторяются при скролле и между зрителями
+    FEED_CACHE_SECONDS: int = 45
     API_CORS_ORIGINS: str = "http://localhost:3000,http://localhost:8080"
     POPULARITY_RECALC_MINUTES: int = 5        # период пересчёта popularity_score, в минутах
 
