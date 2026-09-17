@@ -12,6 +12,8 @@
 from __future__ import annotations
 
 import json
+import logging
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -23,10 +25,16 @@ from src.api.schemas import PaymentOut
 from src.core.config import settings
 from src.core.db import get_session
 from src.core.models import Payment, User
-from src.services import cryptobot, magic_link, pricing
+from src.services import cryptobot, magic_link, payments_notify, pricing
 from src.services.analytics import record_audit
 
 router = APIRouter(prefix="/api/v1/billing", tags=["billing"])
+
+logger = logging.getLogger(__name__)
+
+# Сверка неоплаченных счетов: сколько проверяем за проход и насколько свежие счета
+SCAN_LIMIT = 20
+SCAN_HOURS = 24
 
 
 class StarsPaymentIn(BaseModel):
@@ -309,6 +317,8 @@ async def crypto_webhook(
     await session.commit()
     await session.refresh(payment)
     await cryptobot.remember_webhook(int(invoice_id), True)
+    # Покупателю сразу пишем в Telegram: подписка включилась, ждать ничего не нужно
+    await payments_notify.notify_paid(session, payment, source="вебхук")
     return {"ok": True, "paid": True, "status": "paid", "premium_until": payment.premium_until}
 
 
@@ -357,4 +367,77 @@ async def crypto_check(
     )
     await session.commit()
     await session.refresh(payment)
-    return {"paid": True, "status": "paid", "premium_until": payment.premium_until}
+    # Уведомление покупателю: бот по флагу `notified` поймёт, отвечать ли самому
+    notified = await payments_notify.notify_paid(session, payment, source="проверка счёта")
+    return {
+        "paid": True,
+        "status": "paid",
+        "premium_until": payment.premium_until,
+        "notified": notified,
+    }
+
+
+@router.post("/crypto/scan")
+async def crypto_scan(
+    session: AsyncSession = Depends(get_session),
+    _=Depends(verify_bot_token),
+):
+    """Сверяет неоплаченные счета с Crypto Pay и зачисляет оплаченные.
+
+    Зачем: вебхук включается руками в интерфейсе @CryptoBot, а оплата должна
+    зачисляться сама. Бот раз в минуту просит API сделать эту сверку — подписка
+    включается без кнопки «Я оплатил», покупателю сразу уходит уведомление.
+
+    Ограничения: у Crypto Pay нет пакетного метода, поэтому за проход спрашиваем не
+    больше `SCAN_LIMIT` свежих счетов. Сверка идемпотентна — зачисление держит
+    `mark_paid`, а уведомление — флаг в Redis.
+    """
+    since = datetime.utcnow() - timedelta(hours=SCAN_HOURS)
+    payments = (
+        (
+            await session.execute(
+                select(Payment)
+                .where(
+                    Payment.provider == "crypto",
+                    Payment.status == "pending",
+                    Payment.created_at >= since,
+                )
+                .order_by(Payment.id.desc())
+                .limit(SCAN_LIMIT)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    checked = 0
+    paid = 0
+    notified = 0
+    for payment in payments:
+        if not (payment.external_id or "").isdigit():
+            continue
+        checked += 1
+        invoice = await cryptobot.get_invoice(int(payment.external_id))
+        if not invoice or invoice.get("status") != "paid":
+            continue
+
+        payment = await pricing.mark_paid(session, payment)
+        await record_audit(
+            session,
+            action="billing.crypto",
+            target=f"user:{payment.user_id}",
+            details=(
+                f"{payment.plan_code}: счёт {payment.external_id} (сверка), "
+                f"премиум до {payment.premium_until}"
+            ),
+            user_id=payment.user_id,
+        )
+        paid += 1
+        if await payments_notify.notify_paid(session, payment, source="сверка"):
+            notified += 1
+
+    if paid:
+        await session.commit()
+    if checked:
+        logger.info("Сверка счетов: проверено %s, зачислено %s", checked, paid)
+    return {"checked": checked, "paid": paid, "notified": notified}

@@ -35,6 +35,9 @@ API_BASE = "https://api.telegram.org"
 POLL_TIMEOUT = 30
 # Пауза, если токена нет (сервис выкачен заранее): ждём настройки
 NO_TOKEN_SLEEP = 60
+# Как часто просим API сверить неоплаченные крипто-счета (см. `watch_crypto_payments`):
+# вебхук в @CryptoBot включается руками, поэтому без этой сверки оплата ждала бы кнопки
+CRYPTO_SCAN_INTERVAL = 60
 
 HELP_TEXT = (
     "/link — войти на сайт (ссылка на 10 минут)\n"
@@ -188,11 +191,13 @@ async def send_crypto_invoice(
     rows = []
     if pay_url:
         rows.append([{"text": f"💳 Оплатить {amount} {asset}", "url": pay_url}])
-    rows.append([{"text": "✅ Я оплатил", "callback_data": f"cryptocheck:{invoice_id}"}])
+    rows.append([{"text": "🔄 Проверить оплату", "callback_data": f"cryptocheck:{invoice_id}"}])
     await bot.send(
         chat_id,
         f"Счёт создан: {amount} {asset}.\n"
-        "Оплатите по кнопке ниже — подписка включится сразу после подтверждения.",
+        "Оплатите по кнопке ниже — подписка включится сама, подтверждение пришлю "
+        "в этот чат (обычно это пара секунд).\n"
+        "Кнопка «Проверить оплату» нужна только если подтверждение задержится.",
         keyboard={"inline_keyboard": rows},
     )
 
@@ -200,7 +205,11 @@ async def send_crypto_invoice(
 async def check_crypto_payment(
     session: aiohttp.ClientSession, bot: BotClient, chat_id: int, invoice_id: int
 ) -> None:
-    """Спрашивает у API статус счёта и выдаёт премиум, если он оплачен."""
+    """Спрашивает у API статус счёта и выдаёт премиум, если он оплачен.
+
+    Уведомление об оплате присылает API (`notified`): если оно уже ушло, второй раз
+    не пишем — иначе покупатель получил бы два сообщения об одном платеже.
+    """
     data = await api_request(
         session, "POST", "/api/v1/billing/crypto/check", json={"invoice_id": invoice_id}
     )
@@ -208,6 +217,8 @@ async def check_crypto_payment(
         await bot.send(chat_id, "Не получилось проверить счёт — напишите администратору.")
         return
     if data.get("paid"):
+        if data.get("notified"):
+            return
         until = str(data.get("premium_until") or "")[:10]
         await bot.send(
             chat_id, f"Оплата получена. Подписка активна до {until}.", keyboard=MAIN_KEYBOARD
@@ -220,6 +231,27 @@ async def check_crypto_payment(
             chat_id,
             "Оплата пока не поступила. Если только что перевели — попробуйте ещё раз через минуту.",
         )
+
+
+async def watch_crypto_payments(session: aiohttp.ClientSession) -> None:
+    """Фоновая сверка неоплаченных крипто-счетов: раз в минуту просит API проверить.
+
+    Так оплата зачисляется сама — и покупателю тут же уходит сообщение в этот чат, —
+    даже если вебхук в @CryptoBot ещё не включён. Ошибки только логируем: это фон,
+    бот не должен падать из-за недоступного Crypto Pay.
+    """
+    while True:
+        try:
+            data = await api_request(session, "POST", "/api/v1/billing/crypto/scan")
+            if data and not data.get("error") and data.get("paid"):
+                logger.info(
+                    "Сверка счетов: зачислено %s из %s проверенных",
+                    data.get("paid"),
+                    data.get("checked"),
+                )
+        except Exception:  # noqa: BLE001
+            logger.exception("Сверка счетов не прошла")
+        await asyncio.sleep(CRYPTO_SCAN_INTERVAL)
 
 
 def _api_base() -> str:
@@ -519,7 +551,8 @@ async def handle_callback(
         await send_crypto_invoice(session, bot, chat_id, parts[1], promo_id)
         return
 
-    # «Я оплатил»: спрашиваем статус счёта у Crypto Pay и выдаём доступ
+    # «Проверить оплату»: спрашиваем статус счёта у Crypto Pay и выдаём доступ.
+    # Обычно оплата зачисляется сама (вебхук или фоновая сверка), кнопка — подстраховка
     if data.startswith("cryptocheck:") and len(parts) == 2 and chat_id:
         if callback_id:
             await bot.call("answerCallbackQuery", callback_query_id=callback_id)
@@ -685,6 +718,11 @@ async def main() -> None:
             logger.info("Подключён как @%s", me.get("username"))
             # Меню команд в Telegram: появляется при вводе «/»
             await bot.call("setMyCommands", commands=BOT_COMMANDS)
+
+        # Фон: раз в минуту просим API сверить неоплаченные счета с Crypto Pay. Это
+        # заменяет вебхук (он включается только руками в интерфейсе @CryptoBot): оплата
+        # зачисляется сама, покупателю сразу уходит подтверждение в этот чат.
+        asyncio.create_task(watch_crypto_payments(session))
 
         offset: Optional[int] = None
         while True:
