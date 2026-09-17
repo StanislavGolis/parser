@@ -48,6 +48,24 @@ const EAGER_CARDS = 6;
  */
 const FEED_STEP_MS = 400;
 
+/**
+ * Пауза между шагами прокрутки ленты колесом (мс) — та же идея, что
+ * `PREVIEW_SCROLL_MS` в карусели превью: одно движение колеса = один шаг, не чаще
+ * этой паузы. Иначе лента пролистывается «сквозь» незагруженный контент.
+ */
+const FEED_WHEEL_MS = 300;
+
+/** Доля высоты экрана на один шаг прокрутки колесом (чуть меньше экрана). */
+const FEED_WHEEL_RATIO = 0.85;
+
+/**
+ * Насколько ниже загруженного контента разрешаем прокрутить (px).
+ *
+ * Это «запас видимости»: в хвосте ленты находятся служебные элементы (кнопка
+ * «повторить», плашка «конец списка»), к ним нужно дотянуться мышью.
+ */
+const FEED_TAIL_PX = 240;
+
 /** Число колонок по ширине окна — как было в CSS (2 / 3 / 4 / 5). */
 function useColumnCount(): number {
   const [cols, setCols] = useState(2);
@@ -150,6 +168,12 @@ export default function Gallery({
   // Ограничение скорости автоподгрузки: когда был последний запрос и что запланировано
   const lastLoadRef = useRef(0);
   const stepTimerRef = useRef<number | null>(null);
+  // Ограничение прокрутки колесом (шаг + пауза, как в карусели превью)
+  const wheelRef = useRef<{ last: number; queued: number; timer: number | null }>({
+    last: 0,
+    queued: 0,
+    timer: null,
+  });
 
   const hasMore = cursorMode ? cursor !== null : items.length < total;
 
@@ -262,6 +286,92 @@ export default function Gallery({
     observer.observe(node);
     return () => observer.disconnect();
   }, [scheduleLoadMore, hasMore, loading, autoPaused, error, queryKey, items.length]);
+
+  /**
+   * Прокрутка ленты «шагами», как в карусели превью.
+   *
+   * Колесо не пролистывает страницу свободно: одно движение = один шаг на
+   * `FEED_WHEEL_RATIO` экрана, и не чаще `FEED_WHEEL_MS`. Плюс упор в границу
+   * загруженного: ниже последней пришедшей порции прокрутка не уходит (кроме запаса
+   * `FEED_TAIL_PX`, чтобы дотянуться до служебных кнопок). Поэтому «улететь» в пустую
+   * ленту нельзя — страница ждёт подгрузку, а когда карточки пришли, граница
+   * сдвигается вниз.
+   *
+   * Тач-устройства и клавиатуру не трогаем: там прокрутка нативная.
+   */
+  useEffect(() => {
+    if (!infinite) return;
+
+    /** Докуда пускаем прокрутку: конец загруженного контента + запас. */
+    const bottomLimit = () => {
+      const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+      const node = sentinelRef.current;
+      if (!node || !hasMore) return max;
+      const sentinelBottom = node.getBoundingClientRect().bottom + window.scrollY;
+      return Math.max(0, Math.min(max, sentinelBottom + FEED_TAIL_PX - window.innerHeight));
+    };
+
+    const onWheel = (event: WheelEvent) => {
+      // Масштабирование (ctrl+колесо) не перехватываем
+      if (event.ctrlKey) return;
+      // Событие уже обработали выше (карусель превью в плитке, лайтбокс): не мешаем —
+      // прокрутка страницы «уходит» ленте только там, где карусель отдала событие
+      if (event.defaultPrevented) return;
+      if (!event.deltaY) return;
+      if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+
+      const step = Math.round(window.innerHeight * FEED_WHEEL_RATIO);
+      const direction = event.deltaY > 0 ? 1 : -1;
+      const state = wheelRef.current;
+
+      /** Куда попадём шагом с учётом границы загруженного (и края страницы). */
+      const targetOf = (dir: number) => {
+        const from = window.scrollY;
+        if (dir > 0) {
+          // Ниже границы не пускаем; если уже ниже — разрешаем только возврат наверх
+          const limit = Math.max(bottomLimit(), from);
+          return Math.min(from + step, limit);
+        }
+        return Math.max(from - step, 0);
+      };
+
+      // Двигать нечего — отдаём событие странице (например, карусели под курсором)
+      if (Math.abs(targetOf(direction) - window.scrollY) < 1) return;
+      event.preventDefault();
+
+      const apply = (dir: number) => {
+        const to = targetOf(dir);
+        if (Math.abs(to - window.scrollY) < 1) return;
+        window.scrollTo({ top: to, behavior: "smooth" });
+      };
+
+      const wait = FEED_WHEEL_MS - (Date.now() - state.last);
+      if (wait <= 0) {
+        state.last = Date.now();
+        apply(direction);
+        return;
+      }
+      // Крутят быстрее, чем лента успевает: держим один шаг в запасе, остальное теряем
+      state.queued = direction;
+      if (state.timer === null) {
+        state.timer = window.setTimeout(() => {
+          state.timer = null;
+          state.last = Date.now();
+          apply(state.queued);
+        }, wait);
+      }
+    };
+
+    window.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      window.removeEventListener("wheel", onWheel);
+      const state = wheelRef.current;
+      if (state.timer !== null) {
+        window.clearTimeout(state.timer);
+        state.timer = null;
+      }
+    };
+  }, [infinite, hasMore]);
 
   const step = useCallback(
     (dir: 1 | -1) => {
