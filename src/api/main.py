@@ -47,6 +47,7 @@ from src.core.config import settings
 from src.core.db import async_session_factory
 from src.core.models import User, UserSession
 from src.core.redis_client import redis_client
+from src.services import asset_sign
 from src.services import auth as auth_service
 from src.services import reporting
 from src.services.analytics import cleanup_analytics
@@ -265,10 +266,20 @@ async def guard_closed_mode(request: Request, call_next):
 
     Аноним получает 401 (на этом основании web уводит на `/login`), вошедший —
     обычный ответ. Результат проверки кэшируется на 30 секунд.
+
+    Исключение — подписанные деривативы премиум-контента: ссылку выдал API, по ней
+    файл отдаётся без сессии (иначе его не сможет отдавать кэш nginx, а это ×20 по
+    пропускной — см. LAUNCH «Замеры нагрузки»). Проверяем именно подпись, поэтому
+    «просто анонимный» запрос к картинке по-прежнему получает 401.
     """
     path = request.url.path
     if settings.site_closed and path.startswith("/api/"):
         if not path.startswith(CLOSED_MODE_OPEN_PREFIXES):
+            query = request.query_params
+            if asset_sign.verify_path(
+                path, query.get("v"), query.get("e"), query.get("s")
+            ):
+                return await call_next(request)
             token = request.cookies.get(auth_service.COOKIE_NAME)
             if not token or not await _session_is_valid(token):
                 return JSONResponse({"detail": "Требуется вход"}, status_code=401)

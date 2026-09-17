@@ -22,10 +22,14 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import re
 import time
 from typing import Optional, Tuple
 
 from src.core.config import settings
+
+# Путь дериватива: /api/v1/media/<id>/asset/<kind>
+ASSET_PATH_RE = re.compile(r"^/api/v1/media/(\d{1,12})/asset/([a-z_]{3,16})$")
 
 
 def enabled() -> bool:
@@ -77,3 +81,24 @@ def verify(
         return False
     expected = _digest(_payload(media_id, kind, version or "", exp))
     return hmac.compare_digest(expected, (signature or "").strip())
+
+
+def verify_path(
+    path: str, version: Optional[str], expires: Optional[str], signature: Optional[str]
+) -> bool:
+    """Проверяет подпись по адресу запроса.
+
+    Нужна middleware закрытого режима: подписанный ассет отдаётся без сессии (иначе
+    nginx не смог бы отдавать его из кэша), поэтому по одной только сессии решать
+    нельзя — пропускаем лишь запросы с корректной подписью.
+    """
+    matched = ASSET_PATH_RE.match(path or "")
+    if not matched:
+        return False
+    return verify(
+        int(matched.group(1)),
+        matched.group(2),
+        (version or ""),
+        expires,
+        signature,
+    )
