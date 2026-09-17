@@ -42,6 +42,20 @@ async def main() -> int:
     apps = await cryptobot.app_info()
     if apps:
         print(f"приложение: {apps.get('name')} (app_id {apps.get('app_id')})")
+
+    # Закрываем соединения Redis: иначе на выходе asyncio ругается
+    # «Event loop is closed» — мелочь, но пугает при чтении вывода.
+    from src.core.redis_client import redis_client
+
+    for closer in ("aclose", "close"):
+        method = getattr(redis_client, closer, None)
+        if method is None:
+            continue
+        try:
+            await method()
+        except Exception:  # noqa: BLE001
+            pass
+        break
     return 0
 
 
