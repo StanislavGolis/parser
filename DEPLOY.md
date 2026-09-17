@@ -777,6 +777,23 @@ select m.id, m.duplicate_of_id, m.s3_key
 from media m where m.thread_id = 261906057 limit 5;
 ```
 
+Запрос показывает **две разные** ситуации, и вторая — не про нашу проблему:
+
+- **есть строки-дубли** (`slivach`: `modeli`, `blogershi`, `strimershi`,
+  `kospley`): файлы скачаны и лежат в архиве, тред считается пройденным — качать
+  нечего, в очередь он не встанет;
+- **строк нет вовсе** (`wayback`/`dvach`: `hc`, `h`, `e`, `v`, `aa`, `gg`): это
+  треды, которые действительно ещё ждут скачивания (у них другой `pending_scan`
+  или выключенный `parse_enabled`).
+
+Отличить первое от второго:
+
+```sql
+select count(*) filter (where duplicate_of_id is not null) as dup_links,
+       count(*) filter (where duplicate_of_id is null)      as own_files
+from media where thread_id = 261906057;
+```
+
 **Место на диске**: кэш nginx до 10 ГБ (том `nginx_cache`) + медиа-том (`media`);
 `docker system df`, при росте — увеличить диск VPS или уменьшить `max_size`
 в `nginx/nginx.conf`.
