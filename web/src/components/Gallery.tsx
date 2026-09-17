@@ -55,8 +55,8 @@ const FEED_STEP_MS = 400;
  */
 const FEED_WHEEL_MS = 300;
 
-/** Доля высоты экрана на один шаг прокрутки колесом (чуть меньше экрана). */
-const FEED_WHEEL_RATIO = 0.85;
+/** Отступ между карточками в колонке (класс `gap-3` у колонки, если мерить нечем). */
+const FEED_GAP_PX = 12;
 
 /**
  * Насколько ниже загруженного контента разрешаем прокрутить (px).
@@ -165,6 +165,8 @@ export default function Gallery({
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const busyRef = useRef(false);
+  /** Контейнер колонок — у него меряем высоту одной карточки (шаг прокрутки). */
+  const gridRef = useRef<HTMLDivElement | null>(null);
   // Ограничение скорости автоподгрузки: когда был последний запрос и что запланировано
   const lastLoadRef = useRef(0);
   const stepTimerRef = useRef<number | null>(null);
@@ -290,12 +292,12 @@ export default function Gallery({
   /**
    * Прокрутка ленты «шагами», как в карусели превью.
    *
-   * Колесо не пролистывает страницу свободно: одно движение = один шаг на
-   * `FEED_WHEEL_RATIO` экрана, и не чаще `FEED_WHEEL_MS`. Плюс упор в границу
-   * загруженного: ниже последней пришедшей порции прокрутка не уходит (кроме запаса
-   * `FEED_TAIL_PX`, чтобы дотянуться до служебных кнопок). Поэтому «улететь» в пустую
-   * ленту нельзя — страница ждёт подгрузку, а когда карточки пришли, граница
-   * сдвигается вниз.
+   * Колесо не пролистывает страницу свободно: одно движение = один шаг на высоту
+   * одного ряда ленты (карточка + отступ), и не чаще `FEED_WHEEL_MS`. Плюс упор в
+   * границу загруженного: ниже последней пришедшей порции прокрутка не уходит
+   * (кроме запаса `FEED_TAIL_PX`, чтобы дотянуться до служебных кнопок). Поэтому
+   * «улететь» в пустую ленту нельзя — страница ждёт подгрузку, а когда карточки
+   * пришли, граница сдвигается вниз.
    *
    * Тач-устройства и клавиатуру не трогаем: там прокрутка нативная.
    */
@@ -311,6 +313,26 @@ export default function Gallery({
       return Math.max(0, Math.min(max, sentinelBottom + FEED_TAIL_PX - window.innerHeight));
     };
 
+    /**
+     * Шаг прокрутки = один ряд ленты: высота карточки плюс отступ до следующей.
+     *
+     * Меряем по первой колонке: разница между верхом второй карточки и низом первой
+     * даёт точный шаг для текущей ширины экрана и пропорций медиа. Пока карточек нет
+     * (первая загрузка, пустой список) шагаем половиной экрана — прокручивать всё
+     * равно нечего.
+     */
+    const stepOf = () => {
+      const column = gridRef.current?.firstElementChild as HTMLElement | null;
+      const first = column?.firstElementChild as HTMLElement | null;
+      const second = (column?.children[1] as HTMLElement | undefined) ?? null;
+      if (!first) return Math.round(window.innerHeight * 0.5);
+      const height = first.getBoundingClientRect().height;
+      const gap = second
+        ? Math.max(0, second.getBoundingClientRect().top - first.getBoundingClientRect().bottom)
+        : FEED_GAP_PX;
+      return Math.max(1, Math.round(height + gap));
+    };
+
     const onWheel = (event: WheelEvent) => {
       // Масштабирование (ctrl+колесо) не перехватываем
       if (event.ctrlKey) return;
@@ -320,7 +342,7 @@ export default function Gallery({
       if (!event.deltaY) return;
       if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
 
-      const step = Math.round(window.innerHeight * FEED_WHEEL_RATIO);
+      const step = stepOf();
       const direction = event.deltaY > 0 ? 1 : -1;
       const state = wheelRef.current;
 
@@ -391,7 +413,7 @@ export default function Gallery({
         <EmptyState title={emptyTitle} hint={emptyHint} />
       ) : (
         <>
-          <div className="flex items-start gap-3">
+          <div ref={gridRef} className="flex items-start gap-3">
             {layout.columns.map((column, columnIndex) => (
               <div key={columnIndex} className="flex min-w-0 flex-1 flex-col gap-3">
                 {column.map((mediaId) => {
