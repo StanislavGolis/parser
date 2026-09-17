@@ -7,7 +7,13 @@ import Gallery from "@/components/Gallery";
 import MediaShelf from "@/components/MediaShelf";
 import TrackedLink from "@/components/TrackedLink";
 import VisitStamp from "@/components/VisitStamp";
-import { getBoards, getFeedPage, getStatus, getTopMedia } from "@/lib/data";
+import {
+  feedContinuationHref,
+  getBoards,
+  getFeedPage,
+  getStatus,
+  getTopMedia,
+} from "@/lib/data";
 import { SITE_URL } from "@/lib/env";
 import { formatNumber, plural } from "@/lib/format";
 import { HIDE_PREMIUM_COOKIE, HIDE_PREMIUM_ON } from "@/lib/prefs";
@@ -162,7 +168,7 @@ export default async function HomePage({
         perPage={HOME_SIZE}
         boardsById={boardsById}
         infinite={false}
-        moreHref="/new"
+        moreHref={feedContinuationHref(feed.next_cursor, type, freeOnly)}
         moreLabel="Дальше в потоке →"
         emptyTitle="Пока нет файлов"
         emptyHint="Новые файлы появятся здесь автоматически."

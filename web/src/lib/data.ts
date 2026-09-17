@@ -81,6 +81,27 @@ async function serverFetch<T>(path: string, revalidate: number, fallback?: T): P
 
 const EMPTY_LIST: MediaList = { items: [], page: 1, per_page: 30, total: 0 };
 
+/**
+ * Ссылка «дальше в потоке»: продолжает ленту с того места, где закончилась витрина.
+ *
+ * `cursor` — позиция последнего показанного файла (`next_cursor` из API): по нему
+ * бесконечный поток на `/new` начинается со следующего файла, а не с начала — зритель
+ * не пересматривает то, что уже видел на главной. Фильтры переносим: иначе поток
+ * показал бы не то, что было на витрине.
+ */
+export function feedContinuationHref(
+  cursor: string | null | undefined,
+  type?: MediaType | null,
+  freeOnly = false,
+): string {
+  const q = new URLSearchParams();
+  if (type) q.set("type", type);
+  if (freeOnly) q.set("free", "1");
+  if (cursor) q.set("cursor", cursor);
+  const query = q.toString();
+  return query ? `/new?${query}` : "/new";
+}
+
 export async function getBoards(): Promise<Board[]> {
   const data = await serverFetch<Board[]>("/api/v1/boards", REVALIDATE.boards, []);
   return Array.isArray(data) ? data : [];
@@ -92,12 +113,15 @@ export async function getFeedPage(
   type?: MediaType | null,
   freeOnly = false,
   since?: string | null,
+  cursor?: string | null,
 ): Promise<MediaList> {
   const q = new URLSearchParams({ page: String(page), per_page: String(perPage) });
   if (type) q.set("type", type);
   if (freeOnly) q.set("free", "1");
   // «Новое с прошлого визита»: только файлы новее момента (ISO 8601, UTC)
   if (since) q.set("since", since);
+  // Курсор: «продолжить поток» с места, где закончилась витрина главной
+  if (cursor) q.set("cursor", cursor);
   return serverFetch<MediaList>(`/api/v1/feed?${q}`, REVALIDATE.feed, EMPTY_LIST);
 }
 

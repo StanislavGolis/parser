@@ -37,17 +37,21 @@ export const metadata: Metadata = {
 export default async function NewPage({
   searchParams,
 }: {
-  searchParams: { type?: string | string[]; since?: string | string[] };
+  searchParams: { type?: string | string[]; since?: string | string[]; cursor?: string | string[] };
 }) {
   const type = mediaType(searchParams?.type);
   // `since` приходит из блока «новое с прошлого визита» на главной.
   const rawSince = Array.isArray(searchParams?.since) ? searchParams.since[0] : searchParams?.since;
   const since = parseVisitDate(rawSince);
+  // `cursor` приходит с кнопки «Дальше в потоке» на главной: продолжаем ленту с того
+  // же места, а не показываем заново то, что зритель уже видел на витрине.
+  const rawCursor = Array.isArray(searchParams?.cursor) ? searchParams.cursor[0] : searchParams?.cursor;
+  const cursor = rawCursor?.trim() ? rawCursor.trim() : null;
   // «Скрыть премиум» — та же личная настройка, что в фильтрах главной (cookie).
   const hidePremium = cookies().get(HIDE_PREMIUM_COOKIE)?.value === HIDE_PREMIUM_ON;
 
   const [feed, boards] = await Promise.all([
-    getFeedPage(1, PER_PAGE, type, hidePremium, since?.toISOString()),
+    getFeedPage(1, PER_PAGE, type, hidePremium, since?.toISOString(), cursor),
     getBoards(),
   ]);
   const boardsById = Object.fromEntries(boards.map((b) => [b.id, b]));
@@ -63,6 +67,14 @@ export default async function NewPage({
           {formatNumber(feed.total)} {plural(feed.total, ["файл", "файла", "файлов"])}
         </span>
       </div>
+      {cursor ? (
+        <p className="mb-2 font-mono text-[11px] text-text-muted">
+          продолжение потока — то, что было ниже на главной ·{" "}
+          <Link href="/new" className="text-accent-primary hover:underline">
+            с начала
+          </Link>
+        </p>
+      ) : null}
       {since ? (
         <p className="mb-2 font-mono text-[11px] text-text-muted">
           с прошлого визита: всё, что появилось после {visitLabel(since)} ·{" "}
@@ -78,7 +90,7 @@ export default async function NewPage({
       </div>
 
       <Gallery
-        key={`feed-${type ?? "all"}-${hidePremium ? "nopremium" : "all"}-${since ? since.toISOString() : "all"}`}
+        key={`feed-${type ?? "all"}-${hidePremium ? "nopremium" : "all"}-${since ? since.toISOString() : "all"}-${cursor ?? "start"}`}
         initial={feed}
         apiPath="/api/v1/feed"
         params={{

@@ -309,7 +309,9 @@ export default function Gallery({
             ))}
           </div>
 
-          {items.length > 0 && items.length < total ? (
+          {/* В курсорном режиме «показано N из total» врёт: поток может начинаться
+              с середины (кнопка «Дальше в потоке» на главной), поэтому молчим */}
+          {items.length > 0 && items.length < total && !cursorMode ? (
             <div className="mt-4 text-center font-mono text-[11px] text-text-muted">
               показано {items.length} из {total}
             </div>
