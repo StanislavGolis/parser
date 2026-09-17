@@ -756,6 +756,22 @@ docker compose -f docker-compose.prod.yml exec -T postgres psql -U parser -d par
 `docker system df`, при росте — увеличить диск VPS или уменьшить `max_size`
 в `nginx/nginx.conf`.
 
+**Правки `nginx/nginx.conf` не подхватываются**: файл смонтирован в контейнер как
+**отдельный файл**, а `git pull` перезаписывает его с новым inode — внутри контейнера
+остаётся старый. `nginx -s reload` в этом случае ничего не меняет, нужно пересоздать
+контейнер:
+```bash
+docker compose -f docker-compose.prod.yml up -d --force-recreate nginx
+docker compose -f docker-compose.prod.yml exec -T nginx grep -n gzip /etc/nginx/conf.d/default.conf  # проверка
+```
+
+**Подписанные ссылки на премиум-превью** (`ASSET_LINK_SECRET` в `.env`): с секретом API
+подписывает ссылки (`?v=…&e=…&s=…`), и nginx отдаёт их из своего кэша без обращения к
+Python (`X-Cache-Status: HIT`), а срок жизни ссылки ограничен `ASSET_LINK_TTL_MINUTES`.
+Без секрета превью отдаются только по сессии, `Cache-Control: private, no-store` — как
+раньше. После смены секрета старые ссылки (в открытых вкладках) перестают работать, это
+нормально: клиент получит новые из API.
+
 **Парсер «молчит»**: проверить ключи `parser:up` / `parser:alive` / `parser:enabled`
 и логи (`docker compose … logs -f parser`); в админке при простое > 60 с полоса
 становится красной и пишет «возможно завис».
