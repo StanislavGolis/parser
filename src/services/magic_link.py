@@ -13,8 +13,20 @@ from typing import Optional, Tuple
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.config import settings
 from src.core.models import AuthMagicLink, User
 from src.services import auth as auth_service
+
+
+def login_url(token: str) -> str:
+    """Готовая ссылка входа: `{сайт}/auth/magic?token=…`.
+
+    Единственная точка формирования адреса: так ссылка из бота, из уведомления об
+    оплате и из админки ведёт в одно место — страницу, которая сразу гасит токен и
+    ставит сессию (а не на `/login`, где пришлось бы идти в бота за новой ссылкой).
+    """
+    base = (settings.SITE_URL or settings.PUBLIC_BASE_URL or "https://dredg.ru").strip()
+    return f"{base.rstrip('/')}/auth/magic?token={token}"
 
 
 def new_token() -> str:

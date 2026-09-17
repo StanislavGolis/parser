@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.config import settings
 from src.core.models import Payment, User
 from src.core.redis_client import redis_client
-from src.services import pricing, telegram_api
+from src.services import magic_link, pricing, telegram_api
 
 logger = logging.getLogger(__name__)
 
@@ -72,12 +72,24 @@ async def notify_paid(session: AsyncSession, payment: Payment, *, source: str = 
         f"Тариф: <b>{_escape(title)}</b>" + (f" ({days} дн.)" if days else ""),
         f"Действует до: <b>{until}</b>",
         "",
-        "Открыть сайт можно кнопкой ниже — вход уже привязан к этому чату.",
+        "Кнопка «Войти на сайт» открывает сайт сразу — ссылка живёт 10 минут. "
+        "Если не успели открыть, нажмите «Прислать новую ссылку».",
     ]
 
-    base = (settings.SITE_URL or "").strip().rstrip("/")
-    # `buttons` — ряды инлайн-клавиатуры (список списков кнопок)
-    buttons = [[{"text": "🔓 Войти на сайт", "url": f"{base}/login"}]] if base else None
+    # Ссылку входа кладём прямо в кнопку: `/login` в закрытом режиме лишь отправляет
+    # человека в бота за новой ссылкой, а так сайт открывается одним нажатием.
+    # Вторая кнопка — на случай, если ссылка уже истекла: бот пришлёт свежую.
+    buttons: list = [[{"text": "🔄 Прислать новую ссылку", "callback_data": "menu:link"}]]
+    try:
+        link_token, _ = await magic_link.issue(
+            session, user, settings.MAGIC_LINK_TTL_MINUTES
+        )
+        buttons.insert(
+            0, [{"text": "🔓 Войти на сайт", "url": magic_link.login_url(link_token)}]
+        )
+    except Exception as exc:  # noqa: BLE001 — без ссылки уведомление всё равно полезно
+        logger.warning("Не удалось выпустить ссылку входа для %s: %s", telegram_id, exc)
+
     try:
         await telegram_api.send_message(
             chat_id=str(telegram_id), text="\n".join(lines), buttons=buttons

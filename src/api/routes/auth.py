@@ -260,7 +260,7 @@ async def magic_issue(
         session, user, settings.MAGIC_LINK_TTL_MINUTES, ip_hash(client_ip(request))
     )
     return MagicLinkOut(
-        url=f"{site_base()}/auth/magic?token={link_token}",
+        url=magic_link.login_url(link_token),
         expires_at=expires_at,
         telegram_id=user.telegram_id,
         user_id=user.id,

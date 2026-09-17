@@ -507,6 +507,34 @@ async def handle_successful_payment(
     )
 
 
+async def send_login_link(
+    session: aiohttp.ClientSession,
+    bot: BotClient,
+    chat_id: int,
+    telegram_id: int,
+    username: Optional[str] = None,
+) -> None:
+    """Присылает одноразовую ссылку входа на сайт (10 минут).
+
+    Используется командой `/link` и кнопкой «Прислать новую ссылку» в уведомлении об
+    оплате: ссылка всегда свежая, поэтому её не надо просить заново в боте через `/login`.
+    """
+    data = await api_request(
+        session,
+        "POST",
+        "/api/v1/auth/magic/issue",
+        json={"telegram_id": telegram_id, "username": username},
+    )
+    if not data or "url" not in data:
+        await bot.send(chat_id, "Не удалось выдать ссылку. Попробуйте ещё раз через минуту.")
+        return
+    await bot.send(
+        chat_id,
+        "🔓 Ссылка для входа — действует 10 минут:\n" + str(data["url"]),
+        keyboard={"inline_keyboard": [[{"text": "Открыть сайт", "url": data["url"]}]]},
+    )
+
+
 async def handle_callback(
     session: aiohttp.ClientSession, bot: BotClient, callback: dict
 ) -> None:
@@ -557,6 +585,16 @@ async def handle_callback(
         if callback_id:
             await bot.call("answerCallbackQuery", callback_query_id=callback_id)
         await check_crypto_payment(session, bot, chat_id, int(parts[1]))
+        return
+
+    # «Прислать новую ссылку» из уведомления об оплате: выдаём свежий вход вместо
+    # перехода на /login (там пришлось бы идти за ссылкой обратно в бота)
+    if data == "menu:link" and chat_id:
+        if callback_id:
+            await bot.call("answerCallbackQuery", callback_query_id=callback_id)
+        await send_login_link(
+            session, bot, chat_id, chat_id, (callback.get("from") or {}).get("username")
+        )
         return
 
     if len(parts) != 3 or parts[0] != "post" or not chat_id:
@@ -643,19 +681,7 @@ async def handle_message(session: aiohttp.ClientSession, bot: BotClient, message
         return
 
     if command in ("/link", "/site", "/enter"):
-        data = await api_request(
-            session,
-            "POST",
-            "/api/v1/auth/magic/issue",
-            json={"telegram_id": telegram_id, "username": username},
-        )
-        if not data or "url" not in data:
-            await bot.send(chat_id, "Не удалось выдать ссылку. Попробуйте ещё раз через минуту.")
-            return
-        await bot.send(
-            chat_id,
-            "Ссылка для входа (10 минут):\n" f"{data['url']}",
-        )
+        await send_login_link(session, bot, chat_id, telegram_id, username)
         return
 
     if command == "/status":
