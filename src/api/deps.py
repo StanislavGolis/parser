@@ -1,6 +1,7 @@
 # src/api/deps.py
 """Общие зависимости API: rate limiting, admin-токен, IP-хеш, S3."""
 import hashlib
+import logging
 from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import Optional
@@ -16,6 +17,8 @@ from src.core.redis_client import redis_client
 from src.services import auth as auth_service
 from src.services.premium import premium_active
 from src.services.s3_storage import S3Storage
+
+logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
@@ -58,11 +61,18 @@ async def check_rate_limit(ip: str, limit: Optional[int] = None, scope: str = "a
         return
 
     rl_key = f"rl:{scope}:{hashlib.sha256(ip.encode()).hexdigest()}"
-    pipe = redis_client.pipeline()
-    pipe.incr(rl_key)
-    pipe.expire(rl_key, 60)
-    pipe.ttl(rl_key)
-    count, _, ttl = await pipe.execute()
+    try:
+        pipe = redis_client.pipeline()
+        pipe.incr(rl_key)
+        pipe.expire(rl_key, 60)
+        pipe.ttl(rl_key)
+        count, _, ttl = await pipe.execute()
+    except Exception as exc:  # noqa: BLE001
+        # Redis недоступен или пул исчерпан: пропускаем запрос (fail-open). Иначе один
+        # сбой инфраструктуры превращался бы в 500 у всех — картинки и лента важнее,
+        # чем строгость лимита.
+        logger.warning("Rate limit недоступен: %s", exc)
+        return
 
     if int(count) > effective:
         retry_after = max(1, min(60, int(ttl or 60)))

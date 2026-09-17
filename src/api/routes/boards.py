@@ -1,8 +1,7 @@
 # src/api/routes/boards.py
-import json
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,30 +31,28 @@ COVER_THUMBS = 4
 FEED_CACHE_PREFIX = "feed:"
 
 
-async def _feed_cached(key: str) -> Optional[dict]:
-    """Читает кэш ленты (`None` — нет или Redis недоступен)."""
+async def _feed_cached(key: str) -> Optional[str]:
+    """Читает кэш ленты (`None` — нет или Redis недоступен). Отдаём сырой JSON.
+
+    Важно возвращать именно строку: `ThreadListOut(**cached)` заново валидировал бы
+    сотни объектов на каждый запрос, и выигрыш от кэша почти терялся.
+    """
     if settings.FEED_CACHE_SECONDS <= 0:
         return None
     try:
         raw = await redis_client.get(f"{FEED_CACHE_PREFIX}{key}")
     except Exception:  # noqa: BLE001 — кэш не должен ломать выдачу ленты
         return None
-    if not raw:
-        return None
-    try:
-        data = json.loads(raw)
-    except Exception:  # noqa: BLE001
-        return None
-    return data if isinstance(data, dict) else None
+    return raw or None
 
 
-async def _feed_store(key: str, payload: dict) -> None:
-    """Складывает готовый ответ ленты в Redis (короткий TTL)."""
+async def _feed_store(key: str, raw: str) -> None:
+    """Складывает готовый JSON ленты в Redis (короткий TTL)."""
     if settings.FEED_CACHE_SECONDS <= 0:
         return
     try:
         await redis_client.set(
-            f"{FEED_CACHE_PREFIX}{key}", json.dumps(payload), ex=settings.FEED_CACHE_SECONDS
+            f"{FEED_CACHE_PREFIX}{key}", raw, ex=settings.FEED_CACHE_SECONDS
         )
     except Exception:  # noqa: BLE001
         pass
@@ -251,7 +248,10 @@ async def board_threads(
     cache_key = f"{board.id}:{page}:{per_page}:{sort}:{access}"
     cached = await _feed_cached(cache_key)
     if cached is not None:
-        return ThreadListOut(**cached)
+        # Отдаём сохранённый JSON как есть: без повторной валидации и сериализации
+        return Response(
+            content=cached, media_type="application/json", headers={"X-Cache": "HIT"}
+        )
 
     threads, total = await list_threads(
         session, board.id, page, per_page, only_visible=True, sort=sort
@@ -266,5 +266,6 @@ async def board_threads(
         board_premium=board.is_premium,
     )
     payload = ThreadListOut(items=items, page=page, per_page=per_page, total=total)
-    await _feed_store(cache_key, payload.model_dump(mode="json"))
-    return payload
+    raw = payload.model_dump_json()
+    await _feed_store(cache_key, raw)
+    return Response(content=raw, media_type="application/json", headers={"X-Cache": "MISS"})
