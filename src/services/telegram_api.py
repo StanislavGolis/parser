@@ -66,9 +66,17 @@ def _reply_markup(
     button_url: str = "",
     buttons: Optional[list] = None,
 ) -> Optional[str]:
-    """Inline-клавиатура: одна кнопка-ссылка или готовый набор кнопок."""
+    """Inline-клавиатура: одна кнопка-ссылка или готовый набор кнопок.
+
+    `buttons` — ряды клавиатуры (список списков). Плоский список кнопок тоже
+    принимаем: иначе Telegram вернёт «expected an Array of InlineKeyboardButton» и
+    сообщение потеряется целиком.
+    """
     if buttons:
-        return json.dumps({"inline_keyboard": buttons})
+        rows = buttons
+        if isinstance(rows[0], dict):
+            rows = [list(rows)]
+        return json.dumps({"inline_keyboard": rows})
     if not (button_text and button_url):
         return None
     return json.dumps({"inline_keyboard": [[{"text": button_text, "url": button_url}]]})

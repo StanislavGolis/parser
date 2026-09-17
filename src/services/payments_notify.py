@@ -76,13 +76,19 @@ async def notify_paid(session: AsyncSession, payment: Payment, *, source: str = 
     ]
 
     base = (settings.SITE_URL or "").strip().rstrip("/")
-    buttons = [{"text": "🔓 Войти на сайт", "url": f"{base}/login"}] if base else None
+    # `buttons` — ряды инлайн-клавиатуры (список списков кнопок)
+    buttons = [[{"text": "🔓 Войти на сайт", "url": f"{base}/login"}]] if base else None
     try:
         await telegram_api.send_message(
             chat_id=str(telegram_id), text="\n".join(lines), buttons=buttons
         )
     except Exception as exc:  # noqa: BLE001 — уведомление не должно ломать зачисление
         logger.warning("Не удалось уведомить покупателя %s: %s", telegram_id, exc)
+        # Снимаем флаг: следующая сверка попробует отправить сообщение ещё раз
+        try:
+            await redis_client.delete(f"notify:paid:{payment.id}")
+        except Exception:  # noqa: BLE001
+            pass
         return False
 
     logger.info(
