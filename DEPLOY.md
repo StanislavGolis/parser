@@ -473,12 +473,15 @@ print(asyncio.run(mailer.send_mail('shksns35@gmail.com', 'Dredger: провер�
 - Наружу открыт только `nginx` (порт `HTTP_PORT`). PostgreSQL/Redis наружу
   не пробрасываются.
 - Данные (тома `pgdata`, `media`) переживают перезапуск; `down -v` удаляет их.
-- **Код общий для `api`, `parser-dvach`, `parser-slivach` и `migrate`** (образ
-  `parser-backend:local`). `build:` объявлен только у сервиса `api`, поэтому
-  `up -d --build parser-dvach` код НЕ пересобирает (только пересоздаёт контейнер
-  из старого образа). Чтобы обновить парсеры:
+- **Код общий для `api`, `parser-dvach`, `parser-slivach`, `migrate`,
+  `telegram-gateway` и `telegram-publisher`** (образ `parser-backend:local`).
+  `build:` объявлен только у сервиса `api`, поэтому `up -d --build parser-dvach` код
+  НЕ пересобирает (только пересоздаёт контейнер из старого образа), а
+  `build telegram-gateway` отвечает «No services to build» — и правка бота молча не
+  доедет. Обновлять так:
   `docker compose -f docker-compose.prod.yml up -d --build` (весь стек) или
-  `up -d --build api parser-dvach parser-slivach`.
+  `up -d --build api parser-dvach parser-slivach telegram-gateway telegram-publisher`
+  (образ соберёт именно `api`, а его переиспользуют остальные сервисы).
 - Парсер коммитит БД после каждого треда и каждые `DB_COMMIT_EVERY_FILES`
   файлов внутри треда (дефолт 25, `0` — только по завершении треда): частичный
   прогресс сразу виден на сайте и в статистике, а рестарт теряет максимум пачку
