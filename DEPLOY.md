@@ -752,6 +752,31 @@ docker compose -f docker-compose.prod.yml exec -T postgres psql -U parser -d par
 
 Статистика в админке дубли не считает, поэтому числа корректны и без чистки.
 
+**В админке тредов больше, чем на сайте, и часть не встаёт в очередь.** Это не
+недокачка: источник публикует один альбом в нескольких категориях, файл
+скачивается один раз (в запись, разобранную первой), а в остальных записях
+создаётся ссылка-дубль (`duplicate_of_id`, `s3_key` тот же — объект один).
+Такие треды просканированы (`parse_enabled=true`, `last_scanned_at` заполнен,
+`pending_scan=false`), но публично скрыты: фильтры показа дубли исключают
+(`VISIBLE_FILTER` в `api/common.py`, проверка «есть свой видимый файл» в
+`threads_service.list_threads`). В очередь они не встают, потому что качать
+нечего — при проходе все файлы уже сохранены, в `last_scan_note` стоит
+«новых 0, уже было N» («уже было» = уже в архиве вообще, не в этом треде).
+
+```sql
+-- треды без «своих» файлов (публично скрыты) по доскам
+select b.slug, count(*) as empty_threads
+from threads_state t join boards b on b.id = t.board_id
+where not exists (
+  select 1 from media m where m.thread_id = t.thread_id and m.duplicate_of_id is null
+)
+group by b.slug order by 2 desc;
+
+-- куда ведут ссылки конкретного треда (каноничный файл может быть в другой доске)
+select m.id, m.duplicate_of_id, m.s3_key
+from media m where m.thread_id = 261906057 limit 5;
+```
+
 **Место на диске**: кэш nginx до 10 ГБ (том `nginx_cache`) + медиа-том (`media`);
 `docker system df`, при росте — увеличить диск VPS или уменьшить `max_size`
 в `nginx/nginx.conf`.
