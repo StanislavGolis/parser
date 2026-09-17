@@ -45,50 +45,12 @@ const EAGER_CARDS = 6;
  * квадраты. Без паузы быстрый скролл заказывал страницы одну за другой: сервер
  * получал пачку запросов, а картинки всё равно не успевали — зритель видел
  * «мигание» вместо ленты.
+ *
+ * Прокрутку при этом не трогаем: она остаётся нативной (как на главной), потому
+ * что ручное управление с `window.scrollTo` каждый кадр на длинных лентах
+ * (поток, топ) ощущается хуже браузерного.
  */
 const FEED_STEP_MS = 400;
-
-/**
- * Максимальная скорость прокрутки ленты, px/с.
- *
- * Колесо и свайпы не двигают страницу напрямую: они задают цель, а лента едет к ней
- * по кадрам не быстрее этой скорости. Так «разогнать» прокрутку нельзя (ни колесом,
- * ни свайпом), но движение остаётся плавным — без шагов и рывков.
- *
- * 3000 px/с — примерно три экрана в секунду: заметно быстрее браузерного «плавного»
- * скролла, но всё ещё предсказуемо и без рывков.
- */
-const FEED_MAX_SPEED = 3000;
-
-/**
- * На сколько экранов цель может «убежать» от текущего положения.
- *
- * Ограничивает «накрученную» инерцию: если быстро крутить колесо, цель не уходит
- * бесконечно вперёд, и лента не едет ещё долго после того, как зритель остановился.
- */
-const FEED_LOOKAHEAD_SCREENS = 3;
-
-/**
- * Насколько усиливаем одно движение колеса (px дельты → px цели).
- *
- * Больше — резвее реакция на щелчок колеса: одно движение сразу даёт ощутимый сдвиг.
- */
-const FEED_WHEEL_GAIN = 2;
-
-/**
- * Коэффициент сглаживания (1/с): чем больше, тем быстрее лента догоняет цель.
- * Даёт плавный разгон и мягкую остановку вместо мгновенного старта/стопа; 18 —
- * движение почти «липнет» к вводу, отзывчиво и без рывков.
- */
-const FEED_EASE = 18;
-
-/**
- * Насколько ниже загруженного контента разрешаем прокрутить (px).
- *
- * Это «запас видимости»: в хвосте ленты находятся служебные элементы (кнопка
- * «повторить», плашка «конец списка»), к ним нужно дотянуться мышью.
- */
-const FEED_TAIL_PX = 240;
 
 /** Число колонок по ширине окна — как было в CSS (2 / 3 / 4 / 5). */
 function useColumnCount(): number {
@@ -192,13 +154,6 @@ export default function Gallery({
   // Ограничение скорости автоподгрузки: когда был последний запрос и что запланировано
   const lastLoadRef = useRef(0);
   const stepTimerRef = useRef<number | null>(null);
-  // Ограничение прокрутки: цель (куда едем), кадр анимации и состояние жеста
-  const scrollRef = useRef<{
-    target: number;
-    raf: number | null;
-    lastFrame: number;
-    touch: { x: number; y: number } | null;
-  }>({ target: 0, raf: null, lastFrame: 0, touch: null });
 
   const hasMore = cursorMode ? cursor !== null : items.length < total;
 
@@ -311,142 +266,6 @@ export default function Gallery({
     observer.observe(node);
     return () => observer.disconnect();
   }, [scheduleLoadMore, hasMore, loading, autoPaused, error, queryKey, items.length]);
-
-  /**
-   * Плавная прокрутка с ограничением скорости.
-   *
-   * Колесо и свайпы не двигают ленту напрямую: они задают цель, а страница едет к ней
-   * по кадрам (rAF) не быстрее `FEED_MAX_SPEED`. Поэтому «разогнать» прокрутку нельзя —
-   * ввод можно крутить/свайпать как угодно — но движение остаётся плавным, без шагов
-   * и рывков. Цель дополнительно ограничена: не ниже загруженного контента (запас
-   * `FEED_TAIL_PX`, чтобы дотянуться до служебных кнопок) и не дальше
-   * `FEED_LOOKAHEAD_SCREENS` экранов от фактического положения (чтобы «накрученная»
-   * инерция не ехала потом полминуты).
-   */
-  useEffect(() => {
-    if (!infinite) return;
-    const state = scrollRef.current;
-
-    /** Докуда пускаем прокрутку: конец загруженного контента + запас. */
-    const bottomLimit = () => {
-      const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-      const node = sentinelRef.current;
-      if (!node || !hasMore) return max;
-      const sentinelBottom = node.getBoundingClientRect().bottom + window.scrollY;
-      return Math.max(0, Math.min(max, sentinelBottom + FEED_TAIL_PX - window.innerHeight));
-    };
-
-    /** Есть ли вообще куда прокручивать (в лайтбоксе страница заперта). */
-    const scrollable = () => document.documentElement.scrollHeight - window.innerHeight > 1;
-
-    const cancelFrame = () => {
-      if (state.raf !== null) {
-        window.cancelAnimationFrame(state.raf);
-        state.raf = null;
-      }
-    };
-
-    /** Один кадр: подтягиваем страницу к цели с ограничением скорости. */
-    const frame = () => {
-      state.raf = null;
-      const now = performance.now();
-      const dt = Math.min(0.05, Math.max(0.001, (now - state.lastFrame) / 1000));
-      state.lastFrame = now;
-
-      const from = window.scrollY;
-      const diff = state.target - from;
-      if (Math.abs(diff) < 0.5) {
-        state.target = from;
-        return;
-      }
-      // Экспоненциальное сглаживание: у цели движение замедляется (мягкая остановка),
-      // а разогнаться выше предела не даёт `maxStep`
-      const maxStep = FEED_MAX_SPEED * dt;
-      const eased = diff * FEED_EASE * dt;
-      const step = Math.max(-maxStep, Math.min(maxStep, Math.abs(eased) < 1 ? diff : eased));
-      window.scrollTo(0, from + step);
-      state.raf = window.requestAnimationFrame(frame);
-    };
-
-    const ensureFrame = () => {
-      if (state.raf !== null) return;
-      state.lastFrame = performance.now();
-      state.raf = window.requestAnimationFrame(frame);
-    };
-
-    /** Сдвигает цель (и запускает движение), удерживая её в допустимых границах. */
-    const push = (delta: number) => {
-      if (!scrollable()) return;
-      const from = state.raf === null ? window.scrollY : state.target;
-      const max = Math.max(bottomLimit(), window.scrollY);
-      const cap = window.innerHeight * FEED_LOOKAHEAD_SCREENS;
-      const next = Math.max(0, Math.min(max, from + delta));
-      state.target = Math.max(window.scrollY - cap, Math.min(window.scrollY + cap, next));
-      ensureFrame();
-    };
-
-    const onWheel = (event: WheelEvent) => {
-      // Масштабирование (ctrl+колесо) не перехватываем
-      if (event.ctrlKey) return;
-      // Событие уже обработали выше (карусель превью в плитке, лайтбокс): не мешаем
-      if (event.defaultPrevented) return;
-      if (!event.deltaY) return;
-      if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
-
-      // Дельту приводим к пикселям: у «строчного» режима единица — строка, у
-      // «страничного» — экран (в браузерах это редкость, но пусть будет корректно)
-      const unit =
-        event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? window.innerHeight : 1;
-      push(event.deltaY * unit * FEED_WHEEL_GAIN);
-      event.preventDefault();
-    };
-
-    const onTouchStart = (event: TouchEvent) => {
-      state.touch = event.touches.length === 1
-        ? { x: event.touches[0].clientX, y: event.touches[0].clientY }
-        : null;
-    };
-
-    const onTouchMove = (event: TouchEvent) => {
-      const touch = state.touch;
-      if (!touch || event.defaultPrevented || event.touches.length !== 1) return;
-      const point = event.touches[0];
-      const dx = point.clientX - touch.x;
-      const dy = point.clientY - touch.y;
-      // Горизонтальный жест — не наш: его обрабатывает карусель превью в плитке
-      if (Math.abs(dx) > Math.abs(dy)) return;
-      if (!scrollable()) return;
-      state.touch = { x: point.clientX, y: point.clientY };
-      push(-dy); // палец вверх → лента вниз
-      event.preventDefault();
-    };
-
-    const onTouchEnd = () => {
-      state.touch = null;
-    };
-
-    // Прокрутку не мы (клавиатура, полоса, программный сдвиг) — берём факт за цель,
-    // иначе следующий жест прыгнул бы к «старой» цели
-    const onScroll = () => {
-      if (state.raf === null) state.target = window.scrollY;
-    };
-
-    window.addEventListener("wheel", onWheel, { passive: false });
-    window.addEventListener("touchstart", onTouchStart, { passive: true });
-    window.addEventListener("touchmove", onTouchMove, { passive: false });
-    window.addEventListener("touchend", onTouchEnd, { passive: true });
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      window.removeEventListener("wheel", onWheel);
-      window.removeEventListener("touchstart", onTouchStart);
-      window.removeEventListener("touchmove", onTouchMove);
-      window.removeEventListener("touchend", onTouchEnd);
-      window.removeEventListener("scroll", onScroll);
-      cancelFrame();
-      state.touch = null;
-    };
-  }, [infinite, hasMore]);
-
   const step = useCallback(
     (dir: 1 | -1) => {
       setOpenIndex((cur) => {
