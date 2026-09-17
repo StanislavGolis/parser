@@ -37,6 +37,17 @@ interface GalleryProps {
 /** Сколько первых карточек грузить сразу (первый экран → LCP). */
 const EAGER_CARDS = 6;
 
+/**
+ * Пауза между автоподгрузками ленты при быстром скролле (мс).
+ *
+ * Как в карусели превью треда (`PREVIEW_SCROLL_MS` в `BoardThreads`): шаг даём с
+ * паузой, чтобы карточки успели подгрузить превью и лента не уезжала в пустые
+ * квадраты. Без паузы быстрый скролл заказывал страницы одну за другой: сервер
+ * получал пачку запросов, а картинки всё равно не успевали — зритель видел
+ * «мигание» вместо ленты.
+ */
+const FEED_STEP_MS = 400;
+
 /** Число колонок по ширине окна — как было в CSS (2 / 3 / 4 / 5). */
 function useColumnCount(): number {
   const [cols, setCols] = useState(2);
@@ -136,6 +147,9 @@ export default function Gallery({
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const busyRef = useRef(false);
+  // Ограничение скорости автоподгрузки: когда был последний запрос и что запланировано
+  const lastLoadRef = useRef(0);
+  const stepTimerRef = useRef<number | null>(null);
 
   const hasMore = cursorMode ? cursor !== null : items.length < total;
 
@@ -186,6 +200,10 @@ export default function Gallery({
       setAutoPaused(true);
     } finally {
       busyRef.current = false;
+      // Пауза считается от **окончания** загрузки: показываем пришедшие карточки,
+      // даём браузеру начать грузить их превью — и только потом берём следующую
+      // страницу, даже если зритель продолжает быстро скроллить
+      lastLoadRef.current = Date.now();
       setLoading(false);
     }
   }, [apiPath, page, perPage, params, cursor, cursorMode]);
@@ -196,6 +214,38 @@ export default function Gallery({
     void loadMore();
   }, [loadMore]);
 
+  /**
+   * Подгрузка с паузой (шаг ленты).
+   *
+   * Observer срабатывает на каждое движение у границы, поэтому «просто вызвать
+   * loadMore» — значит заказать несколько страниц подряд, пока зритель быстро
+   * скроллит. Здесь: если с прошлого запроса прошло меньше `FEED_STEP_MS`,
+   * подгрузка откладывается на остаток паузы (и не дублируется).
+   */
+  const scheduleLoadMore = useCallback(() => {
+    const since = Date.now() - lastLoadRef.current;
+    if (since >= FEED_STEP_MS) {
+      void loadMore();
+      return;
+    }
+    if (stepTimerRef.current !== null) return; // пауза уже запланирована
+    stepTimerRef.current = window.setTimeout(() => {
+      stepTimerRef.current = null;
+      void loadMore();
+    }, FEED_STEP_MS - since);
+  }, [loadMore]);
+
+  // Таймер шага не должен пережить компонент (иначе запрос уйдёт «в никуда»)
+  useEffect(
+    () => () => {
+      if (stepTimerRef.current !== null) {
+        window.clearTimeout(stepTimerRef.current);
+        stepTimerRef.current = null;
+      }
+    },
+    [],
+  );
+
   // Infinite scroll: догружаем, когда sentinel появляется в зоне видимости.
   // В режиме витрины (infinite=false) автодогрузки нет — пользователь уходит
   // в полный список по ссылке.
@@ -205,13 +255,13 @@ export default function Gallery({
     if (!node || !hasMore || loading || autoPaused || error) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((e) => e.isIntersecting)) void loadMore();
+        if (entries.some((e) => e.isIntersecting)) scheduleLoadMore();
       },
       { rootMargin: "900px 0px" },
     );
     observer.observe(node);
     return () => observer.disconnect();
-  }, [loadMore, hasMore, loading, autoPaused, error, queryKey, items.length]);
+  }, [scheduleLoadMore, hasMore, loading, autoPaused, error, queryKey, items.length]);
 
   const step = useCallback(
     (dir: 1 | -1) => {
