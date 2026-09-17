@@ -672,6 +672,12 @@ async def handle_message(session: aiohttp.ClientSession, bot: BotClient, message
             await handle_giveaway(session, bot, chat_id, telegram_id, giveaway_id, username)
             return
 
+    # /start site — пришли по кнопке «Войти через Telegram» со страницы /login:
+    # сразу выдаём ссылку входа, чтобы не заставлять человека искать кнопку в меню
+    if command == "/start" and start_payload == "site":
+        await send_login_link(session, bot, chat_id, telegram_id, username)
+        return
+
     if command in ("/start", "/help"):
         await bot.send(
             chat_id,
