@@ -64,10 +64,20 @@ router = APIRouter(prefix="/api/v1", tags=["media"])
 DEDUP_PERIOD_HOURS = 24
 
 
-async def _get_visible_media(session: AsyncSession, media_id: int) -> Media:
-    result = await session.execute(
-        select(Media).where(*VISIBLE_FILTER, Media.id == media_id)
-    )
+async def _get_visible_media(
+    session: AsyncSession, media_id: int, *, allow_duplicate: bool = False
+) -> Media:
+    """Файл для показа или отдачи; `allow_duplicate` — принимать id ссылки-дубля.
+
+    Дубли (`duplicate_of_id`) не показываются в лентах и на странице файла: их
+    контент уже есть в каноничной записи. Но **отдать объект** по id дубля можно:
+    `s3_key` у него тот же, а сам id приходит из сохранённых мест (точка возврата,
+    закладка), поэтому иначе браузер получал 404 и медиа «не подгружалось».
+    """
+    filters = [Media.is_visible.is_(True), Media.is_active.is_(True)]
+    if not allow_duplicate:
+        filters.append(Media.duplicate_of_id.is_(None))
+    result = await session.execute(select(Media).where(*filters, Media.id == media_id))
     media = result.scalar_one_or_none()
     if not media:
         raise HTTPException(status_code=404, detail="Media not found")
@@ -104,7 +114,9 @@ async def _check_media_access(
 ASSET_META_PREFIX = "media:meta:"
 
 
-async def _asset_meta(session: AsyncSession, media_id: int) -> dict:
+async def _asset_meta(
+    session: AsyncSession, media_id: int, *, allow_duplicate: bool = False
+) -> dict:
     """Данные, нужные для отдачи файла: варианты, тип, имя и решение по доступу.
 
     На каждую картинку раньше уходило три SQL (`media`, `boards`, `threads_state`), а
@@ -112,8 +124,11 @@ async def _asset_meta(session: AsyncSession, media_id: int) -> dict:
     «Замеры нагрузки»). Готовый результат на `MEDIA_ACCESS_CACHE_SECONDS` кладём в
     Redis: кэш короткий, поэтому скрытый админом файл перестаёт отдаваться через пару
     минут, а обычное листание уже не трогает БД.
+
+    `allow_duplicate` — отдача по id ссылки-дубля (свой ключ кэша, чтобы «отдать
+    дубль» и «показать файл» не смешивались).
     """
-    cache_key = f"{ASSET_META_PREFIX}{media_id}"
+    cache_key = f"{ASSET_META_PREFIX}{media_id}" + (":dup" if allow_duplicate else "")
     if settings.MEDIA_ACCESS_CACHE_SECONDS > 0:
         try:
             cached = await redis_client.get(cache_key)
@@ -127,7 +142,7 @@ async def _asset_meta(session: AsyncSession, media_id: int) -> dict:
             if isinstance(data, dict):
                 return data
 
-    media = await _get_visible_media(session, media_id)
+    media = await _get_visible_media(session, media_id, allow_duplicate=allow_duplicate)
     board = await _check_media_access(session, media)
     meta = {
         "media_id": media.id,
@@ -724,7 +739,9 @@ async def media_raw(
     """
     await check_rate_limit(client_ip(request), limit=settings.MEDIA_RATE_LIMIT, scope="media")
 
-    meta = await _asset_meta(session, media_id)
+    # `allow_duplicate=True`: id мог прийти из сохранённой точки возврата или
+    # закладки, а файл с тех пор стал ссылкой-дублём — объект в S3 тот же, отдаём
+    meta = await _asset_meta(session, media_id, allow_duplicate=True)
     if not meta["s3_key"]:
         raise HTTPException(status_code=404, detail="File not available")
 
@@ -779,7 +796,7 @@ async def media_asset(
             client_ip(request), limit=settings.MEDIA_RATE_LIMIT, scope="media"
         )
 
-    meta = await _asset_meta(session, media_id)
+    meta = await _asset_meta(session, media_id, allow_duplicate=True)
     variants = meta["variants"]
 
     if kind == "thumb_blur":
