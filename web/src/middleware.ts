@@ -206,9 +206,12 @@ async function handleRequest(request: NextRequest): Promise<NextResponse> {
 
 export const config = {
   // Все страницы, кроме служебного: `_next`, API (его закрывает FastAPI в закрытом
-  // режиме), входа, healthz, robots, иконок сайта и файла ключа IndexNow.
+  // режиме), healthz, robots, иконок сайта и файла ключа IndexNow. Страницы входа
+  // (`/login`, `/auth/...`) в списке нет намеренно: именно здесь нужен источник
+  // захода — аноним попадает сюда редиректом, и cookie `dv_ref`/`dv_utm` иначе
+  // терялась бы (см. `withSource`).
   // Формат `:path*` и regexp — то, что Next гарантированно подхватывает.
   matcher: [
-    "/((?!_next|api|auth|login|healthz|robots\\.txt|icon\\.png|apple-icon\\.png|logo\\.png|favicon|indexnow-key).*)",
+    "/((?!_next|api|healthz|robots\\.txt|icon\\.png|apple-icon\\.png|logo\\.png|favicon|indexnow-key).*)",
   ],
 };
