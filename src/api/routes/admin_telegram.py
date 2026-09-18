@@ -774,7 +774,12 @@ async def approve_post(
     if post.status != "draft":
         return _post_out(post)
 
-    items = await telegram_service.load_media(session, list(post.media_ids or []))
+    # Лимит альбома обязателен: у рубрики в `media_ids` лежат и плитки мозаики, и
+    # приложения (`rubric_meta.photos`). С дефолтным лимитом (4 плитки) приложения
+    # в выборку не попадали, и в канал уходила одна мозаика без фото.
+    items = await telegram_service.load_media(
+        session, list(post.media_ids or []), telegram_service.ALBUM_MEDIA_LIMIT
+    )
     if not items:
         items = await telegram_service.latest_media(session)
     await telegram_service._deliver(

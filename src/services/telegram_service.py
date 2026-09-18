@@ -371,6 +371,12 @@ async def _deliver(
                 if items is not None
                 else await load_media(session, list(post.media_ids or []), ALBUM_MEDIA_LIMIT)
             )
+            # Страховка: у рубрики `media_ids` = плитки мозаики + приложения, и если
+            # вызывающий передал урезанный набор (дефолтный лимит `load_media` — 4),
+            # приложения молча терялись бы и в канал уходила одна мозаика.
+            needed = {int(value) for value in (meta.get("photos") or []) if str(value).isdigit()}
+            if needed - {item.id for item in picked}:
+                picked = await load_media(session, list(post.media_ids or []), ALBUM_MEDIA_LIMIT)
             if not (meta.get("tiles") or meta.get("photos")):
                 meta = {"photos": [item.id for item in picked]}
             images = await album_images(s3, picked, meta, default_blur=blur)
@@ -441,8 +447,12 @@ async def publish_now(
     button_url: Optional[str] = None,
     actor: str = "admin-token",
 ) -> TelegramPost:
-    """Публикует пост в канал сейчас же (ручная публикация из композера)."""
-    items = await load_media(session, media_ids)
+    """Публикует пост в канал сейчас же (ручная публикация из композера).
+
+    Лимит — как у альбома: в режиме `album` список выбранных файлов не должен
+    обрезаться до плиток мозаики, иначе в канал уйдёт только превью.
+    """
+    items = await load_media(session, media_ids, ALBUM_MEDIA_LIMIT)
     if not items:
         items = await latest_media(session)
 
@@ -482,9 +492,10 @@ async def schedule_post(
     """Ставит пост в очередь: планировщик отправит его в назначенное время.
 
     Подпись и список файлов собираем заранее и сохраняем в записи — в час публикации
-    не зависим от того, что ещё появилось в архиве.
+    не зависим от того, что ещё появилось в архиве. Лимит — как у альбома, иначе в
+    режиме `album` при публикации останется только мозаика.
     """
-    items = await load_media(session, media_ids)
+    items = await load_media(session, media_ids, ALBUM_MEDIA_LIMIT)
     if not items:
         items = await latest_media(session)
 
@@ -531,8 +542,12 @@ async def due_posts(session: AsyncSession, limit: int = 5) -> List[TelegramPost]
 
 
 async def publish_scheduled(session: AsyncSession, s3: S3Storage, post: TelegramPost) -> TelegramPost:
-    """Публикует отложенный пост (вызывает планировщик)."""
-    items = await load_media(session, list(post.media_ids or []))
+    """Публикует отложенный пост (вызывает планировщик).
+
+    Лимит — как у альбома: у рубрики в `media_ids` и плитки мозаики, и приложения;
+    с дефолтным лимитом (`MAX_TILES`) приложения терялись бы при публикации.
+    """
+    items = await load_media(session, list(post.media_ids or []), ALBUM_MEDIA_LIMIT)
     if not items:
         items = await latest_media(session)
     await _deliver(
