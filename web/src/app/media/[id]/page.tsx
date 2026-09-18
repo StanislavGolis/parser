@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import DownloadButton from "@/components/DownloadButton";
 import MarkButton from "@/components/MarkButton";
+import MediaPlayer from "@/components/MediaPlayer";
 import ReportButton from "@/components/ReportButton";
 import TrackView from "@/components/TrackView";
 import When from "@/components/When";
@@ -157,17 +158,8 @@ export default async function MediaDetailPage({ params }: DetailProps) {
                 className="max-h-[80vh] w-auto max-w-full rounded-lg object-contain"
               />
             ) : (
-              <video
-                src={previewUrl}
-                controls
-                preload="metadata"
-                playsInline
-                controlsList="nodownload noremoteplayback"
-                disablePictureInPicture
-                className="max-h-[80vh] w-auto max-w-full rounded-lg"
-              >
-                Ваш браузер не поддерживает HTML5-видео.
-              </video>
+              // Плеер — клиентский компонент: он помнит громкость зрителя (lib/volume)
+              <MediaPlayer src={previewUrl} />
             )
           ) : (
             <p className="px-4 py-16 text-center text-sm text-neutral-500">

@@ -29,6 +29,7 @@ import { webSrc, premiumState } from "@/lib/media";
 import { saveResume } from "@/lib/resume";
 import { useMarkToggle } from "@/lib/useMark";
 import { useRetrySrc } from "@/lib/useRetrySrc";
+import { useVolumeMemory } from "@/lib/volume";
 import type { BoardsById, MediaItem, ViewResult } from "@/lib/types";
 
 // Листание колесом (W1): накапливаем дельту до порога и держим «кулдаун»,
@@ -172,6 +173,12 @@ export default function Lightbox({
   // отдался» из-за лимита (429) лечится ожиданием — загрузка повторяется сама,
   // а кнопка «Попробовать снова» запускает её заново вручную.
   const view = useRetrySrc(failed ? undefined : webSrc(media), () => setFailed(true));
+
+  // Громкость, выставленную зрителем, помним между файлами и визитами: элемент
+  // `<video>` при перелистывании сохраняется, а уровень берём из хранилища
+  // (см. lib/volume) — иначе каждый файл начинал бы играть «на всю».
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  useVolumeMemory(videoRef);
 
   // Прогрев соседних кадров: пока зритель смотрит файл, в браузерном кэше уже
   // лежат ±PRELOAD_RADIUS превью — быстрый свайп не показывает «пустые» слайды.
@@ -619,6 +626,7 @@ export default function Lightbox({
         {canShow ? (
           isVideo ? (
             <video
+              ref={videoRef}
               src={view.src}
               // Постер: пока плеер не начал играть, виден кадр (на мобильных
               // браузер сам кадр не рисует, и окно выглядело чёрным)

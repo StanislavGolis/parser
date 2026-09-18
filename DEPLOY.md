@@ -535,6 +535,8 @@ docker compose -f docker-compose.prod.yml exec -T web \
   sh -c "grep -rl 'продолжить' /app/.next/static/chunks/*.js | head -1"          # кнопка «продолжить просмотр»
 docker compose -f docker-compose.prod.yml exec -T web \
   sh -c "grep -rl 'сортировка: файлов' /app/.next/static/chunks/*.js | head -1"  # автосортировка разделов
+docker compose -f docker-compose.prod.yml exec -T web \
+  sh -c "grep -rl 'dredge.volume.v1' /app/.next/static/chunks/*.js | head -1"    # память громкости плеера
 ```
 
 Чек-лист:
