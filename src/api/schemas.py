@@ -406,17 +406,27 @@ class BlockedHashOut(BaseModel):
 
 
 class TelegramPostIn(BaseModel):
-    """Заготовка поста в канал: тип, текст, файлы и режим картинки."""
+    """Заготовка поста в канал: тип, текст, файлы и режим картинки.
+
+    `manual=True` — свободный режим: подпись уходит в канал **как есть**
+    (шаблон не подставляется, HTML разрешён), файлы не добираются из свежих,
+    кнопка появляется только если задан её текст.
+    """
 
     kind: str = "teaser"            # teaser | digest | announce
     text: Optional[str] = None      # свободный текст (для анонсов)
     media_ids: List[int] = []
-    image_mode: str = "mosaic"      # mosaic | single | none
+    image_mode: str = "mosaic"      # mosaic | single | album | none
     blur: int = 7                   # размытие картинки: канал должен быть «мягким»
     button_text: Optional[str] = None
     button_url: Optional[str] = None
     period: Optional[str] = None    # day | week — для дайджеста
     scheduled_at: Optional[datetime] = None  # задано → пост уходит в очередь
+    # Свободный режим (композер): «что написал — то и ушло»
+    manual: bool = False
+    # Свободный режим + альбом: собрать сверху мозаику из первых кадров, а
+    # остальные приложить отдельными фото
+    album_mosaic: bool = False
 
 
 class TelegramAutopostIn(BaseModel):
@@ -565,10 +575,12 @@ class TelegramPostListOut(BaseModel):
 
 
 class TelegramPreviewOut(BaseModel):
-    """Предпросмотр поста: текст и картинка (без публикации)."""
+    """Предпросмотр поста: текст и картинка (или кадры альбома) без публикации."""
 
     caption: str
     image_data_url: Optional[str] = None
+    # Кадры альбома (data URL): мозаика и приложения в том порядке, как уйдут
+    images: List[str] = []
     chat: Optional[str] = None
     configured: bool = False
     warning: Optional[str] = None

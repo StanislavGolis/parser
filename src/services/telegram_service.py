@@ -177,6 +177,22 @@ def button_for(text: Optional[str], url: Optional[str]) -> tuple[str, str]:
     return label, target
 
 
+def album_meta(items: List[Media], with_mosaic: bool) -> Optional[dict]:
+    """Разбивка альбома для поста, собранного вручную (`image_mode=album`).
+
+    Без мозаики возвращает `None` — тогда `_deliver` приложит все файлы кадрами
+    как есть. С мозаикой: первые `MAX_TILES` кадров идут в мозаику, остальные —
+    приложениями. Если файлов меньше пяти, мозаика не имеет смысла (это просто
+    дубли тех же кадров), поэтому тоже уходим в обычный альбом.
+    """
+    if not with_mosaic or len(items) <= MAX_TILES:
+        return None
+    return {
+        "tiles": [item.id for item in items[:MAX_TILES]],
+        "photos": [item.id for item in items[MAX_TILES:]],
+    }
+
+
 async def tile_bytes(s3: S3Storage, items: List[Media], limit: int = MAX_TILES) -> List[bytes]:
     """Байты превью выбранных файлов: `thumb`, иначе размытый вариант.
 
@@ -446,19 +462,33 @@ async def publish_now(
     button_text: Optional[str] = None,
     button_url: Optional[str] = None,
     actor: str = "admin-token",
+    manual: bool = False,
+    album_mosaic: bool = False,
 ) -> TelegramPost:
     """Публикует пост в канал сейчас же (ручная публикация из композера).
 
     Лимит — как у альбома: в режиме `album` список выбранных файлов не должен
     обрезаться до плиток мозаики, иначе в канал уйдёт только превью.
+
+    Свободный режим (`manual=True`) — «что написал, то и ушло»: подпись без
+    шаблона и без автоссылки, файлы не добираются из свежих, кнопка только если
+    задан её текст.
     """
     items = await load_media(session, media_ids, ALBUM_MEDIA_LIMIT)
-    if not items:
+    if not items and not manual:
         items = await latest_media(session)
 
     boards = await board_slugs(session, items)
-    caption = caption_for(kind=kind, boards=boards, total=len(items), text=text, period=period)
-    label, url = button_for(button_text, button_url)
+    if manual:
+        caption = (text or "").strip()
+    else:
+        caption = caption_for(
+            kind=kind, boards=boards, total=len(items), text=text, period=period
+        )
+    if manual and not (button_text or "").strip():
+        label, url = "", ""
+    else:
+        label, url = button_for(button_text, button_url)
 
     post = build_post(
         kind=kind,
@@ -469,6 +499,8 @@ async def publish_now(
         button_url=url,
         actor=actor,
     )
+    if manual:
+        post.rubric_meta = album_meta(items, album_mosaic)
     session.add(post)
     await _deliver(session, s3, post, items, label=label, url=url, blur=max(0, min(24, blur)))
     await session.commit()
@@ -488,20 +520,32 @@ async def schedule_post(
     button_text: Optional[str] = None,
     button_url: Optional[str] = None,
     actor: str = "admin-token",
+    manual: bool = False,
+    album_mosaic: bool = False,
 ) -> TelegramPost:
     """Ставит пост в очередь: планировщик отправит его в назначенное время.
 
     Подпись и список файлов собираем заранее и сохраняем в записи — в час публикации
     не зависим от того, что ещё появилось в архиве. Лимит — как у альбома, иначе в
     режиме `album` при публикации останется только мозаика.
+
+    Свободный режим (`manual=True`) сохраняет подпись и разбивку альбома как есть.
     """
     items = await load_media(session, media_ids, ALBUM_MEDIA_LIMIT)
-    if not items:
+    if not items and not manual:
         items = await latest_media(session)
 
     boards = await board_slugs(session, items)
-    caption = caption_for(kind=kind, boards=boards, total=len(items), text=text, period=period)
-    label, url = button_for(button_text, button_url)
+    if manual:
+        caption = (text or "").strip()
+    else:
+        caption = caption_for(
+            kind=kind, boards=boards, total=len(items), text=text, period=period
+        )
+    if manual and not (button_text or "").strip():
+        label, url = "", ""
+    else:
+        label, url = button_for(button_text, button_url)
 
     post = build_post(
         kind=kind,
@@ -514,6 +558,8 @@ async def schedule_post(
         status="scheduled",
         scheduled_at=scheduled_at,
     )
+    if manual:
+        post.rubric_meta = album_meta(items, album_mosaic)
     session.add(post)
     await record_audit(
         session,

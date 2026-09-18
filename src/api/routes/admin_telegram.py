@@ -328,25 +328,51 @@ async def preview_post(
     """Предпросмотр тизера: текст и картинка — без публикации.
 
     Если файлы не выбраны, берём четыре самых свежих: админ сразу видит, как будет
-    выглядеть пост, и может просто нажать «Опубликовать».
+    выглядеть пост, и может просто нажать «Опубликовать». В свободном режиме
+    (`manual=true`) ничего не подставляем — показываем ровно то, что ввели, а для
+    альбома отдаём все кадры (`images`): мозаику и приложения.
     """
-    items = await telegram_service.load_media(session, payload.media_ids)
-    if not items:
+    items = await telegram_service.load_media(
+        session,
+        payload.media_ids,
+        telegram_service.ALBUM_MEDIA_LIMIT if payload.manual else telegram_service.MAX_TILES,
+    )
+    if not items and not payload.manual:
         items = await telegram_service.latest_media(session)
 
     boards = await telegram_service.board_slugs(session, items)
-    caption = telegram_service.caption_for(
-        kind=payload.kind, boards=boards, total=len(items), text=payload.text, period=payload.period
-    )
+    if payload.manual:
+        # Свободный режим: показываем ровно тот текст, который уйдёт в канал
+        caption = (payload.text or "").strip()
+    else:
+        caption = telegram_service.caption_for(
+            kind=payload.kind, boards=boards, total=len(items), text=payload.text, period=payload.period
+        )
     mode = payload.image_mode if payload.image_mode in IMAGE_MODES else "mosaic"
-    image = await telegram_service.render_image(
-        s3, items, mode, max(0, min(24, payload.blur))
-    )
+    blur = max(0, min(24, payload.blur))
+
+    image_data_url: Optional[str] = None
+    previews: List[str] = []
+    if mode == "album":
+        # Альбом предпросматриваем целиком: мозаика и приложения, как уйдут в канал
+        meta = telegram_service.album_meta(items, payload.album_mosaic) or {
+            "photos": [item.id for item in items]
+        }
+        album = await telegram_service.album_images(s3, items, meta, default_blur=blur)
+        previews = [
+            "data:image/jpeg;base64," + base64.b64encode(chunk).decode("ascii")
+            for chunk in album[:10]
+        ]
+    else:
+        image = await telegram_service.render_image(s3, items, mode, blur)
+        if image:
+            image_data_url = "data:image/jpeg;base64," + base64.b64encode(image).decode("ascii")
 
     configured = telegram_api.is_configured()
     return TelegramPreviewOut(
         caption=caption,
-        image_data_url=("data:image/jpeg;base64," + base64.b64encode(image).decode("ascii")) if image else None,
+        image_data_url=image_data_url,
+        images=previews,
         chat=telegram_api.channel_chat_id() if configured else None,
         configured=configured,
         warning=None if configured else "Публикация недоступна: проверьте TELEGRAM_BOT_TOKEN и TELEGRAM_CHANNEL",
@@ -506,7 +532,16 @@ async def publish_post(
 
     Если в запросе есть `scheduled_at`, пост не уходит сразу, а встаёт в очередь:
     планировщик отправит его в назначенное время.
+
+    `manual=true` — свободный режим: текст уходит как есть, файлы не подставляются,
+    кнопка появляется только по запросу. Совсем пустой пост (ни текста, ни файлов)
+    публиковать нечего — отвечаем 400, чтобы это не всплывало ошибкой Telegram.
     """
+    if payload.manual and not payload.media_ids and not (payload.text or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Свободный режим: добавьте текст поста или выберите файлы",
+        )
     if payload.scheduled_at:
         post = await telegram_service.schedule_post(
             session,
@@ -518,6 +553,8 @@ async def publish_post(
             period=payload.period,
             button_text=payload.button_text,
             button_url=payload.button_url,
+            manual=payload.manual,
+            album_mosaic=payload.album_mosaic,
         )
         return _post_out(post)
 
@@ -532,6 +569,8 @@ async def publish_post(
         period=payload.period,
         button_text=payload.button_text,
         button_url=payload.button_url,
+        manual=payload.manual,
+        album_mosaic=payload.album_mosaic,
     )
     return _post_out(post)
 

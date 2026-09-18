@@ -16,6 +16,8 @@ import type {
 } from "@/lib/types";
 
 const MAX_TILES = 4;
+// Свободный режим: в альбом можно приложить больше кадров (как в рубриках — 14)
+const ALBUM_MEDIA_LIMIT = 14;
 const KINDS: Array<{ value: string; label: string; hint: string }> = [
   { value: "teaser", label: "свежее", hint: "подборка новых файлов" },
   { value: "digest", label: "топ", hint: "лучшее за период" },
@@ -70,6 +72,12 @@ export default function TelegramPanel({
   const [digestPeriod, setDigestPeriod] = useState("day");
   // Пусто — публикуем сразу; иначе пост встаёт в очередь на это время
   const [scheduledFor, setScheduledFor] = useState("");
+  // Свободный режим: «что написал и выбрал — то и уйдёт» — без шаблона подписи,
+  // без автоссылки на бота и без подстановки свежих файлов
+  const [manual, setManual] = useState(false);
+  // Только для свободного альбома: первые 4 кадра собираем в мозаику сверху
+  const [albumMosaic, setAlbumMosaic] = useState(false);
+  const pickLimit = manual ? ALBUM_MEDIA_LIMIT : MAX_TILES;
 
   const body = useCallback(
     () => ({
@@ -81,8 +89,10 @@ export default function TelegramPanel({
       button_text: buttonText.trim() || undefined,
       period: kind === "digest" ? digestPeriod : undefined,
       scheduled_at: scheduledFor ? new Date(scheduledFor).toISOString() : undefined,
+      manual,
+      album_mosaic: manual && mode === "album" ? albumMosaic : false,
     }),
-    [kind, text, picked, mode, blur, buttonText, digestPeriod, scheduledFor],
+    [kind, text, picked, mode, blur, buttonText, digestPeriod, scheduledFor, manual, albumMosaic],
   );
 
   const loadLog = useCallback(
@@ -120,7 +130,7 @@ export default function TelegramPanel({
   function toggle(id: number) {
     setPicked((prev) => {
       if (prev.includes(id)) return prev.filter((item) => item !== id);
-      if (prev.length >= MAX_TILES) return prev;
+      if (prev.length >= pickLimit) return prev;
       return [...prev, id];
     });
     setPreview(null);
@@ -233,7 +243,12 @@ export default function TelegramPanel({
 
       <div className="rounded border border-line bg-ink-secondary p-3">
         <div className="flex flex-wrap items-center gap-2">
-          {KINDS.map((item) => (
+          {manual ? (
+            <span className="rounded border border-accent-primary/40 bg-accent-primary/10 px-2 py-1 text-xs text-accent-primary">
+              свободный режим: в пост уйдёт ровно то, что вы написали и выбрали
+            </span>
+          ) : (
+            KINDS.map((item) => (
             <button
               key={item.value}
               type="button"
@@ -250,9 +265,24 @@ export default function TelegramPanel({
             >
               {item.label}
             </button>
-          ))}
+            ))
+          )}
+          <label
+            className="flex items-center gap-1.5 text-xs text-text-secondary"
+            title="Свободный режим: подпись уходит как есть (шаблон и автоссылка не подставляются), файлы не подбираются автоматически"
+          >
+            <input
+              type="checkbox"
+              checked={manual}
+              onChange={(e) => {
+                setManual(e.target.checked);
+                setPreview(null);
+              }}
+            />
+            свободный режим
+          </label>
           <span className="ml-auto font-mono text-[11px] text-text-muted">
-            файлов выбрано: {picked.length}/{MAX_TILES}
+            файлов выбрано: {picked.length}/{pickLimit}
           </span>
         </div>
 
@@ -263,7 +293,11 @@ export default function TelegramPanel({
             setPreview(null);
           }}
           rows={3}
-          placeholder="Необязательный текст: что нового, анонс, приглашение в бота"
+          placeholder={
+            manual
+              ? "Текст поста как есть — можно HTML: <b>, <i>, <a href>"
+              : "Необязательный текст: что нового, анонс, приглашение в бота"
+          }
           className="mt-3 w-full rounded border border-line bg-ink-tertiary px-2.5 py-2 text-xs text-text-primary outline-none focus:border-accent-primary"
         />
 
@@ -318,9 +352,28 @@ export default function TelegramPanel({
             >
               <option value="mosaic">мозаика 2×2</option>
               <option value="single">один кадр</option>
+              {manual ? (
+                <option value="album">альбом: выбранные кадры</option>
+              ) : null}
               <option value="none">без картинки</option>
             </select>
           </label>
+          {manual && mode === "album" ? (
+            <label
+              className="flex items-center gap-1.5"
+              title="Первые четыре кадра соберём в мозаику и поставим её первой, остальные приложим фото"
+            >
+              <input
+                type="checkbox"
+                checked={albumMosaic}
+                onChange={(e) => {
+                  setAlbumMosaic(e.target.checked);
+                  setPreview(null);
+                }}
+              />
+              мозаика сверху
+            </label>
+          ) : null}
           <label className="flex items-center gap-1.5" title="Размытие: канал должен оставаться «мягким»">
             размытие: {blur}
             <input
@@ -336,7 +389,7 @@ export default function TelegramPanel({
             <input
               value={buttonText}
               onChange={(e) => setButtonText(e.target.value)}
-              placeholder="Открыть в боте"
+              placeholder={manual ? "пусто — без кнопки" : "Открыть в боте"}
               className="w-40 rounded border border-line bg-ink-tertiary px-2 py-1 text-xs text-text-primary outline-none focus:border-accent-primary"
             />
           </label>
@@ -404,7 +457,19 @@ export default function TelegramPanel({
 
         {preview ? (
           <div className="mt-3 grid gap-3 border-t border-line pt-3 sm:grid-cols-2">
-            {preview.image_data_url ? (
+            {preview.images && preview.images.length > 0 ? (
+              <div className="grid grid-cols-3 gap-1 sm:grid-cols-4">
+                {preview.images.map((src, index) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={index}
+                    src={src}
+                    alt=""
+                    className="w-full rounded border border-line"
+                  />
+                ))}
+              </div>
+            ) : preview.image_data_url ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={preview.image_data_url}

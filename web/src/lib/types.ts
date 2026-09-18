@@ -485,6 +485,8 @@ export interface TelegramCandidate {
 export interface TelegramPreview {
   caption: string;
   image_data_url: string | null;
+  /** Кадры альбома (data URL): мозаика и приложения, если выбран режим «альбом». */
+  images?: string[];
   chat: string | null;
   configured: boolean;
   warning: string | null;
