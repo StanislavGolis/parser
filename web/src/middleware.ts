@@ -83,7 +83,51 @@ function withNoIndex(response: NextResponse): NextResponse {
   return response;
 }
 
-export async function middleware(request: NextRequest) {
+/** Cookie «откуда пришли»: внешний реферер и `utm_source`, живут 30 дней. */
+const SOURCE_REF_COOKIE = "dv_ref";
+const SOURCE_UTM_COOKIE = "dv_utm";
+const SOURCE_MAX_AGE = 60 * 60 * 24 * 30;
+
+/** Хост внешнего реферера (свой домен, пустое значение и мусор отбрасываем). */
+function externalHost(referer: string | null, siteHost: string): string {
+  if (!referer) return "";
+  try {
+    const host = new URL(referer).hostname.toLowerCase().replace(/^www\./, "");
+    const own = siteHost.toLowerCase().replace(/^www\./, "");
+    if (!host || host === own) return "";
+    return host.slice(0, 120);
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Запоминает источник захода: внешний реферер и `utm_source` — в cookie на 30 дней.
+ *
+ * Зачем: в закрытом режиме анонима сразу уводит на `/login` (307), и к моменту
+ * аналитического хита `document.referrer` уже потерян — в отчёте «Источники» любой
+ * заход выглядел прямым. Пишем один раз (первый заход посетителя) и держим долго:
+ * это канал привлечения, он не должен теряться на редиректе или в мессенджере.
+ */
+function withSource(request: NextRequest, response: NextResponse): NextResponse {
+  const known = request.cookies.get(SOURCE_REF_COOKIE) || request.cookies.get(SOURCE_UTM_COOKIE);
+  if (known) return response;
+
+  const options = { path: "/", maxAge: SOURCE_MAX_AGE, sameSite: "lax" as const };
+  const host = externalHost(request.headers.get("referer"), request.nextUrl.hostname);
+  const utm = request.nextUrl.searchParams.get("utm_source")?.trim();
+  if (host) response.cookies.set(SOURCE_REF_COOKIE, host, options);
+  if (utm) response.cookies.set(SOURCE_UTM_COOKIE, utm.slice(0, 80), options);
+  return response;
+}
+
+export async function middleware(request: NextRequest): Promise<NextResponse> {
+  // Источник захода фиксируем на любом ответе: редирект на `/login` и переходы по
+  // сайту не должны его терять (см. `withSource`).
+  return withSource(request, await handleRequest(request));
+}
+
+async function handleRequest(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
 
   // 1. Старые адреса разделов slivach → короткие (308). Редирект не требует входа.

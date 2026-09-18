@@ -66,6 +66,9 @@ x-backend: &backend
     # которые входили на сайт через Telegram.
     TELEGRAM_ADMIN_CHAT_ID: ${TELEGRAM_ADMIN_CHAT_ID:-}
     MAGIC_LINK_TTL_MINUTES: ${MAGIC_LINK_TTL_MINUTES:-10}
+    # Сколько секунд уже использованная ссылка ещё считается входом (мессенджер
+    # открывает её сам, человек — вторым переходом). 0 — строгая одноразовость.
+    MAGIC_LINK_REUSE_SECONDS: ${MAGIC_LINK_REUSE_SECONDS:-90}
 
     # Крипта: Crypto Pay (CryptoBot). Токен приложения — @CryptoBot → /pay → Create App.
     # Суммы берутся из тарифов (plans.price_usdt_cents), правятся в админке.

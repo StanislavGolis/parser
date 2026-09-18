@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ApiError, apiSend } from "@/lib/api";
 import { notifyAuthChanged } from "@/lib/authEvents";
@@ -22,7 +22,22 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Сообщение о неудачном входе по ссылке из бота: `/auth/magic` уводит сюда с
+  // `?error=magic|api` — раньше этот параметр никак не показывался, и человек
+  // видел ту же форму входа без объяснения, что ссылка уже не работает.
+  const [linkError, setLinkError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get("error");
+    if (code === "magic") {
+      setLinkError(
+        "Ссылка для входа уже использована или истекла. Нажмите «Войти через Telegram» — бот пришлёт новую.",
+      );
+    } else if (code === "api") {
+      setLinkError("Сервис входа не ответил. Попробуйте ещё раз через минуту.");
+    }
+  }, []);
 
   /** Возврат туда, куда шёл пользователь: middleware добавляет `?next=/board/...`. */
   function goNext() {
@@ -59,6 +74,11 @@ export default function LoginPage() {
       </p>
 
       <div className="mt-6 rounded border border-line bg-ink-secondary p-4">
+        {linkError ? (
+          <p className="mb-3 rounded border border-accent-warning/40 bg-accent-warning/10 px-3 py-2 text-xs text-accent-warning">
+            {linkError}
+          </p>
+        ) : null}
         {TELEGRAM_BOT_USERNAME ? (
           <a
             href={`https://t.me/${TELEGRAM_BOT_USERNAME}?start=site`}

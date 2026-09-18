@@ -239,7 +239,11 @@ async def watch_crypto_payments(session: aiohttp.ClientSession) -> None:
     Так оплата зачисляется сама — и покупателю тут же уходит сообщение в этот чат, —
     даже если вебхук в @CryptoBot ещё не включён. Ошибки только логируем: это фон,
     бот не должен падать из-за недоступного Crypto Pay.
+
+    Первый проход — после паузы: при старте API может ещё подниматься (в логе было
+    предупреждение «Cannot connect to host api:8000»), а минута ничего не решает.
     """
+    await asyncio.sleep(CRYPTO_SCAN_INTERVAL)
     while True:
         try:
             data = await api_request(session, "POST", "/api/v1/billing/crypto/scan")
@@ -526,8 +530,10 @@ async def send_login_link(
         json={"telegram_id": telegram_id, "username": username},
     )
     if not data or "url" not in data:
+        logger.warning("Ссылка входа не выдана: tg=%s @%s", telegram_id, username)
         await bot.send(chat_id, "Не удалось выдать ссылку. Попробуйте ещё раз через минуту.")
         return
+    logger.info("Ссылка входа отправлена: user=%s tg=%s @%s", data.get("user_id"), telegram_id, username)
     await bot.send(
         chat_id,
         "🔓 Ссылка для входа — действует 10 минут:\n" + str(data["url"]),
@@ -662,6 +668,11 @@ async def handle_message(session: aiohttp.ClientSession, bot: BotClient, message
         command = "/subscribe"
     elif text.startswith("❓"):
         command = "/help"
+
+    # След в логе: видно, как человек попадает на сайт (канал → бот → /link → сайт).
+    # Токены и ссылки не пишем — только id, ник и команду.
+    if command.startswith("/"):
+        logger.info("Команда %s: tg=%s @%s", command, telegram_id, username)
 
     if command == "/start" and start_payload.startswith("giveaway_"):
         try:

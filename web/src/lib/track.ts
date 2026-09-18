@@ -7,6 +7,9 @@
 
 const SID_COOKIE = "dv_sid";
 const VISIT_COOKIE = "dv_visit";
+/** Источник захода, который запомнил middleware (см. `web/src/middleware.ts`). */
+const SOURCE_REF_COOKIE = "dv_ref";
+const SOURCE_UTM_COOKIE = "dv_utm";
 const SID_MAX_AGE = 60 * 60 * 24 * 30; // 30 дней — «посетитель»
 const VISIT_GAP_MS = 30 * 60 * 1000; // пауза, после которой визит считается новым
 
@@ -36,16 +39,54 @@ function sessionId(): string {
   return sid;
 }
 
-/** Новый ли это визит, и реферер (нужен только на первом хите визита). */
-function visitState(): { isNewVisit: boolean; referrer?: string } {
+/** Внешний `document.referrer`: свой домен и пустое значение не считаем источником. */
+function externalReferrer(): string | undefined {
+  if (typeof document === "undefined" || typeof window === "undefined") return undefined;
+  if (!document.referrer) return undefined;
+  try {
+    const host = new URL(document.referrer).hostname.toLowerCase().replace(/^www\./, "");
+    const own = window.location.hostname.toLowerCase().replace(/^www\./, "");
+    return host && host !== own ? host : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** `utm_source` из адреса страницы (метку ставит внешняя ссылка). */
+function urlUtm(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  const value = new URLSearchParams(window.location.search).get("utm_source");
+  return value ? value.slice(0, 80) : undefined;
+}
+
+/**
+ * Источник захода из cookie: его пишет middleware при первом заходе.
+ *
+ * Нужен там, где `document.referrer` не доживает: закрытый режим уводит анонима на
+ * `/login` редиректом, а мессенджер открывает ссылку своим браузером.
+ */
+function sourceFromCookies(): { referrer?: string; utmSource?: string } {
+  const ref = readCookie(SOURCE_REF_COOKIE);
+  const utm = readCookie(SOURCE_UTM_COOKIE);
+  return {
+    referrer: /^[a-z0-9.-]{3,120}$/.test(ref) ? ref : undefined,
+    utmSource: utm ? utm.slice(0, 80) : undefined,
+  };
+}
+
+/** Новый ли это визит, и откуда пришли (нужно только на первом хите визита). */
+function visitState(): { isNewVisit: boolean; referrer?: string; utmSource?: string } {
   const now = Date.now();
   const last = Number(readCookie(VISIT_COOKIE) || 0);
   const isNewVisit = !last || now - last > VISIT_GAP_MS;
   writeCookie(VISIT_COOKIE, String(now), Math.ceil(VISIT_GAP_MS / 1000));
+  const saved = sourceFromCookies();
   return {
     isNewVisit,
-    // document.referrer осмысленен только при входе извне: дальше переходы внутренние
-    referrer: isNewVisit ? document.referrer || undefined : undefined,
+    // document.referrer осмысленен только при входе извне: дальше переходы внутренние.
+    // Если он потерялся (редирект, мессенджер) — берём источник, сохранённый middleware.
+    referrer: isNewVisit ? externalReferrer() ?? saved.referrer : undefined,
+    utmSource: isNewVisit ? urlUtm() ?? saved.utmSource : undefined,
   };
 }
 
@@ -70,7 +111,7 @@ export function trackPageView(path?: string): void {
     path: path ?? window.location.pathname + window.location.search,
     new_visit: state.isNewVisit,
     referrer: state.referrer,
-    utm_source: new URLSearchParams(window.location.search).get("utm_source") ?? undefined,
+    utm_source: state.utmSource,
   });
 }
 
