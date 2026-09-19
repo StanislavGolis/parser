@@ -53,6 +53,11 @@ from src.services import reporting
 from src.services.analytics import cleanup_analytics
 
 logging.basicConfig(level=logging.INFO)
+# uvicorn настраивает логирование раньше импорта приложения, поэтому `basicConfig`
+# уже ничего не меняет и root остаётся на WARNING — INFO-логи наших модулей (вход по
+# ссылке, выпуск ссылки, причины отказа) в `docker compose logs api` не появлялись.
+# Поднимаем уровень только для `src.*`: глобальный INFO включил бы и SQL-шум SQLAlchemy.
+logging.getLogger("src").setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
 
