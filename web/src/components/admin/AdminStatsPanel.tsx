@@ -9,6 +9,7 @@ import type {
   StatsContent,
   StatsDevices,
   StatsEvents,
+  StatsFunnel,
   StatsHealth,
   StatsOverview,
   StatsPages,
@@ -81,6 +82,18 @@ function withDelta(value: number, delta: number | null): string {
   return `${formatNumber(value)} (${sign}${delta}%)`;
 }
 
+/** Процент конверсии между шагами воронки (прочерк, если базы не было). */
+function Conversion({ label, value }: { label: string; value: number | null }) {
+  return (
+    <div className="rounded border border-line px-2 py-1.5">
+      <div className="text-[10px] text-text-muted">{label}</div>
+      <div className="font-mono text-sm tabular-nums text-text-primary">
+        {value === null ? "—" : `${value}%`}
+      </div>
+    </div>
+  );
+}
+
 /** Статистика: посещаемость, источники, устройства, события, контент, ошибки API. */
 export default function AdminStatsPanel() {
   const { token } = useAdminToken();
@@ -92,6 +105,7 @@ export default function AdminStatsPanel() {
   const [devices, setDevices] = useState<StatsDevices | null>(null);
   const [events, setEvents] = useState<StatsEvents | null>(null);
   const [content, setContent] = useState<StatsContent | null>(null);
+  const [funnel, setFunnel] = useState<StatsFunnel | null>(null);
   const [health, setHealth] = useState<StatsHealth | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -103,7 +117,7 @@ export default function AdminStatsPanel() {
       const q = `?days=${period}`;
       const group = period <= 2 ? "hour" : "day";
       try {
-        const [ov, ts, pg, src, dev, ev, ct, hl] = await Promise.all([
+        const [ov, ts, pg, src, dev, ev, ct, fn, hl] = await Promise.all([
           apiSend<StatsOverview>(`/api/v1/admin/stats/overview${q}`, { token: t }),
           apiSend<StatsTimeseries>(`/api/v1/admin/stats/timeseries${q}&group=${group}`, {
             token: t,
@@ -113,6 +127,7 @@ export default function AdminStatsPanel() {
           apiSend<StatsDevices>(`/api/v1/admin/stats/devices${q}`, { token: t }),
           apiSend<StatsEvents>(`/api/v1/admin/stats/events${q}`, { token: t }),
           apiSend<StatsContent>(`/api/v1/admin/stats/content${q}`, { token: t }),
+          apiSend<StatsFunnel>(`/api/v1/admin/stats/funnel${q}`, { token: t }),
           apiSend<StatsHealth>("/api/v1/admin/stats/health?days=7", { token: t }),
         ]);
         setOverview(ov);
@@ -122,6 +137,7 @@ export default function AdminStatsPanel() {
         setDevices(dev);
         setEvents(ev);
         setContent(ct);
+        setFunnel(fn);
         setHealth(hl);
       } catch (err) {
         setError(errText(err));
@@ -149,6 +165,7 @@ export default function AdminStatsPanel() {
   }
 
   const maxVisitors = Math.max(1, ...(series?.points.map((p) => p.visitors) ?? [1]));
+  const funnelMax = Math.max(1, ...(funnel?.steps.map((s) => s.value) ?? [1]));
   const healthRows: Array<[string, string]> = (health?.items ?? [])
     .filter((item) => item.total > 0)
     .slice(0, 7)
@@ -246,6 +263,49 @@ export default function AdminStatsPanel() {
               />
             ))}
           </div>
+        </div>
+      ) : null}
+
+      {funnel ? (
+        <div className="mt-4 rounded border border-line bg-ink-secondary/40 p-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-text-muted">
+              воронка: заход → вход
+            </span>
+            <span className="font-mono text-[10px] text-text-muted">
+              новые аккаунты: {formatNumber(funnel.new_accounts)} · вход в том же браузере:{" "}
+              {formatNumber(funnel.same_browser)}
+            </span>
+          </div>
+          <div className="mt-3 flex flex-col gap-2">
+            {funnel.steps.map((step) => (
+              <div key={step.key} className="flex items-center gap-3">
+                <span className="w-36 shrink-0 truncate text-[11px] text-text-secondary" title={step.label}>
+                  {step.label}
+                </span>
+                <span className="h-2 flex-1 overflow-hidden rounded-sm bg-ink-tertiary/60">
+                  <span
+                    className="block h-full rounded-sm bg-accent-primary/70"
+                    style={{ width: `${Math.round((step.value / funnelMax) * 100)}%` }}
+                  />
+                </span>
+                <span className="w-20 shrink-0 text-right font-mono text-[11px] tabular-nums text-text-primary">
+                  {formatNumber(step.value)}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <Conversion label="дошли до входа" value={funnel.conversion.anon_to_login_page} />
+            <Conversion label="ссылка → вход" value={funnel.conversion.issued_to_used} />
+            <Conversion label="вход → просмотр" value={funnel.conversion.login_to_active} />
+            <Conversion label="заход → вход" value={funnel.conversion.anon_to_active} />
+          </div>
+          <p className="mt-2 text-[11px] text-text-muted">
+            «зашли анонимно» — посетители без аккаунта (закрытый режим не показывает им
+            контента), «ссылки из бота» — выдачи в `auth_magic_links`, «смотрели архив» —
+            вошедшие аккаунты с просмотрами.
+          </p>
         </div>
       ) : null}
 

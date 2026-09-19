@@ -645,6 +645,29 @@ export interface StatsSources {
   utm: Array<{ source: string; visits: number }>;
 }
 
+/** Шаг воронки привлечения (см. `GET /api/v1/admin/stats/funnel`). */
+export interface StatsFunnelStep {
+  key: "landed" | "saw_login" | "links_issued" | "links_used" | "active_users";
+  label: string;
+  value: number;
+}
+
+export interface StatsFunnel {
+  days: number;
+  generated_at: string;
+  steps: StatsFunnelStep[];
+  /** Сессии, где были и анонимные, и авторизованные хиты (вход в том же браузере). */
+  same_browser: number;
+  /** Новые Telegram-аккаунты, заведённые ботом за период. */
+  new_accounts: number;
+  conversion: {
+    anon_to_login_page: number | null;
+    issued_to_used: number | null;
+    login_to_active: number | null;
+    anon_to_active: number | null;
+  };
+}
+
 export interface StatsNameCount {
   name: string;
   hits: number;
@@ -792,8 +815,29 @@ export interface AdminUserSession {
   active: boolean;
 }
 
+/** Откуда аккаунт пришёл и как входил (видно в карточке пользователя). */
+export interface AdminUserSource {
+  first_hit_at: string | null;
+  /** Сколько браузеров (сессий) аккаунт оставил в аналитике. */
+  sessions: number;
+  /** Сессии, начинавшиеся до входа: сначала закрытый сайт, потом ссылка из бота. */
+  anonymous_sessions: number;
+  referrer: string | null;
+  utm: string | null;
+  device: string | null;
+  browser: string | null;
+  ip_hash: string | null;
+  links: {
+    issued: number;
+    used: number;
+    last_issued: string | null;
+    last_used: string | null;
+  };
+}
+
 export interface AdminUserCard extends AdminUser {
   sessions: AdminUserSession[];
+  source: AdminUserSource;
   marks: Array<{ at: string | null; media_id: number; name: string; board: string }>;
   downloads: Array<{ at: string | null; media_id: number; name: string }>;
   audit: Array<{ at: string | null; actor: string | null; action: string; details: string | null }>;

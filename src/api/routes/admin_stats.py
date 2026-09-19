@@ -13,7 +13,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import verify_admin
 from src.core.db import get_session
-from src.core.models import Board, DownloadStat, Media, MediaMark, PageHit, ViewStat
+from src.core.models import (
+    AuthMagicLink,
+    Board,
+    DownloadStat,
+    Media,
+    MediaMark,
+    PageHit,
+    User,
+    ViewStat,
+)
 from src.core.redis_client import redis_client
 
 router = APIRouter(prefix="/api/v1/admin/stats", tags=["admin-stats"])
@@ -383,3 +392,103 @@ async def stats_health(
             }
         )
     return {"days": days, "statuses": list(HEALTH_STATUSES), "items": items}
+
+
+@router.get("/funnel")
+async def stats_funnel(
+    days: int = Query(30, ge=1, le=365),
+    _=Depends(verify_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Воронка привлечения: заход на закрытый сайт → ссылка из бота → просмотр архива.
+
+    Шаги считаем по своей аналитике и журналу ссылок входа (`auth_magic_links`):
+
+    * «зашли анонимно» — посетители (`session_id`) без аккаунта: в закрытом режиме
+      контента им не показывают, поэтому это первый шаг воронки;
+    * «увидели вход» — из них те, у кого в адресах есть `/login` (страница входа
+      открылась, значит человек искал, как войти);
+    * «ссылки из бота» — аккаунты, которым за период выдали ссылку (кнопка
+      `/link` или «Войти через Telegram» на `/login`);
+    * «вошли по ссылке» — аккаунты с погашенной ссылкой за период;
+    * «смотрели архив» — вошедшие аккаунты, оставившие хиты: ссылку открыли и не
+      просто закрыли вкладку.
+    * `same_browser` — сессии, где были и анонимные, и авторизованные хиты: заход
+      и вход связаны (ссылка открыта в том же браузере, а не на другом устройстве).
+
+    Проценты — в `conversion`: шаг к предыдущему (для «смотрели архив» — к входам).
+    """
+    since, now = _window(days)
+    window = (PageHit.created_at >= since, PageHit.created_at < now)
+    anonymous = (PageHit.session_id.isnot(None), PageHit.user_id.is_(None))
+
+    async def count(query) -> int:
+        return int((await session.execute(query)).scalar() or 0)
+
+    landed = await count(
+        select(func.count(func.distinct(PageHit.session_id))).where(
+            _human(), *window, *anonymous
+        )
+    )
+    saw_login = await count(
+        select(func.count(func.distinct(PageHit.session_id))).where(
+            _human(), *window, *anonymous, PageHit.path.like("/login%")
+        )
+    )
+    same_browser = await count(
+        select(func.count()).select_from(
+            select(PageHit.session_id)
+            .where(_human(), *window, PageHit.session_id.isnot(None))
+            .group_by(PageHit.session_id)
+            .having(
+                func.count().filter(PageHit.user_id.is_(None)) > 0,
+                func.count().filter(PageHit.user_id.isnot(None)) > 0,
+            )
+            .subquery()
+        )
+    )
+    links_issued = await count(
+        select(func.count(func.distinct(AuthMagicLink.user_id))).where(
+            AuthMagicLink.created_at >= since, AuthMagicLink.created_at < now
+        )
+    )
+    links_used = await count(
+        select(func.count(func.distinct(AuthMagicLink.user_id))).where(
+            AuthMagicLink.used_at.isnot(None),
+            AuthMagicLink.used_at >= since,
+            AuthMagicLink.used_at < now,
+        )
+    )
+    active_users = await count(
+        select(func.count(func.distinct(PageHit.user_id))).where(
+            _human(), *window, PageHit.user_id.isnot(None)
+        )
+    )
+    new_accounts = await count(
+        select(func.count())
+        .select_from(User)
+        .where(User.telegram_id.isnot(None), User.created_at >= since, User.created_at < now)
+    )
+
+    def percent(part: int, base: int) -> Optional[float]:
+        return round(part / base * 100, 1) if base else None
+
+    return {
+        "days": days,
+        "generated_at": now.isoformat(),
+        "steps": [
+            {"key": "landed", "label": "зашли анонимно", "value": landed},
+            {"key": "saw_login", "label": "увидели вход", "value": saw_login},
+            {"key": "links_issued", "label": "ссылки из бота", "value": links_issued},
+            {"key": "links_used", "label": "вошли по ссылке", "value": links_used},
+            {"key": "active_users", "label": "смотрели архив", "value": active_users},
+        ],
+        "same_browser": same_browser,
+        "new_accounts": new_accounts,
+        "conversion": {
+            "anon_to_login_page": percent(saw_login, landed),
+            "issued_to_used": percent(links_used, links_issued),
+            "login_to_active": percent(active_users, links_used),
+            "anon_to_active": percent(same_browser, landed),
+        },
+    }

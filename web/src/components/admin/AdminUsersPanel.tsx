@@ -34,6 +34,21 @@ function errText(err: unknown): string {
   return err instanceof Error ? err.message : "Ошибка";
 }
 
+/** Строка «подпись — значение» в карточке: подпись приглушена, значение не переносится. */
+function CardRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      <span className="shrink-0 text-text-muted">{label}</span>
+      <span
+        className={`min-w-0 truncate text-right text-text-secondary ${mono ? "font-mono" : ""}`}
+        title={value}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
 /** Управление пользователями: список, карточка, действия, журнал админов. */
 export default function AdminUsersPanel() {
   const { token } = useAdminToken();
@@ -465,6 +480,58 @@ export default function AdminUsersPanel() {
           </div>
 
           <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <div className="rounded border border-line p-3">
+              <div className="font-mono text-[10px] uppercase tracking-wider text-text-muted">
+                откуда пришёл
+              </div>
+              <div className="mt-2 flex flex-col gap-1 text-[11px]">
+                <CardRow
+                  label="источник"
+                  value={card.source.referrer ?? "прямой заход"}
+                />
+                <CardRow label="utm" value={card.source.utm ?? "—"} />
+                <CardRow
+                  label="первый заход"
+                  value={
+                    card.source.first_hit_at
+                      ? formatUtc(card.source.first_hit_at)
+                      : "в аналитике не отмечен"
+                  }
+                />
+                <CardRow
+                  label="устройство"
+                  value={
+                    [card.source.device, card.source.browser].filter(Boolean).join(" · ") || "—"
+                  }
+                />
+                <CardRow
+                  label="ссылки входа"
+                  value={`выдано ${card.source.links.issued} · использовано ${card.source.links.used}`}
+                />
+                <CardRow
+                  label="последняя"
+                  value={
+                    card.source.links.last_used
+                      ? `вход ${formatUtc(card.source.links.last_used)}`
+                      : card.source.links.last_issued
+                        ? `выдана ${formatUtc(card.source.links.last_issued)}, не открыта`
+                        : "—"
+                  }
+                />
+                <CardRow
+                  label="браузеры"
+                  value={`${formatNumber(card.source.sessions)} сессий · ${formatNumber(
+                    card.source.anonymous_sessions,
+                  )} начинали до входа`}
+                />
+                <CardRow
+                  label="ip (хеш)"
+                  value={card.source.ip_hash ? card.source.ip_hash.slice(0, 12) : "—"}
+                  mono
+                />
+              </div>
+            </div>
+
             <div className="rounded border border-line p-3">
               <div className="font-mono text-[10px] uppercase tracking-wider text-text-muted">
                 сессии (последние 20)

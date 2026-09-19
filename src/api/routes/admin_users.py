@@ -19,10 +19,12 @@ from src.core.config import settings
 from src.core.db import get_session
 from src.core.models import (
     AdminAudit,
+    AuthMagicLink,
     Board,
     DownloadStat,
     Media,
     MediaMark,
+    PageHit,
     User,
     UserSession,
     ViewStat,
@@ -183,6 +185,87 @@ async def list_users(
     }
 
 
+async def _user_source(session: AsyncSession, user_id: int) -> dict:
+    """Откуда аккаунт пришёл и как входил: первый источник, сессии, ссылки входа.
+
+    Источник (`referrer`, `utm`) пишет middleware при первом заходе (cookie
+    `dv_ref`/`dv_utm`) — см. «Своя аналитика» в README. Поэтому у аккаунтов из
+    Telegram он обычно пуст (мессенджер реферер не передаёт), а у заходов из поиска
+    и по внешним ссылкам видно хост и метку. `anonymous_sessions` показывает, сколько
+    сессий начинались **до** входа: человек сначала увидел закрытый сайт, потом
+    попросил ссылку в боте.
+    """
+    first_row = (
+        await session.execute(
+            select(
+                func.min(PageHit.created_at).label("first_at"),
+                func.count(func.distinct(PageHit.session_id)).label("sessions"),
+            ).where(PageHit.user_id == user_id, PageHit.is_bot.is_(False))
+        )
+    ).one()
+
+    async def first_value(column):
+        """Первое непустое значение колонки по времени — «что было при первом заходе»."""
+        query = (
+            select(column)
+            .where(
+                PageHit.user_id == user_id,
+                PageHit.is_bot.is_(False),
+                column.isnot(None),
+            )
+            .order_by(PageHit.created_at)
+            .limit(1)
+        )
+        return (await session.execute(query)).scalar()
+
+    # Сессии, где были и анонимные хиты, и авторизованные (тот же браузер)
+    anonymous_sessions = (
+        await session.execute(
+            select(func.count()).select_from(
+                select(PageHit.session_id)
+                .where(
+                    PageHit.session_id.in_(
+                        select(PageHit.session_id).where(
+                            PageHit.user_id == user_id, PageHit.session_id.isnot(None)
+                        )
+                    )
+                )
+                .group_by(PageHit.session_id)
+                .having(func.count().filter(PageHit.user_id.is_(None)) > 0)
+                .subquery()
+            )
+        )
+    ).scalar() or 0
+
+    links = (
+        await session.execute(
+            select(
+                func.count().label("issued"),
+                func.count().filter(AuthMagicLink.used_at.isnot(None)).label("used"),
+                func.max(AuthMagicLink.created_at).label("last_issued"),
+                func.max(AuthMagicLink.used_at).label("last_used"),
+            ).where(AuthMagicLink.user_id == user_id)
+        )
+    ).one()
+
+    return {
+        "first_hit_at": _iso(first_row.first_at),
+        "sessions": int(first_row.sessions or 0),
+        "anonymous_sessions": int(anonymous_sessions),
+        "referrer": await first_value(PageHit.referrer_host),
+        "utm": await first_value(PageHit.utm_source),
+        "device": await first_value(PageHit.device),
+        "browser": await first_value(PageHit.browser),
+        "ip_hash": await first_value(PageHit.ip_hash),
+        "links": {
+            "issued": int(links.issued or 0),
+            "used": int(links.used or 0),
+            "last_issued": _iso(links.last_issued),
+            "last_used": _iso(links.last_used),
+        },
+    }
+
+
 @router.get("/users/{user_id}")
 async def user_card(
     user_id: int,
@@ -247,6 +330,7 @@ async def user_card(
         .all()
     )
     last_seen = max((s.last_seen_at for s in sessions if s.last_seen_at), default=None)
+    source = await _user_source(session, user_id)
 
     return {
         **_user_out(
@@ -259,6 +343,7 @@ async def user_card(
                 "sessions": len([s for s in sessions if s.expires_at > now]),
             },
         ),
+        "source": source,
         "sessions": [
             {
                 "id": s.id,
