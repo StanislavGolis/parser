@@ -49,3 +49,7 @@ board_descriptions.txt
 # В репозиторий кладём уже уменьшенные icon.png / apple-icon.png / logo.png.
 fav.png
 
+
+# Внутренняя документация — не для публикации
+docs/
+DEPLOY.md

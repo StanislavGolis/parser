@@ -23,7 +23,7 @@ export function joinApi(base: string, path: string): string {
  * Публичный адрес сайта (canonical, sitemap, robots, Open Graph).
  * Задаётся переменной SITE_URL у сервиса web; по умолчанию — прод-домен.
  */
-export const SITE_URL = (process.env.SITE_URL ?? "https://dredg.ru").replace(/\/+$/, "");
+export const SITE_URL = (process.env.SITE_URL ?? "https://media-archive.example").replace(/\/+$/, "");
 
 /**
  * Режим сайта (модель Dredger 2.0):
@@ -32,7 +32,7 @@ export const SITE_URL = (process.env.SITE_URL ?? "https://dredg.ru").replace(/\/
  *   запрещено (`X-Robots-Tag: noindex`, `robots: Disallow: /`, карты → 404),
  *   age gate и онбординг не показываются.
  *
- * Режим, а не удаление кода: публичную зону (`safe.dredg.ru`) можно поднять на тех
+ * Режим, а не удаление кода: публичную зону (`safe.media-archive.example`) можно поднять на тех
  * же компонентах, просто вернув `SITE_MODE=public`.
  */
 export const SITE_MODE = (process.env.SITE_MODE ?? "public").trim().toLowerCase();

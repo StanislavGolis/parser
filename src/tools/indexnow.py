@@ -31,7 +31,7 @@ ENDPOINT = "https://api.indexnow.org/indexnow"
 
 def _site_url() -> str:
     """Публичный адрес сайта: берём из настроек, иначе — прод-домен."""
-    base = (settings.PUBLIC_BASE_URL or settings.SITE_URL or "https://dredg.ru").strip()
+    base = (settings.PUBLIC_BASE_URL or settings.SITE_URL or "https://media-archive.example").strip()
     return base.rstrip("/")
 
 

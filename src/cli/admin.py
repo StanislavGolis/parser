@@ -8,9 +8,9 @@
   docker compose -f docker-compose.prod.yml exec -T api python -m src.cli.admin list
   docker compose -f docker-compose.prod.yml exec -T api python -m src.cli.admin ensure
   docker compose -f docker-compose.prod.yml exec -T api \
-      python -m src.cli.admin set-password --email shksns35@gmail.com
+      python -m src.cli.admin set-password --email admin@example.com
   docker compose -f docker-compose.prod.yml exec -T api \
-      python -m src.cli.admin set-password --email shksns35@gmail.com --password 'СвойПароль'
+      python -m src.cli.admin set-password --email admin@example.com --password 'СвойПароль'
 """
 import argparse
 import asyncio

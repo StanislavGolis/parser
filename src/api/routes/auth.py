@@ -39,7 +39,7 @@ SESSION_COOKIE_MAX_AGE = int(auth_service.SESSION_TTL.total_seconds())
 
 def site_base() -> str:
     """Публичный адрес сайта для ссылок (magic link): SITE_URL или база писем."""
-    base = (settings.SITE_URL or settings.PUBLIC_BASE_URL or "https://dredg.ru").strip()
+    base = (settings.SITE_URL or settings.PUBLIC_BASE_URL or "https://media-archive.example").strip()
     return base.rstrip("/")
 
 

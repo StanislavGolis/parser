@@ -110,7 +110,7 @@ docker compose -f docker-compose.prod.yml stop parser-dvach parser-slivach   # �
 docker compose -f docker-compose.prod.yml build api web
 docker compose -f docker-compose.prod.yml up -d
 docker compose -f docker-compose.prod.yml start parser-dvach parser-slivach
-curl -sk -o /dev/null -w '%{http_code}\n' -H 'Host: dredg.ru' https://127.0.0.1/healthz
+curl -sk -o /dev/null -w '%{http_code}\n' -H 'Host: media-archive.example' https://127.0.0.1/healthz
 ```
 
 Проверка доступа (должно ответить приветствием GitHub, а не `Permission denied`):
@@ -127,7 +127,7 @@ ssh -o BatchMode=yes -i /root/.ssh/dredge_deploy -T git@github.com
 ```bash
 # локальная машина
 git bundle create prod.bundle main
-scp prod.bundle root@37.221.66.168:/tmp/
+scp prod.bundle root@<SERVER_IP>:/tmp/
 
 # сервер
 cd /opt/dredge
@@ -301,29 +301,29 @@ chmod +x /etc/cron.daily/dredge-backup
 
 | Параметр | Значение |
 |---|---|
-| Сервер | `37.221.66.168`, Ubuntu 24.04.5 LTS, 4 vCPU / 8 ГБ RAM / 87 ГБ SSD |
+| Сервер | `<SERVER_IP>`, Ubuntu 24.04.5 LTS, 4 vCPU / 8 ГБ RAM / 87 ГБ SSD |
 | Каталог | `/opt/dredge` (первичный клон из `git bundle`; `origin` → `git@github-dredge:StanislavGolis/parser.git`) |
 | Доступ | ключ владельца + deploy-key сервера `/root/.ssh/dredge_deploy` (alias `github-dredge` в `~/.ssh/config`) |
 | Стек | хост-nginx на `80/443` (TLS, редирект 80→443) → контейнер `nginx` на `8080` → api/web |
-| `.env` | `HTTP_PORT=8080`, `SESSION_COOKIE_SECURE=1`, `PUBLIC_BASE_URL=https://dredg.ru`, `API_CORS_ORIGINS=https://dredg.ru`, `SQL_ECHO=0` |
+| `.env` | `HTTP_PORT=8080`, `SESSION_COOKIE_SECURE=1`, `PUBLIC_BASE_URL=https://media-archive.example`, `API_CORS_ORIGINS=https://media-archive.example`, `SQL_ECHO=0` |
 | База | восстановлена из дампа: head `s4t5u6v7w8x9` (на 12.09.2026; **актуальная голова — `d1e2f3a4b5c6`**, 26 таблиц), media 3557 (все в S3), users 1, boards 2, threads 223 |
 | Бэкапы | `/etc/cron.daily/dredge-backup` → `/opt/dredge/backups/db-<дата>.pgc`, хранение 14 дней. Копии локальные (на том же диске); **восстановление из дампа ещё не проверялось** — см. `LAUNCH.md` §3.1 |
 | Парсер | **на паузе** (ключ `parser:enabled` не выставлен) — включается кнопкой «Запустить» в админке |
-| Админы | `ADMIN_EMAILS=shksns35@gmail.com,stanislav.golis@yandex.ru` — две админ-учётки: `shksns35@gmail.com` (id 8) и `stanislav.golis@yandex.ru` (id 3, он же публичный аккаунт сайта с премиумом; прежний адрес с опечаткой `staniskav@…` исправлен). Отправка писем идёт с **Gmail**: `SMTP_HOST=smtp.gmail.com:465 (ssl)`, `SMTP_USER/SMTP_FROM=shksns35@gmail.com`, пароль — «пароль приложения» Google (проверено 13.09.2026: тестовое письмо, админский сброс и ссылка смены пароля посетителю доходят; Gmail→Яндекс доставка подтверждена). Пароли приложений Google **сбрасываются при смене пароля аккаунта** — тогда почту надо перенастроить заново (`SMTP_PASSWORD` в `.env`) |
+| Админы | `ADMIN_EMAILS=admin@example.com,admin@example.com` — две админ-учётки: `admin@example.com` (id 8) и `admin@example.com` (id 3, он же публичный аккаунт сайта с премиумом; прежний адрес с опечаткой `staniskav@…` исправлен). Отправка писем идёт с **Gmail**: `SMTP_HOST=smtp.gmail.com:465 (ssl)`, `SMTP_USER/SMTP_FROM=admin@example.com`, пароль — «пароль приложения» Google (проверено 13.09.2026: тестовое письмо, админский сброс и ссылка смены пароля посетителю доходят; Gmail→Яндекс доставка подтверждена). Пароли приложений Google **сбрасываются при смене пароля аккаунта** — тогда почту надо перенастроить заново (`SMTP_PASSWORD` в `.env`) |
 | Проверено | `/healthz` 200, главная 200, `/admin` 200, `thumb_blur` 200 + `X-Cache: MISS→HIT`, `/raw` 401 анониму, `/marks` 401, запись в S3 (`put/delete`) ok |
 | Кэш медиа | **включён**: том `mediacache` → `/data/cache`, лимит 40 ГБ (свободно 79 ГБ диска), 8 потоков прогрева. Прогрев запускается из админки («Прогреть кэш») или `POST /api/v1/admin/media-cache/warm`; парсер наполняет кэш автоматически. Снимок: библиотека 7.84 ГБ ≈ 14 240 объектов, отдача из кэша ~65–165 МБ/с против ~2–3 МБ/с из S3 |
 | Локальный стек | парсер остановлен, чтобы два процесса не работали с одним бакетом S3 |
 
-**Домен и SSL (сделано 12.09.2026).** Домен `dredg.ru` (DNS у RegTime/nameself:
-A `@` и `www` → `37.221.66.168`). После регистрации делегирование появилось в зоне .ru
+**Домен и SSL (сделано 12.09.2026).** Домен `media-archive.example` (DNS у RegTime/nameself:
+A `@` и `www` → `<SERVER_IP>`). После регистрации делегирование появилось в зоне .ru
 примерно через 50 минут (в whois всё это время был статус `REGISTERED, DELEGATED,
 UNVERIFIED`, а зона отвечала `NXDOMAIN` — на деле ждать верификации не потребовалось).
-Сертификат Let's Encrypt на `dredg.ru` + `www.dredg.ru` выпущен через
+Сертификат Let's Encrypt на `media-archive.example` + `www.media-archive.example` выпущен через
 `certbot --nginx` (конфиг — `/etc/nginx/sites-available/dredge`, редирект 80→443,
 автопродление: `certbot.timer`, срок действия продлевается автоматически).
 Приложение слушает `8080`, наружу смотрит только хост-nginx; `SESSION_COOKIE_SECURE=1`,
 поэтому cookie сессии передаётся только по HTTPS, а ссылки восстановления в письмах
-ведут на `https://dredg.ru`.
+ведут на `https://media-archive.example`.
 
 **Этап 2 закрыт.** Осталось из эксплуатации: отзыв старых ключей Backblaze и чистка
 git-истории (`git filter-repo`), отключение входа по паролю на SSH, смена root-пароля.
@@ -363,7 +363,7 @@ git-истории (`git filter-repo`), отключение входа по п�
   cd /opt/dredge
   docker compose -f docker-compose.prod.yml exec -T api python -m src.cli.admin list
   docker compose -f docker-compose.prod.yml exec -T api \
-    python -m src.cli.admin set-password --email shksns35@gmail.com
+    python -m src.cli.admin set-password --email admin@example.com
   # без --password команда сгенерирует пароль и покажет его один раз
   docker compose -f docker-compose.prod.yml exec -T api python -m src.cli.admin ensure
   ```
@@ -383,7 +383,7 @@ YANDEX_VERIFICATION=f1172e102d49c229      # Яндекс.Вебмастер
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d web
-curl -s https://dredg.ru/login | grep yandex-verification   # тег должен быть в <head>
+curl -s https://media-archive.example/login | grep yandex-verification   # тег должен быть в <head>
 ```
 
 Важно: главная в закрытом режиме отвечает анониму `307 → /login`, поэтому тег
@@ -440,9 +440,9 @@ SMTP (письма восстановления; пароль — **«парол
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=465
 SMTP_TLS=ssl
-SMTP_USER=shksns35@gmail.com
+SMTP_USER=admin@example.com
 SMTP_PASSWORD=<пароль-приложения-google>
-SMTP_FROM=shksns35@gmail.com
+SMTP_FROM=admin@example.com
 ```
 
 Альтернатива — Яндекс (`smtp.yandex.ru:465`, `SMTP_TLS=ssl`): нужен пароль
@@ -465,7 +465,7 @@ SMTP_FROM=shksns35@gmail.com
 docker compose -f docker-compose.prod.yml exec -T api python -c "
 from src.services import mailer
 import asyncio
-print(asyncio.run(mailer.send_mail('shksns35@gmail.com', 'Dredger: проверка почты', 'Проверка отправки.')))"
+print(asyncio.run(mailer.send_mail('admin@example.com', 'Dredger: проверка почты', 'Проверка отправки.')))"
 ```
 
 ## Примечания
@@ -529,7 +529,7 @@ curl -s "$BASE/"                  | grep -o '_next/static/chunks/[^"]*\.js' | so
 diff /tmp/bot.txt /tmp/user.txt                                                  # строки только с «>» — чанки AgeGate
 curl -sI "$BASE/" | grep -Ei 'server|x-powered-by'                              # Server: nginx (без версии), без X-Powered-By
 curl -s "$BASE/" | grep -o 'application/ld+json' | head -1                       # микроразметка на месте
-curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' "$BASE/-" -H 'Host: www.dredg.ru'  # www → 301 на основной домен
+curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' "$BASE/-" -H 'Host: www.media-archive.example'  # www → 301 на основной домен
 # клиентские фичи — проверяются в бандле внутри контейнера web:
 docker compose -f docker-compose.prod.yml exec -T web \
   sh -c "grep -rl 'продолжить' /app/.next/static/chunks/*.js | head -1"          # кнопка «продолжить просмотр»
@@ -554,7 +554,7 @@ docker compose -f docker-compose.prod.yml exec -T web \
 - [ ] регистрация → «Активировать премиум» в `/profile` → премиум-файл открывается;
 - [ ] парсер запускается из админки, в треде появляются записи (и на сайте);
 - [ ] `robots.txt` и `sitemap.xml` отдаются (`sitemap.xml` — с `<image:image>`),
-      canonical в HTML указывает на `https://dredg.ru`, на контентных страницах есть
+      canonical в HTML указывает на `https://media-archive.example`, на контентных страницах есть
       `meta name="rating" content="adult"`, у страниц файлов/разделов — JSON-LD
       (`ImageObject`/`VideoObject`, `CollectionPage`, `BreadcrumbList`);
 - [ ] Googlebot получает страницы без возрастного окна (у обычного UA на один
@@ -921,7 +921,7 @@ API ответил (`total > 0`) — при сбое API карта остаёт
 в `web/next.config.mjs` — без `X-Powered-By: Next.js`. Так выдача не подсказывает
 сканеру, какой софт и какой версии стоит.
 
-**Один канонический хост.** `https://dredg.ru` — основной адрес; `www.dredg.ru`
+**Один канонический хост.** `https://media-archive.example` — основной адрес; `www.media-archive.example`
 отдаёт `301` на него (блок в `/etc/nginx/sites-available/dredge`), HTTP → HTTPS —
 тоже `301`.
 
@@ -940,7 +940,7 @@ HTML автоматически) и пересоберите `web`. После �
 
 ```
 docker compose -f docker-compose.prod.yml exec -T api python -m src.tools.indexnow --hours 3 --dry-run
-curl -s https://dredg.ru/indexnow-key.txt           # ключ из .env
+curl -s https://media-archive.example/indexnow-key.txt           # ключ из .env
 ```
 
 Первый ответ бывает `403 SiteVerificationNotCompleted` — это проверка владения
@@ -1019,7 +1019,7 @@ docker compose -f docker-compose.prod.yml exec -T postgres sh -c "psql -U \$POST
 
 **rDNS (PTR).** У IP-адреса обратная зона по умолчанию указывает на чужой домен
 провайдера — это лишний маркер «кто хостит». В тикете поддержке ava.hosting:
-«установите PTR-запись для IP `37.221.66.168` → `dredg.ru`». Заодно это улучшает
+«установите PTR-запись для IP `<SERVER_IP>` → `media-archive.example`». Заодно это улучшает
 репутацию домена при отправке писем (SMTP: Gmail по паролю приложения).
 
 ## Переменные окружения
@@ -1037,7 +1037,7 @@ docker compose -f docker-compose.prod.yml exec -T postgres sh -c "psql -U \$POST
 | `ADMIN_EMAILS` | — | адреса, которым разрешён вход в админку и восстановление пароля (через запятую); для них заводятся админ-аккаунты |
 | `ADMIN_RESET_TTL_MINUTES` | `30` | срок жизни ссылки восстановления пароля, мин |
 | `PUBLIC_BASE_URL` | — | домен для ссылок в письмах (`https://example.com`); пусто — берётся адрес запроса |
-| `SITE_URL` | `https://dredg.ru` | публичный адрес сайта для SEO: canonical, `sitemap.xml`, `robots.txt`, Open Graph |
+| `SITE_URL` | `https://media-archive.example` | публичный адрес сайта для SEO: canonical, `sitemap.xml`, `robots.txt`, Open Graph |
 | `INDEXNOW_KEY` | 32 hex-символа | ключ IndexNow: web отдаёт его по `/indexnow-key.txt`, API отправляет уведомления о новых страницах. **В закрытом режиме (`SITE_MODE=closed`) не нужен**: карты и страницы не отдаются, уведомлять поисковики не о чем (см. `LAUNCH.md` §3.3) |
 | `SITE_MODE` | `public` | `closed` — сайт закрыт: анонимы редиректятся на `/login`, все ответы получают `X-Robots-Tag: noindex`, парсеры индексации выключены. Боевое значение — `closed` |
 | `TELEGRAM_BOT_TOKEN` | — | токен бота от @BotFather: вход по magic link, карантин автопоста, розыгрыши |

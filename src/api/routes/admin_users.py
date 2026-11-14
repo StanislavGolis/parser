@@ -455,7 +455,7 @@ async def create_magic_link(
         settings.MAGIC_LINK_TTL_MINUTES,
         ip_hash(client_ip(request)),
     )
-    base = (settings.SITE_URL or settings.PUBLIC_BASE_URL or "https://dredg.ru").rstrip("/")
+    base = (settings.SITE_URL or settings.PUBLIC_BASE_URL or "https://media-archive.example").rstrip("/")
     await record_audit(
         session,
         action="user.magic_link",

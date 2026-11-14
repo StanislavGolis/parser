@@ -106,7 +106,7 @@ x-backend: &backend
     ADMIN_RESET_TTL_MINUTES: ${ADMIN_RESET_TTL_MINUTES:-30}
     PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
     # Публичный адрес сайта и ключ IndexNow — уведомления о новых страницах
-    SITE_URL: ${SITE_URL:-https://dredg.ru}
+    SITE_URL: ${SITE_URL:-https://media-archive.example}
     INDEXNOW_KEY: ${INDEXNOW_KEY:-}
     SMTP_HOST: ${SMTP_HOST:-}
     SMTP_PORT: ${SMTP_PORT:-465}
@@ -421,7 +421,7 @@ services:
       CRYPTOBOT_TOKEN: ${CRYPTOBOT_TOKEN:-}
       CRYPTOBOT_TESTNET: ${CRYPTOBOT_TESTNET:-false}
       CRYPTOBOT_ASSET: ${CRYPTOBOT_ASSET:-USDT}
-      SITE_URL: ${SITE_URL:-https://dredg.ru}
+      SITE_URL: ${SITE_URL:-https://media-archive.example}
       SITE_MODE: ${SITE_MODE:-public}
     restart: unless-stopped
     depends_on:
@@ -452,7 +452,7 @@ services:
       TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
       TELEGRAM_CHANNEL: ${TELEGRAM_CHANNEL:-}
       TELEGRAM_ADMIN_CHAT_ID: ${TELEGRAM_ADMIN_CHAT_ID:-}
-      SITE_URL: ${SITE_URL:-https://dredg.ru}
+      SITE_URL: ${SITE_URL:-https://media-archive.example}
     restart: unless-stopped
     depends_on:
       api:
@@ -473,7 +473,7 @@ services:
       # SSR внутри сети compose ходит на API по внутреннему имени
       API_BASE_SERVER: http://api:8000
       # Публичный адрес сайта: canonical, sitemap.xml, robots.txt, Open Graph.
-      SITE_URL: ${SITE_URL:-https://dredg.ru}
+      SITE_URL: ${SITE_URL:-https://media-archive.example}
       # Коды подтверждения панелей вебмастера (meta-тег в HTML); можно оставить пустыми
       GOOGLE_SITE_VERIFICATION: ${GOOGLE_SITE_VERIFICATION:-}
       YANDEX_VERIFICATION: ${YANDEX_VERIFICATION:-}

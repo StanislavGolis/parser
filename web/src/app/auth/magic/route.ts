@@ -24,7 +24,7 @@ function safeNext(value: string | null): string {
  * За nginx `request.url` внутри контейнера указывает на `http://0.0.0.0:3000` (из-за
  * этого браузер получал белый экран), а `X-Forwarded-Proto` приходит как `http`,
  * потому что nginx ходит в контейнер по http. Домен — один (зеркал нет), поэтому
- * берём его из окружения: получается сразу `https://dredg.ru/…` без лишнего редиректа.
+ * берём его из окружения: получается сразу `https://media-archive.example/…` без лишнего редиректа.
  */
 function baseUrl(): string {
   return SITE_URL;

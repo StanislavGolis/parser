@@ -28,7 +28,7 @@ def login_url(token: str) -> str:
     оплате и из админки ведёт в одно место — страницу, которая сразу гасит токен и
     ставит сессию (а не на `/login`, где пришлось бы идти в бота за новой ссылкой).
     """
-    base = (settings.SITE_URL or settings.PUBLIC_BASE_URL or "https://dredg.ru").strip()
+    base = (settings.SITE_URL or settings.PUBLIC_BASE_URL or "https://media-archive.example").strip()
     return f"{base.rstrip('/')}/auth/magic?token={token}"
 
 
